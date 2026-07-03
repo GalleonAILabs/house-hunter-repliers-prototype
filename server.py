@@ -37,6 +37,7 @@ API_KEY = os.getenv("REPLIERS_API_KEY", "")
 BASE_URL = os.getenv("REPLIERS_BASE_URL", "https://api.repliers.io").rstrip("/")
 PORT = int(os.getenv("PORT", "8787"))
 CDN_BASE = "https://cdn.repliers.io/"
+POC_DATA_PATH = ROOT / "data" / "poc_listings.json"
 
 
 def number(value: Any) -> float | None:
@@ -223,6 +224,95 @@ def passes_local_filters(item: dict[str, Any], params: dict[str, str]) -> bool:
     return True
 
 
+def poc_fit(value: Any) -> dict[str, Any]:
+    text = str(value or "")
+    match = re.search(r"(\d+)\s*/\s*(\d+)", text)
+    met = int(match.group(1)) if match else 0
+    total = int(match.group(2)) if match else 8
+    failed = []
+    if "fails:" in text:
+        failed = [x.strip() for x in text.split("fails:", 1)[1].split(";") if x.strip()]
+    return {
+        "met": met,
+        "total": total,
+        "label": f"{met}/{total}",
+        "metLabels": [],
+        "failedLabels": failed,
+        "note": "House Hunter POC score from the existing Google Sheet.",
+    }
+
+
+def normalize_poc(p: dict[str, Any]) -> dict[str, Any]:
+    fit = poc_fit(p.get("fit"))
+    return {
+        "mls": f"POC-{p.get('row')}",
+        "address": p.get("address") or "Address hidden",
+        "city": "",
+        "state": "ON",
+        "price": intish(p.get("priceNum") or p.get("price")),
+        "originalPrice": None,
+        "soldPrice": None,
+        "beds": intish(p.get("bedsNum") or p.get("beds")),
+        "bedsPlus": None,
+        "baths": number(p.get("bathsNum") or p.get("baths")),
+        "sqft": intish(p.get("sqftNum") or p.get("sqft")),
+        "acres": number(p.get("acresNum") or p.get("acres")),
+        "lotSqft": None,
+        "propertyType": "House Hunter POC",
+        "style": p.get("status") or "",
+        "heating": "",
+        "parking": None,
+        "garage": None,
+        "dom": intish(p.get("goTotal")),
+        "status": p.get("status") or "POC",
+        "listDate": "",
+        "lat": number(p.get("lat")),
+        "lng": number(p.get("lon")),
+        "image": p.get("image") or None,
+        "imageCount": None,
+        "agent": p.get("rejBy") or "",
+        "brokerage": p.get("go") or "",
+        "estimate": None,
+        "imageSummary": None,
+        "rawClass": "poc",
+        "fit": fit,
+        "poc": {
+            "row": p.get("row"),
+            "link": p.get("link"),
+            "doc": p.get("doc"),
+            "go": p.get("go"),
+            "goMin": p.get("goMin"),
+            "goTrain": p.get("goTrain"),
+            "goTotal": p.get("goTotal"),
+            "markRank": p.get("markRank"),
+            "katieRank": p.get("katieRank"),
+            "markComments": p.get("markComments"),
+            "katieComments": p.get("katieComments"),
+            "realtorComments": p.get("realtorComments"),
+            "dueClosing": p.get("dueClosing"),
+            "pit": p.get("pit"),
+            "features": p.get("features"),
+        },
+    }
+
+
+def fetch_poc(params: dict[str, str]) -> dict[str, Any]:
+    if not POC_DATA_PATH.exists():
+        raise RuntimeError("POC data export is missing. Run scripts/export_poc.py first.")
+    raw = json.loads(POC_DATA_PATH.read_text())
+    normalized = [normalize_poc(row) for row in raw.get("properties", [])]
+    filtered = [item for item in normalized if passes_local_filters(item, params)]
+    return {
+        "apiVersion": "poc",
+        "sourceCount": raw.get("count", len(normalized)),
+        "page": 1,
+        "pageSize": len(normalized),
+        "returned": len(filtered),
+        "listings": filtered,
+        "prototypeNote": "Existing House Hunter POC Google Sheet export, served locally and not committed.",
+    }
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: Any) -> None:
         print(f"{self.address_string()} - {fmt % args}")
@@ -261,6 +351,9 @@ class Handler(BaseHTTPRequestHandler):
                     "listings": filtered,
                     "prototypeNote": "Free Repliers sample data. Live Ontario feed requires PropTx/ITSO paid access.",
                 })
+                return
+            if parsed.path == "/api/poc-listings":
+                self.send_json(fetch_poc(params))
                 return
             if parsed.path == "/api/health":
                 self.send_json({"ok": True, "hasKey": bool(API_KEY), "baseUrl": BASE_URL})

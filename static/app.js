@@ -1,8 +1,12 @@
 const state = { map: null, markers: [], listings: [] };
 
 const $ = (id) => document.getElementById(id);
-const money = (v) => v == null ? 'Price hidden' : v.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+const money = (v) => v == null ? 'Price hidden' : v.toLocaleString('en-CA', { style: 'currency', currency: currentSource() === 'poc' ? 'CAD' : 'USD', maximumFractionDigits: 0 });
 const num = (v, suffix = '') => v == null ? 'n/a' : `${Number(v).toLocaleString()}${suffix}`;
+
+function currentSource() {
+  return $('source')?.value || 'poc';
+}
 
 function params() {
   const p = new URLSearchParams();
@@ -65,7 +69,7 @@ function refreshMap(list) {
       ${money(item.price)}<br>
       Fit: ${item.fit.label}<br>
       ${num(item.beds)} beds, ${num(item.baths)} baths, ${num(item.sqft, ' sqft')}<br>
-      DOM: ${num(item.dom)}
+      ${item.poc ? `GO: ${escapeHtml(item.poc.go || 'n/a')}<br>Total to Union: ${escapeHtml(item.poc.goTotal || 'n/a')} min` : `DOM: ${num(item.dom)}`}
     `);
     marker._hhItem = item;
     state.markers.push(marker);
@@ -99,14 +103,22 @@ function renderCards(list) {
     node.querySelector('.meta').textContent = [item.propertyType, item.style, item.status].filter(Boolean).join(' · ');
     node.querySelector('.fit').innerHTML = `<strong>${item.fit.label}</strong><span>fit</span>`;
     node.querySelector('.price').textContent = money(item.price);
-    node.querySelector('.facts').innerHTML = [
+    const facts = [
       `${num(item.beds)} beds`,
       `${num(item.baths)} baths`,
       `${num(item.sqft, ' sqft')}`,
       `${num(item.acres, ' ac')}`,
-      `${num(item.dom)} DOM`,
-      `${num(item.imageCount)} photos`,
-    ].map(x => tag(x)).join('');
+    ];
+    if (item.poc) {
+      facts.push(`${item.poc.goTotal || 'n/a'} min to Union`);
+      if (item.poc.markRank) facts.push(`Mark ${item.poc.markRank}★`);
+      if (item.poc.katieRank) facts.push(`Katie ${item.poc.katieRank}★`);
+      if (item.poc.pit) facts.push(`PIT ${item.poc.pit}`);
+    } else {
+      facts.push(`${num(item.dom)} DOM`);
+      facts.push(`${num(item.imageCount)} photos`);
+    }
+    node.querySelector('.facts').innerHTML = facts.map(x => tag(x)).join('');
     node.querySelector('.tags').innerHTML = [
       ...item.fit.metLabels.slice(0, 4).map(x => tag('✓ ' + x, 'good')),
       ...item.fit.failedLabels.slice(0, 3).map(x => tag('× ' + x, 'bad')),
@@ -118,7 +130,15 @@ function renderCards(list) {
       insight.remove();
     }
     const dl = node.querySelector('.source');
-    const sourceRows = {
+    const sourceRows = item.poc ? {
+      Row: item.poc.row,
+      'Nearest GO': item.poc.go,
+      'GO drive': item.poc.goMin ? `${item.poc.goMin} min` : '',
+      'Train to Union': item.poc.goTrain ? `${item.poc.goTrain} min` : '',
+      'Total to Union': item.poc.goTotal ? `${item.poc.goTotal} min` : '',
+      'Research doc': item.poc.doc,
+      'Listing link': item.poc.link,
+    } : {
       MLS: item.mls,
       Brokerage: item.brokerage,
       Agent: item.agent,
@@ -141,12 +161,18 @@ function renderCards(list) {
 }
 
 async function load() {
-  $('summary').textContent = 'Loading Repliers sample data…';
-  const res = await fetch('/api/listings?' + params().toString());
+  const source = currentSource();
+  $('summary').textContent = source === 'poc' ? 'Loading your House Hunter POC data…' : 'Loading Repliers sample data…';
+  const endpoint = source === 'poc' ? '/api/poc-listings' : '/api/listings';
+  const res = await fetch(endpoint + '?' + params().toString());
   const data = await res.json();
   if (!res.ok) throw new Error(data.detail || data.error || 'Load failed');
   state.listings = data.listings;
-  $('summary').textContent = `${data.returned} shown from Repliers page of ${data.pageSize}; ${Number(data.sourceCount).toLocaleString()} sample listings available.`;
+  if (source === 'poc') {
+    $('summary').textContent = `${data.returned} shown from your ${Number(data.sourceCount).toLocaleString()} POC listings.`;
+  } else {
+    $('summary').textContent = `${data.returned} shown from Repliers page of ${data.pageSize}; ${Number(data.sourceCount).toLocaleString()} sample listings available.`;
+  }
   refreshMap(state.listings);
   renderCards(state.listings);
 }
@@ -166,6 +192,7 @@ window.addEventListener('DOMContentLoaded', () => {
   initMap();
   $('load').addEventListener('click', () => load().catch(showError));
   $('reset').addEventListener('click', reset);
+  $('source').addEventListener('change', () => load().catch(showError));
   $('sort').addEventListener('change', () => renderCards(state.listings));
   load().catch(showError);
 });
