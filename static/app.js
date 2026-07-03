@@ -96,52 +96,52 @@ function switchView(view) {
   $('btnMap').classList.toggle('active', view === 'map');
   $('btnList').classList.toggle('active', view === 'list');
   if (view === 'map') {
-    // Use rAF to ensure the element is visible and has real dimensions before invalidating
-    requestAnimationFrame(() => {
-      state.map?.invalidateSize({ animate: false });
-    });
+    setMapHeight();
+    requestAnimationFrame(() => state.map?.invalidateSize({ animate: false }));
   }
 }
 
 // ─── Map ──────────────────────────────────────────────────────────────────────
-function initMap() {
+function setMapHeight() {
+  const topbar = document.querySelector('.topbar');
+  const filter = document.querySelector('.filterbox');
+  const statusBar = document.querySelector('.status-bar');
+  const viewMap = document.getElementById('viewMap');
   const mapEl = document.getElementById('map');
+  if (!mapEl || !viewMap) return;
+  const used = (topbar?.offsetHeight || 0)
+             + (filter?.offsetHeight || 0)
+             + (statusBar?.offsetHeight || 0);
+  const h = Math.max(300, window.innerHeight - used);
+  viewMap.style.height = h + 'px';
+  mapEl.style.width = '100%';
+  mapEl.style.height = h + 'px';
+}
+
+function initMap() {
+  // Set explicit px height BEFORE Leaflet touches the container.
+  // CSS flex alone is not reliable on Android Chrome — Leaflet reads
+  // offsetHeight synchronously at L.map() time and gets 0 if layout
+  // hasn't settled. We measure and set in pixels first.
+  setMapHeight();
 
   state.map = L.map('map', {
     zoomControl: true,
-    tap: !L.Browser.mobile
+    tap: false
   }).setView([44.0, -79.5], 7);
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap'
+    attribution: '&copy; OpenStreetMap',
+    maxZoom: 19
   }).addTo(state.map);
 
   state.map.on('click', () => closeMapCard());
 
-  // ResizeObserver catches ongoing size changes
-  if (window.ResizeObserver) {
-    const ro = new ResizeObserver(() => {
-      state.map.invalidateSize({ animate: false });
-    });
-    ro.observe(mapEl);
-  }
-
-  // Mobile tile split fix: ResizeObserver only fires on CHANGES, not initial render.
-  // On mobile Chrome, flex layout can take extra frames to resolve. We need explicit
-  // invalidateSize calls at multiple points to catch the initial layout.
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      state.map.invalidateSize({ animate: false });
-    });
-  });
-
-  // Fallback for slow mobile layouts
-  setTimeout(() => state.map.invalidateSize({ animate: false }), 100);
-  setTimeout(() => state.map.invalidateSize({ animate: false }), 300);
-
-  // Final check when map declares itself ready
-  state.map.whenReady(() => {
-    state.map.invalidateSize({ animate: false });
+  // Resize on window resize and filter toggle
+  window.addEventListener('resize', () => { setMapHeight(); state.map?.invalidateSize({ animate: false }); });
+  document.querySelector('.filterbox')?.addEventListener('toggle', () => {
+    setMapHeight();
+    state.map?.invalidateSize({ animate: false });
   });
 }
 
@@ -392,18 +392,8 @@ function showError(err) { console.error(err); $('summary').textContent = 'Error:
 // ─── Init ─────────────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
   loadTheme();
-
-  // Double rAF: defers map init until after browser layout AND first paint.
-  // On Android Chrome, Leaflet reads container size synchronously at init.
-  // Without this, the container reports 0px height even with correct CSS,
-  // causing the tile split. Two rAF calls guarantee real pixel dimensions.
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      initMap();
-      load().catch(showError);
-    });
-  });
-
+  initMap();
+  load().catch(showError);
   $('load').addEventListener('click', () => load().catch(showError));
   $('reset').addEventListener('click', reset);
   $('source').addEventListener('change', () => { buildSettingsPanel(); load().catch(showError); });
