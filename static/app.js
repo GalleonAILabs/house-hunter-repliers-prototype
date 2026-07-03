@@ -96,7 +96,10 @@ function switchView(view) {
   $('btnMap').classList.toggle('active', view === 'map');
   $('btnList').classList.toggle('active', view === 'list');
   if (view === 'map') {
-    setTimeout(() => state.map?.invalidateSize(), 50);
+    // Use rAF to ensure the element is visible and has real dimensions before invalidating
+    requestAnimationFrame(() => {
+      state.map?.invalidateSize({ animate: false });
+    });
   }
 }
 
@@ -136,8 +139,7 @@ function refreshMap(list) {
     bounds.push([item.lat, item.lng]);
   });
   if (bounds.length) state.map.fitBounds(bounds, { padding: [40, 40] });
-  setTimeout(() => state.map.invalidateSize(), 50);
-  setTimeout(() => state.map.invalidateSize(), 400);
+  requestAnimationFrame(() => state.map?.invalidateSize({ animate: false }));
 }
 
 // ─── Map card popup ───────────────────────────────────────────────────────────
