@@ -244,6 +244,10 @@ def poc_fit(value: Any) -> dict[str, Any]:
 
 def normalize_poc(p: dict[str, Any]) -> dict[str, Any]:
     fit = poc_fit(p.get("fit"))
+    go_station = p.get("go") or ""
+    go_min = number(p.get("goMin") or p.get("goMinNum"))
+    go_train = number(p.get("goTrain"))
+    go_total = number(p.get("goTotal"))
     return {
         "mls": f"POC-{p.get('row')}",
         "address": p.get("address") or "Address hidden",
@@ -252,8 +256,7 @@ def normalize_poc(p: dict[str, Any]) -> dict[str, Any]:
         "price": intish(p.get("priceNum") or p.get("price")),
         "originalPrice": None,
         "soldPrice": None,
-        "beds": intish(p.get("bedsNum") or p.get("beds")),
-        "bedsPlus": None,
+        "beds": p.get("beds") or p.get("bedsNum"),
         "baths": number(p.get("bathsNum") or p.get("baths")),
         "sqft": intish(p.get("sqftNum") or p.get("sqft")),
         "acres": number(p.get("acresNum") or p.get("acres")),
@@ -270,8 +273,22 @@ def normalize_poc(p: dict[str, Any]) -> dict[str, Any]:
         "lng": number(p.get("lon")),
         "image": p.get("image") or None,
         "imageCount": None,
+        # Top-level POC fields the card reads directly
+        "goStation": go_station,
+        "goMin": go_min,
+        "goTrain": go_train,
+        "goTotal": go_total,
+        "markRank": p.get("markRank") or None,
+        "katieRank": p.get("katieRank") or None,
+        "markComments": p.get("markComments") or "",
+        "katieComments": p.get("katieComments") or "",
+        "realtorComments": p.get("realtorComments") or "",
+        "features": p.get("features") or "",
+        "pitNum": number(p.get("pitNum")),
+        "pit": p.get("pit") or "",
+        "dueClosing": p.get("dueClosing") or "",
         "agent": p.get("rejBy") or "",
-        "brokerage": p.get("go") or "",
+        "brokerage": go_station,
         "estimate": None,
         "imageSummary": None,
         "rawClass": "poc",
@@ -280,10 +297,10 @@ def normalize_poc(p: dict[str, Any]) -> dict[str, Any]:
             "row": p.get("row"),
             "link": p.get("link"),
             "doc": p.get("doc"),
-            "go": p.get("go"),
-            "goMin": p.get("goMin"),
-            "goTrain": p.get("goTrain"),
-            "goTotal": p.get("goTotal"),
+            "go": go_station,
+            "goMin": go_min,
+            "goTrain": go_train,
+            "goTotal": go_total,
             "markRank": p.get("markRank"),
             "katieRank": p.get("katieRank"),
             "markComments": p.get("markComments"),
@@ -291,6 +308,7 @@ def normalize_poc(p: dict[str, Any]) -> dict[str, Any]:
             "realtorComments": p.get("realtorComments"),
             "dueClosing": p.get("dueClosing"),
             "pit": p.get("pit"),
+            "pitNum": number(p.get("pitNum")),
             "features": p.get("features"),
         },
     }

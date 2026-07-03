@@ -3,24 +3,42 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>House Hunter, Repliers Prototype</title>
+  <title>House Hunter</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIINfQ2ATb8EOlLp3hZNvj8NfN1lvTlZBo=" crossorigin="" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
+
   <header class="topbar">
-    <div>
-      <p class="eyebrow">House Hunter Alpha Spike</p>
+    <div class="topbar-left">
+      <p class="eyebrow">Alpha Spike</p>
       <h1>House Hunter</h1>
-      <p class="sub">Repliers-powered cards, map pins, and fit scoring.</p>
     </div>
-    <div class="pill">Sample MLS only</div>
+    <div class="topbar-right">
+      <button class="icon-btn" id="settingsBtn" title="Card settings">⚙</button>
+      <span class="pill" id="sourcePill">POC</span>
+    </div>
   </header>
 
-  <section class="notice">
-    <strong>What this proves:</strong> Repliers replaces scraping with clean JSON: price, beds, baths, sqft, lot, DOM, status, images, agent, brokerage, coordinates, and estimates. GO commute and Ontario zone scoring are disabled until PropTx/ITSO live data is attached.
-  </section>
+  <!-- SETTINGS PANEL -->
+  <aside class="settings-drawer" id="settingsDrawer" hidden>
+    <div class="settings-header">
+      <strong>Card fields</strong>
+      <button class="icon-btn" id="settingsClose">✕</button>
+    </div>
+    <p class="settings-sub">Choose what appears on each listing card.</p>
+    <div class="settings-fields" id="settingsFields">
+      <!-- populated by JS -->
+    </div>
+    <div class="settings-footer">
+      <button id="settingsSelectAll" class="secondary">All on</button>
+      <button id="settingsSelectNone" class="secondary">All off</button>
+      <button id="settingsReset">Defaults</button>
+    </div>
+  </aside>
+  <div class="settings-overlay" id="settingsOverlay" hidden></div>
 
+  <!-- FILTERS -->
   <details class="filterbox">
     <summary>Filters</summary>
     <section class="controls">
@@ -31,13 +49,13 @@
         </select>
       </label>
       <label>Search
-        <input id="q" placeholder="city, address, style, brokerage" />
+        <input id="q" placeholder="address, town, features" />
       </label>
       <label>Min price
         <input id="minPrice" type="number" placeholder="0" />
       </label>
       <label>Max price
-        <input id="maxPrice" type="number" placeholder="1000000" />
+        <input id="maxPrice" type="number" placeholder="1500000" />
       </label>
       <label>Min beds
         <input id="minBeds" type="number" min="0" placeholder="4" />
@@ -48,10 +66,18 @@
       <label>Min fit
         <select id="minFit">
           <option value="">Any</option>
-          <option value="3">3+</option>
           <option value="4">4+</option>
           <option value="5">5+</option>
-          <option value="6">6/6</option>
+          <option value="6">6+</option>
+          <option value="7">7+</option>
+          <option value="8">8/8</option>
+        </select>
+      </label>
+      <label>Status
+        <select id="filterStatus">
+          <option value="">All</option>
+          <option value="active">Active only</option>
+          <option value="rejected">Rejected</option>
         </select>
       </label>
       <label>Page size
@@ -61,7 +87,7 @@
           <option>100</option>
         </select>
       </label>
-      <button id="load">Load listings</button>
+      <button id="load">Apply</button>
       <button id="reset" class="secondary">Reset</button>
     </section>
   </details>
@@ -81,9 +107,10 @@
             <option value="fit-desc">Fit, high to low</option>
             <option value="price-asc">Price, low to high</option>
             <option value="price-desc">Price, high to low</option>
-            <option value="dom-asc">DOM, low to high</option>
+            <option value="go-asc">Commute, short to long</option>
             <option value="sqft-desc">Sqft, high to low</option>
             <option value="lot-desc">Lot, high to low</option>
+            <option value="markrank-desc">Mark rank, high to low</option>
           </select>
         </label>
       </div>
@@ -93,24 +120,32 @@
 
   <template id="cardTemplate">
     <article class="card">
-      <img class="photo" alt="Listing photo" />
+      <div class="card-photo-wrap">
+        <img class="photo" alt="" />
+        <span class="card-status-badge"></span>
+      </div>
       <div class="card-body">
         <div class="card-top">
-          <div>
+          <div class="card-title-block">
             <h3 class="address"></h3>
             <p class="meta"></p>
           </div>
-          <div class="fit"></div>
+          <div class="fit-badge"></div>
         </div>
-        <div class="price"></div>
-        <div class="facts"></div>
-        <div class="tags"></div>
-        <p class="insight"></p>
-        <details>
-          <summary>Raw source proof</summary>
-          <dl class="source"></dl>
-        </details>
-        <button class="show-map secondary">Show on map</button>
+        <!-- each section below is shown/hidden by settings -->
+        <div class="card-price cf-price"></div>
+        <div class="card-commute cf-commute"></div>
+        <div class="card-stats cf-stats"></div>
+        <div class="card-financial cf-financial"></div>
+        <div class="card-ratings cf-ratings"></div>
+        <div class="card-fit-tags cf-fit"></div>
+        <div class="card-features cf-features"></div>
+        <div class="card-comments cf-comments"></div>
+        <div class="card-actions cf-actions">
+          <a class="card-link-btn" target="_blank" rel="noopener">View listing</a>
+          <a class="card-doc-btn" target="_blank" rel="noopener">Research doc</a>
+          <button class="show-map secondary">Show on map</button>
+        </div>
       </div>
     </article>
   </template>
