@@ -32,6 +32,7 @@ The `.env` file contains the free Repliers sample API key. Do not commit `.env`.
 ## Current limits
 
 - Repliers free tier returns sample data, mostly US listings. This is enough to prove schema and workflow, not Ontario search quality.
+- I sampled the free feed and tested Ontario/Toronto filters on 2026-07-02: no Canadian listings were returned. `state=ON` returned 0; Toronto city/area returned 0. Country/province-style params were ignored by the sample endpoint. Canadian/Ontario data requires paid PropTx/ITSO access.
 - GO commute, Ontario zones, and buyer-specific consensus are documented but not implemented in this prototype yet.
 - For alpha, use Postgres/PostGIS as source of truth and Repliers as the external feed.
 
