@@ -95,47 +95,17 @@ function switchView(view) {
   $('viewList').hidden = view !== 'list';
   $('btnMap').classList.toggle('active', view === 'map');
   $('btnList').classList.toggle('active', view === 'list');
-  if (view === 'map') {
-    setLayout();
-    requestAnimationFrame(() => state.map?.invalidateSize({ animate: false }));
-  }
+  if (view === 'map') requestAnimationFrame(() => state.map?.invalidateSize({ animate: false }));
 }
 
-// ─── Layout — same approach as working POC: JS sets all px positions ──────────
-function setLayout() {
-  const hdrH    = document.querySelector('.topbar')?.offsetHeight  || 52;
-  const filterH = document.querySelector('.filterbox')?.offsetHeight || 40;
-  const statusH = document.querySelector('.status-bar')?.offsetHeight || 40;
-  const filter  = document.querySelector('.filterbox');
-  const status  = document.querySelector('.status-bar');
-  const viewMap = document.getElementById('viewMap');
-  const viewList= document.getElementById('viewList');
-
-  if (filter)  { filter.style.top  = hdrH + 'px'; }
-  if (status)  { status.style.top  = (hdrH + filterH) + 'px'; }
-
-  const contentTop = hdrH + filterH + statusH;
-  const h = Math.max(200, window.innerHeight - contentTop);
-
-  if (viewMap)  { viewMap.style.top  = contentTop + 'px'; viewMap.style.height  = h + 'px'; }
-  if (viewList) { viewList.style.top = contentTop + 'px'; viewList.style.height = h + 'px'; }
-
-  // Also set map element directly so Leaflet never guesses
-  const mapEl = document.getElementById('map');
-  if (mapEl) { mapEl.style.width = '100%'; mapEl.style.height = h + 'px'; }
-
-  state.map?.invalidateSize({ animate: false });
-}
-
+// ─── Map, same pattern as the working POC: #map is 100% of the page ───────────
 function initMap() {
-  setLayout();  // set real px dimensions before L.map() reads the container
-  state.map = L.map('map', { zoomControl: true, tap: false }).setView([44.0, -79.5], 7);
+  state.map = L.map('map', { zoomControl: true }).setView([44.0, -79.5], 7);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap', maxZoom: 19
   }).addTo(state.map);
   state.map.on('click', () => closeMapCard());
-  window.addEventListener('resize', setLayout);
-  document.querySelector('.filterbox')?.addEventListener('toggle', setLayout);
+  window.addEventListener('resize', () => state.map?.invalidateSize({ animate: false }));
 }
 
 function markerColor(item) {
