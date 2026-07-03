@@ -96,53 +96,46 @@ function switchView(view) {
   $('btnMap').classList.toggle('active', view === 'map');
   $('btnList').classList.toggle('active', view === 'list');
   if (view === 'map') {
-    setMapHeight();
+    setLayout();
     requestAnimationFrame(() => state.map?.invalidateSize({ animate: false }));
   }
 }
 
-// ─── Map ──────────────────────────────────────────────────────────────────────
-function setMapHeight() {
-  const topbar = document.querySelector('.topbar');
-  const filter = document.querySelector('.filterbox');
-  const statusBar = document.querySelector('.status-bar');
+// ─── Layout — same approach as working POC: JS sets all px positions ──────────
+function setLayout() {
+  const hdrH    = document.querySelector('.topbar')?.offsetHeight  || 52;
+  const filterH = document.querySelector('.filterbox')?.offsetHeight || 40;
+  const statusH = document.querySelector('.status-bar')?.offsetHeight || 40;
+  const filter  = document.querySelector('.filterbox');
+  const status  = document.querySelector('.status-bar');
   const viewMap = document.getElementById('viewMap');
+  const viewList= document.getElementById('viewList');
+
+  if (filter)  { filter.style.top  = hdrH + 'px'; }
+  if (status)  { status.style.top  = (hdrH + filterH) + 'px'; }
+
+  const contentTop = hdrH + filterH + statusH;
+  const h = Math.max(200, window.innerHeight - contentTop);
+
+  if (viewMap)  { viewMap.style.top  = contentTop + 'px'; viewMap.style.height  = h + 'px'; }
+  if (viewList) { viewList.style.top = contentTop + 'px'; viewList.style.height = h + 'px'; }
+
+  // Also set map element directly so Leaflet never guesses
   const mapEl = document.getElementById('map');
-  if (!mapEl || !viewMap) return;
-  const used = (topbar?.offsetHeight || 0)
-             + (filter?.offsetHeight || 0)
-             + (statusBar?.offsetHeight || 0);
-  const h = Math.max(300, window.innerHeight - used);
-  viewMap.style.height = h + 'px';
-  mapEl.style.width = '100%';
-  mapEl.style.height = h + 'px';
+  if (mapEl) { mapEl.style.width = '100%'; mapEl.style.height = h + 'px'; }
+
+  state.map?.invalidateSize({ animate: false });
 }
 
 function initMap() {
-  // Set explicit px height BEFORE Leaflet touches the container.
-  // CSS flex alone is not reliable on Android Chrome — Leaflet reads
-  // offsetHeight synchronously at L.map() time and gets 0 if layout
-  // hasn't settled. We measure and set in pixels first.
-  setMapHeight();
-
-  state.map = L.map('map', {
-    zoomControl: true,
-    tap: false
-  }).setView([44.0, -79.5], 7);
-
+  setLayout();  // set real px dimensions before L.map() reads the container
+  state.map = L.map('map', { zoomControl: true, tap: false }).setView([44.0, -79.5], 7);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap',
-    maxZoom: 19
+    attribution: '&copy; OpenStreetMap', maxZoom: 19
   }).addTo(state.map);
-
   state.map.on('click', () => closeMapCard());
-
-  // Resize on window resize and filter toggle
-  window.addEventListener('resize', () => { setMapHeight(); state.map?.invalidateSize({ animate: false }); });
-  document.querySelector('.filterbox')?.addEventListener('toggle', () => {
-    setMapHeight();
-    state.map?.invalidateSize({ animate: false });
-  });
+  window.addEventListener('resize', setLayout);
+  document.querySelector('.filterbox')?.addEventListener('toggle', setLayout);
 }
 
 function markerColor(item) {

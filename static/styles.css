@@ -28,22 +28,14 @@ html[data-theme="light"] {
   --muted: #68726f; --line: #d9d5c8; --header: #14221f;
 }
 
-/* ── Base — every ancestor must carry height for flex to work on mobile ── */
+/* ── Base ─────────────────────────────────────────────────────── */
 * { box-sizing: border-box; }
-html { height: 100%; }
-body {
-  height: 100%; margin: 0;
-  display: flex; flex-direction: column;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
-  background: var(--bg); color: var(--ink);
-  overflow: hidden;
-  transition: background .2s, color .2s;
-}
+html, body { height: 100%; margin: 0; overflow: hidden; font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--ink); transition: background .2s, color .2s; }
 h1,h2,h3,p { margin: 0; }
 
 /* ── Header ──────────────────────────────────────────────────── */
 .topbar {
-  flex: 0 0 var(--hdr-h);
+  position: absolute; top: 0; left: 0; right: 0; height: var(--hdr-h);
   display: flex; justify-content: space-between; align-items: center;
   padding: 0 14px; background: var(--header); color: #fff; gap: 10px;
   z-index: 600;
@@ -57,24 +49,21 @@ h1 { font-size: 19px; color: #fff; white-space: nowrap; }
 .view-btn.active { background: rgba(255,255,255,.22); color: #fff; }
 .icon-btn { background: transparent; border: 1px solid rgba(255,255,255,.28); color: #fff; border-radius: 8px; padding: 5px 9px; font-size: 15px; cursor: pointer; line-height: 1; }
 
-/* ── Filters (always in page flow — simple and reliable) ────── */
+/* ── Filters (absolutely positioned below header) ────────────── */
 .filterbox {
-  flex: 0 0 auto;
+  position: absolute; left: 0; right: 0; z-index: 400;
   background: var(--panel); border-bottom: 1px solid var(--line);
-  z-index: 200;
 }
 .filterbox > summary {
   list-style: none; padding: 11px 16px; cursor: pointer;
   font-weight: 800; font-size: 14px; color: var(--ink); user-select: none;
-  display: flex; align-items: center; justify-content: space-between;
 }
 .filterbox > summary::-webkit-details-marker { display: none; }
-.filterbox > summary::after { content: '▼'; color: var(--muted); font-size: 11px; }
-.filterbox[open] > summary::after { content: '▲'; }
+.filterbox > summary::after { content: ' ▼'; color: var(--muted); font-weight: 400; }
+.filterbox[open] > summary::after { content: ' ▲'; }
 .controls {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 10px; padding: 4px 16px 14px;
-  background: var(--panel);
+  gap: 10px; padding: 4px 16px 14px; background: var(--panel);
 }
 label { display: grid; gap: 4px; font-size: 12px; font-weight: 700; color: var(--muted); }
 input, select {
@@ -90,7 +79,7 @@ button.secondary { background: var(--bg); color: var(--ink); }
 
 /* ── Status bar ──────────────────────────────────────────────── */
 .status-bar {
-  flex: 0 0 auto;
+  position: absolute; left: 0; right: 0; z-index: 400;
   display: flex; justify-content: space-between; align-items: center;
   padding: 6px 14px; font-size: 13px; color: var(--muted); gap: 10px;
   border-bottom: 1px solid var(--line); background: var(--panel);
@@ -98,23 +87,12 @@ button.secondary { background: var(--bg); color: var(--ink); }
 .sort-inline { display: flex; align-items: center; gap: 6px; font-weight: 700; white-space: nowrap; }
 .sort-inline select { min-height: 30px; padding: 3px 8px; font-size: 12px; border-radius: 8px; }
 
-/* ── View sections ───────────────────────────────────────────── */
-/* flex: 1 1 0 + min-height: 0 is the key — without min-height:0 mobile
-   browsers refuse to shrink flex children below their content size */
-.view-section {
-  flex: 1 1 0;
-  min-height: 0;
-  position: relative;
-  overflow: hidden;
-}
+/* ── View sections — absolutely positioned, JS sets top+height ── */
+.view-section { position: absolute; left: 0; right: 0; overflow: hidden; }
 .view-section[hidden] { display: none !important; }
 
-/* ── MAP — fills view-section completely ─────────────────────── */
-#map {
-  position: absolute;
-  top: 0; left: 0;
-  width: 100%; height: 100%;
-}
+/* ── MAP ─────────────────────────────────────────────────────── */
+#map { width: 100%; height: 100%; }
 
 /* ── Map card popup ──────────────────────────────────────────── */
 .map-card {
@@ -124,17 +102,8 @@ button.secondary { background: var(--bg); color: var(--ink); }
   max-height: 70%; overflow-y: auto;
 }
 .map-card[hidden] { display: none !important; }
-.map-card::before {
-  content: ''; display: block; width: 40px; height: 4px;
-  background: var(--line); border-radius: 999px; margin: 12px auto 0;
-}
-.map-card-close {
-  position: absolute; top: 14px; right: 14px; z-index: 2;
-  background: var(--bg); border: 1px solid var(--line);
-  border-radius: 999px; width: 30px; height: 30px;
-  font-size: 13px; cursor: pointer;
-  display: flex; align-items: center; justify-content: center; color: var(--ink);
-}
+.map-card::before { content: ''; display: block; width: 40px; height: 4px; background: var(--line); border-radius: 999px; margin: 12px auto 0; }
+.map-card-close { position: absolute; top: 14px; right: 14px; z-index: 2; background: var(--bg); border: 1px solid var(--line); border-radius: 999px; width: 30px; height: 30px; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--ink); }
 .map-card-inner .card { border: none; border-radius: 0; box-shadow: none; }
 .map-card-inner .photo { border-radius: 0; height: 200px; }
 @media (min-width: 700px) {
@@ -145,6 +114,22 @@ button.secondary { background: var(--bg); color: var(--ink); }
 /* ── LIST VIEW ───────────────────────────────────────────────── */
 #viewList { overflow-y: auto; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; padding: 12px 12px 48px; }
+  background: var(--panel); color: var(--ink); z-index: 800;
+  display: flex; flex-direction: column;
+  box-shadow: -4px 0 32px rgba(0,0,0,.25);
+}
+.settings-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 20px 16px; border-bottom: 1px solid var(--line); }
+.settings-title  { font-size: 18px; font-weight: 800; }
+.close-btn { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; width: 32px; height: 32px; font-size: 16px; cursor: pointer; color: var(--ink); display: flex; align-items: center; justify-content: center; }
+.settings-desc { color: var(--muted); font-size: 14px; padding: 14px 20px 4px; line-height: 1.5; }
+.settings-fields { flex: 1; overflow-y: auto; padding: 6px 14px 12px; }
+.settings-row { display: flex; align-items: center; gap: 14px; padding: 13px 8px; border-radius: 10px; cursor: pointer; font-size: 15px; font-weight: 500; border-bottom: 1px solid var(--line); }
+.settings-row:last-child { border-bottom: none; }
+.settings-row:hover { background: var(--bg); }
+.settings-row input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--green); cursor: pointer; flex-shrink: 0; }
+.field-desc { font-size: 12px; color: var(--muted); margin-top: 3px; }
+.settings-footer { padding: 16px 20px; border-top: 1px solid var(--line); display: flex; gap: 8px; }
+.settings-footer button { flex: 1; min-height: 40px; }
 
 /* ── Settings drawer ─────────────────────────────────────────── */
 .settings-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 700; }
@@ -167,8 +152,6 @@ button.secondary { background: var(--bg); color: var(--ink); }
 .field-desc { font-size: 12px; color: var(--muted); margin-top: 3px; }
 .settings-footer { padding: 16px 20px; border-top: 1px solid var(--line); display: flex; gap: 8px; }
 .settings-footer button { flex: 1; min-height: 40px; }
-
-/* ── Cards ───────────────────────────────────────────────────── */
 .card { border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: var(--panel); display: flex; flex-direction: column; }
 .card-photo-wrap { position: relative; flex-shrink: 0; }
 .photo { width: 100%; height: 180px; object-fit: cover; display: block; background: var(--line); }
