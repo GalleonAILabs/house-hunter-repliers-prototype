@@ -9,38 +9,40 @@
 </head>
 <body>
 
+  <!-- HEADER -->
   <header class="topbar">
     <div class="topbar-left">
-      <p class="eyebrow">Alpha Spike</p>
       <h1>House Hunter</h1>
+      <span class="pill" id="sourcePill">POC</span>
     </div>
     <div class="topbar-right">
+      <div class="view-toggle">
+        <button class="view-btn active" id="btnMap" data-view="map">🗺 Map</button>
+        <button class="view-btn" id="btnList" data-view="list">☰ List</button>
+      </div>
       <button class="icon-btn" id="settingsBtn" title="Card settings">⚙</button>
-      <span class="pill" id="sourcePill">POC</span>
     </div>
   </header>
 
   <!-- SETTINGS PANEL -->
+  <div class="settings-overlay" id="settingsOverlay" hidden></div>
   <aside class="settings-drawer" id="settingsDrawer" hidden>
     <div class="settings-header">
-      <strong>Card fields</strong>
-      <button class="icon-btn" id="settingsClose">✕</button>
+      <span class="settings-title">Card settings</span>
+      <button class="close-btn" id="settingsClose">✕</button>
     </div>
-    <p class="settings-sub">Choose what appears on each listing card.</p>
-    <div class="settings-fields" id="settingsFields">
-      <!-- populated by JS -->
-    </div>
+    <p class="settings-desc">Toggle which sections appear on each listing card. Changes are saved automatically.</p>
+    <div class="settings-fields" id="settingsFields"></div>
     <div class="settings-footer">
       <button id="settingsSelectAll" class="secondary">All on</button>
       <button id="settingsSelectNone" class="secondary">All off</button>
       <button id="settingsReset">Defaults</button>
     </div>
   </aside>
-  <div class="settings-overlay" id="settingsOverlay" hidden></div>
 
   <!-- FILTERS -->
   <details class="filterbox">
-    <summary>Filters</summary>
+    <summary id="filterSummary">Filters</summary>
     <section class="controls">
       <label>Data source
         <select id="source">
@@ -92,32 +94,38 @@
     </section>
   </details>
 
-  <main class="layout">
-    <section class="panel map-panel">
-      <div id="map"></div>
-    </section>
-    <section class="panel list-panel">
-      <div class="list-head">
-        <div>
-          <h2>Listings</h2>
-          <p id="summary">Loading…</p>
-        </div>
-        <label class="sort">Sort
-          <select id="sort">
-            <option value="fit-desc">Fit, high to low</option>
-            <option value="price-asc">Price, low to high</option>
-            <option value="price-desc">Price, high to low</option>
-            <option value="go-asc">Commute, short to long</option>
-            <option value="sqft-desc">Sqft, high to low</option>
-            <option value="lot-desc">Lot, high to low</option>
-            <option value="markrank-desc">Mark rank, high to low</option>
-          </select>
-        </label>
-      </div>
-      <div id="cards" class="cards"></div>
-    </section>
-  </main>
+  <!-- STATUS BAR -->
+  <div class="status-bar">
+    <span id="summary">Loading…</span>
+    <label class="sort-inline">Sort
+      <select id="sort">
+        <option value="fit-desc">Fit ↓</option>
+        <option value="price-asc">Price ↑</option>
+        <option value="price-desc">Price ↓</option>
+        <option value="go-asc">Commute ↑</option>
+        <option value="sqft-desc">Sqft ↓</option>
+        <option value="lot-desc">Lot ↓</option>
+        <option value="markrank-desc">Mark ↓</option>
+      </select>
+    </label>
+  </div>
 
+  <!-- MAP VIEW -->
+  <div id="viewMap" class="view-section">
+    <div id="map"></div>
+    <!-- Map card popup (shown when pin is clicked) -->
+    <div id="mapCard" class="map-card" hidden>
+      <button class="map-card-close" id="mapCardClose">✕</button>
+      <div class="map-card-inner" id="mapCardInner"></div>
+    </div>
+  </div>
+
+  <!-- LIST VIEW -->
+  <div id="viewList" class="view-section" hidden>
+    <div id="cards" class="cards"></div>
+  </div>
+
+  <!-- CARD TEMPLATE -->
   <template id="cardTemplate">
     <article class="card">
       <div class="card-photo-wrap">
@@ -132,7 +140,6 @@
           </div>
           <div class="fit-badge"></div>
         </div>
-        <!-- each section below is shown/hidden by settings -->
         <div class="card-price cf-price"></div>
         <div class="card-commute cf-commute"></div>
         <div class="card-stats cf-stats"></div>
@@ -144,7 +151,7 @@
         <div class="card-actions cf-actions">
           <a class="card-link-btn" target="_blank" rel="noopener">View listing</a>
           <a class="card-doc-btn" target="_blank" rel="noopener">Research doc</a>
-          <button class="show-map secondary">Show on map</button>
+          <button class="show-map secondary">📍 Map</button>
         </div>
       </div>
     </article>

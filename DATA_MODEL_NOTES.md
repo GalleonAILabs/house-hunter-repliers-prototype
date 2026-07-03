@@ -68,7 +68,11 @@ For the alpha, identity has two layers:
 
 In a family search, one phone or tablet may be passed around. The active member context is what prevents all notes from becoming "Mark".
 
-## Product direction
+## Product backlog notes
+
+### Dark mode
+Required. Buyers reviewing listings at night in low-light environments (bedroom, etc.) need a dark mode option. Should respect system preference by default (`prefers-color-scheme: dark`) with a manual toggle override saved to localStorage. Affects map tiles (use a dark tile layer), cards, settings drawer, header, and filters.
+
 
 The alpha should be built around Anees as the first realtor-team workspace.
 
