@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="auto">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -20,6 +20,7 @@
         <button class="view-btn active" id="btnMap" data-view="map">🗺 Map</button>
         <button class="view-btn" id="btnList" data-view="list">☰ List</button>
       </div>
+      <button class="icon-btn" id="themeBtn" title="Toggle dark mode">🌙</button>
       <button class="icon-btn" id="settingsBtn" title="Card settings">⚙</button>
     </div>
   </header>
@@ -31,7 +32,7 @@
       <span class="settings-title">Card settings</span>
       <button class="close-btn" id="settingsClose">✕</button>
     </div>
-    <p class="settings-desc">Toggle which sections appear on each listing card. Changes are saved automatically.</p>
+    <p class="settings-desc">Choose which sections appear on each listing card.</p>
     <div class="settings-fields" id="settingsFields"></div>
     <div class="settings-footer">
       <button id="settingsSelectAll" class="secondary">All on</button>
@@ -40,80 +41,81 @@
     </div>
   </aside>
 
-  <!-- FILTERS -->
-  <details class="filterbox">
-    <summary id="filterSummary">Filters</summary>
-    <section class="controls">
-      <label>Data source
-        <select id="source">
-          <option value="poc" selected>My POC data</option>
-          <option value="repliers">Repliers sample</option>
-        </select>
-      </label>
-      <label>Search
-        <input id="q" placeholder="address, town, features" />
-      </label>
-      <label>Min price
-        <input id="minPrice" type="number" placeholder="0" />
-      </label>
-      <label>Max price
-        <input id="maxPrice" type="number" placeholder="1500000" />
-      </label>
-      <label>Min beds
-        <input id="minBeds" type="number" min="0" placeholder="4" />
-      </label>
-      <label>Min baths
-        <input id="minBaths" type="number" min="0" step="0.5" placeholder="2" />
-      </label>
-      <label>Min fit
-        <select id="minFit">
-          <option value="">Any</option>
-          <option value="4">4+</option>
-          <option value="5">5+</option>
-          <option value="6">6+</option>
-          <option value="7">7+</option>
-          <option value="8">8/8</option>
-        </select>
-      </label>
-      <label>Status
-        <select id="filterStatus">
-          <option value="">All</option>
-          <option value="active">Active only</option>
-          <option value="rejected">Rejected</option>
-        </select>
-      </label>
-      <label>Page size
-        <select id="resultsPerPage">
-          <option>30</option>
-          <option selected>60</option>
-          <option>100</option>
-        </select>
-      </label>
-      <button id="load">Apply</button>
-      <button id="reset" class="secondary">Reset</button>
-    </section>
-  </details>
-
-  <!-- STATUS BAR -->
-  <div class="status-bar">
-    <span id="summary">Loading…</span>
-    <label class="sort-inline">Sort
-      <select id="sort">
-        <option value="fit-desc">Fit ↓</option>
-        <option value="price-asc">Price ↑</option>
-        <option value="price-desc">Price ↓</option>
-        <option value="go-asc">Commute ↑</option>
-        <option value="sqft-desc">Sqft ↓</option>
-        <option value="lot-desc">Lot ↓</option>
-        <option value="markrank-desc">Mark ↓</option>
-      </select>
-    </label>
-  </div>
-
-  <!-- MAP VIEW -->
+  <!-- MAP VIEW (full height, filter floats on top) -->
   <div id="viewMap" class="view-section">
     <div id="map"></div>
-    <!-- Map card popup (shown when pin is clicked) -->
+
+    <!-- Filter floats over map -->
+    <div class="map-filter-wrap">
+      <details class="filterbox" id="filterbox">
+        <summary>Filters</summary>
+        <section class="controls">
+          <label>Data source
+            <select id="source">
+              <option value="poc" selected>My POC data</option>
+              <option value="repliers">Repliers sample</option>
+            </select>
+          </label>
+          <label>Search
+            <input id="q" placeholder="address, town, features" />
+          </label>
+          <label>Min price
+            <input id="minPrice" type="number" placeholder="0" />
+          </label>
+          <label>Max price
+            <input id="maxPrice" type="number" placeholder="1500000" />
+          </label>
+          <label>Min beds
+            <input id="minBeds" type="number" min="0" placeholder="4" />
+          </label>
+          <label>Min baths
+            <input id="minBaths" type="number" min="0" step="0.5" placeholder="2" />
+          </label>
+          <label>Min fit
+            <select id="minFit">
+              <option value="">Any</option>
+              <option value="4">4+</option>
+              <option value="5">5+</option>
+              <option value="6">6+</option>
+              <option value="7">7+</option>
+              <option value="8">8/8</option>
+            </select>
+          </label>
+          <label>Status
+            <select id="filterStatus">
+              <option value="">All</option>
+              <option value="active">Active only</option>
+              <option value="rejected">Rejected</option>
+            </select>
+          </label>
+          <label>Page size
+            <select id="resultsPerPage">
+              <option>30</option>
+              <option selected>60</option>
+              <option>100</option>
+            </select>
+          </label>
+          <button id="load">Apply</button>
+          <button id="reset" class="secondary">Reset</button>
+        </section>
+      </details>
+      <div class="map-status-bar">
+        <span id="summary">Loading…</span>
+        <label class="sort-inline">Sort
+          <select id="sort">
+            <option value="fit-desc">Fit ↓</option>
+            <option value="price-asc">Price ↑</option>
+            <option value="price-desc">Price ↓</option>
+            <option value="go-asc">Commute ↑</option>
+            <option value="sqft-desc">Sqft ↓</option>
+            <option value="lot-desc">Lot ↓</option>
+            <option value="markrank-desc">Mark ↓</option>
+          </select>
+        </label>
+      </div>
+    </div>
+
+    <!-- Card popup when pin clicked -->
     <div id="mapCard" class="map-card" hidden>
       <button class="map-card-close" id="mapCardClose">✕</button>
       <div class="map-card-inner" id="mapCardInner"></div>
@@ -122,6 +124,20 @@
 
   <!-- LIST VIEW -->
   <div id="viewList" class="view-section" hidden>
+    <div class="list-status-bar">
+      <span id="summaryList">Loading…</span>
+      <label class="sort-inline">Sort
+        <select id="sortList">
+          <option value="fit-desc">Fit ↓</option>
+          <option value="price-asc">Price ↑</option>
+          <option value="price-desc">Price ↓</option>
+          <option value="go-asc">Commute ↑</option>
+          <option value="sqft-desc">Sqft ↓</option>
+          <option value="lot-desc">Lot ↓</option>
+          <option value="markrank-desc">Mark ↓</option>
+        </select>
+      </label>
+    </div>
     <div id="cards" class="cards"></div>
   </div>
 

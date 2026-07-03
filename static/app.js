@@ -1,4 +1,26 @@
-// ─── Card field definitions ───────────────────────────────────────────────────
+// ─── Dark mode ────────────────────────────────────────────────────────────────
+const THEME_KEY = 'hh_theme';
+const themes = ['auto', 'light', 'dark'];
+const themeEmoji = { auto: '🌓', light: '☀️', dark: '🌙' };
+
+function loadTheme() {
+  const saved = localStorage.getItem(THEME_KEY) || 'auto';
+  document.documentElement.dataset.theme = saved;
+  const btn = $('themeBtn');
+  if (btn) btn.title = 'Theme: ' + saved;
+  if (btn) btn.textContent = themeEmoji[saved];
+}
+
+function cycleTheme() {
+  const current = document.documentElement.dataset.theme || 'auto';
+  const next = themes[(themes.indexOf(current) + 1) % themes.length];
+  document.documentElement.dataset.theme = next;
+  localStorage.setItem(THEME_KEY, next);
+  const btn = $('themeBtn');
+  if (btn) { btn.title = 'Theme: ' + next; btn.textContent = themeEmoji[next]; }
+}
+
+
 const CARD_FIELDS = [
   { key: 'price',     label: 'Price',                     desc: 'Asking price',                      defaultOn: true  },
   { key: 'commute',   label: 'GO commute',                desc: 'Station, drive time, total to Union', defaultOn: true,  pocOnly: true },
@@ -269,8 +291,18 @@ function renderCards(list) {
 }
 
 // ─── Sort ─────────────────────────────────────────────────────────────────────
+function currentSort() {
+  // Both sort selects stay in sync; use whichever is active
+  return ($('sort')?.value || $('sortList')?.value || 'fit-desc');
+}
+
+function syncSort(value) {
+  if ($('sort')) $('sort').value = value;
+  if ($('sortList')) $('sortList').value = value;
+}
+
 function sortListings(list) {
-  const mode = $('sort').value;
+  const mode = currentSort();
   const s = [...list];
   const cmp = (a, b, g, dir = 1) => { const av = g(a), bv = g(b); if (av == null && bv == null) return 0; if (av == null) return 1; if (bv == null) return -1; return (av - bv) * dir; };
   if (mode === 'fit-desc')      s.sort((a,b) => cmp(a,b, x => x.fit.met, -1));
@@ -305,9 +337,11 @@ async function load() {
   if (sf === 'active')   listings = listings.filter(x => !/reject/i.test(x.status || ''));
   if (sf === 'rejected') listings = listings.filter(x => /reject/i.test(x.status || ''));
   state.listings = listings;
-  $('summary').textContent = source === 'poc'
+  const summaryText = source === 'poc'
     ? `${listings.length} of ${data.sourceCount} POC listings`
     : `${listings.length} shown · ${Number(data.sourceCount).toLocaleString()} Repliers sample available`;
+  if ($('summary'))     $('summary').textContent = summaryText;
+  if ($('summaryList')) $('summaryList').textContent = summaryText;
   if (source === 'poc') state.map?.setView([44.0, -79.5], 7);
   else state.map?.setView([39.5, -95], 4);
   refreshMap(listings);
@@ -323,13 +357,16 @@ function showError(err) { console.error(err); $('summary').textContent = 'Error:
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
+  loadTheme();
   initMap();
   $('load').addEventListener('click', () => load().catch(showError));
   $('reset').addEventListener('click', reset);
   $('source').addEventListener('change', () => { buildSettingsPanel(); load().catch(showError); });
-  $('sort').addEventListener('change', () => { renderCards(state.listings); refreshMap(state.listings); });
+  $('sort')?.addEventListener('change', e => { syncSort(e.target.value); renderCards(state.listings); refreshMap(state.listings); });
+  $('sortList')?.addEventListener('change', e => { syncSort(e.target.value); renderCards(state.listings); });
   $('btnMap').addEventListener('click', () => switchView('map'));
   $('btnList').addEventListener('click', () => switchView('list'));
+  $('themeBtn').addEventListener('click', cycleTheme);
   $('settingsBtn').addEventListener('click', openSettings);
   $('settingsClose').addEventListener('click', closeSettings);
   $('settingsOverlay').addEventListener('click', closeSettings);
