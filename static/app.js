@@ -105,21 +105,44 @@ function switchView(view) {
 
 // ─── Map ──────────────────────────────────────────────────────────────────────
 function initMap() {
-  state.map = L.map('map', { zoomControl: true }).setView([44.0, -79.5], 7);
+  const mapEl = document.getElementById('map');
+
+  state.map = L.map('map', {
+    zoomControl: true,
+    tap: !L.Browser.mobile
+  }).setView([44.0, -79.5], 7);
+
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap'
   }).addTo(state.map);
+
   state.map.on('click', () => closeMapCard());
 
-  // ResizeObserver: any time the map container changes size, tell Leaflet.
-  // This is the only reliable fix for the tile-split problem on mobile —
-  // setTimeout/rAF both race against browser layout; ResizeObserver does not.
+  // ResizeObserver catches ongoing size changes
   if (window.ResizeObserver) {
     const ro = new ResizeObserver(() => {
       state.map.invalidateSize({ animate: false });
     });
-    ro.observe(document.getElementById('map'));
+    ro.observe(mapEl);
   }
+
+  // Mobile tile split fix: ResizeObserver only fires on CHANGES, not initial render.
+  // On mobile Chrome, flex layout can take extra frames to resolve. We need explicit
+  // invalidateSize calls at multiple points to catch the initial layout.
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      state.map.invalidateSize({ animate: false });
+    });
+  });
+
+  // Fallback for slow mobile layouts
+  setTimeout(() => state.map.invalidateSize({ animate: false }), 100);
+  setTimeout(() => state.map.invalidateSize({ animate: false }), 300);
+
+  // Final check when map declares itself ready
+  state.map.whenReady(() => {
+    state.map.invalidateSize({ animate: false });
+  });
 }
 
 function markerColor(item) {
@@ -369,7 +392,18 @@ function showError(err) { console.error(err); $('summary').textContent = 'Error:
 // ─── Init ─────────────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
   loadTheme();
-  initMap();
+
+  // Double rAF: defers map init until after browser layout AND first paint.
+  // On Android Chrome, Leaflet reads container size synchronously at init.
+  // Without this, the container reports 0px height even with correct CSS,
+  // causing the tile split. Two rAF calls guarantee real pixel dimensions.
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      initMap();
+      load().catch(showError);
+    });
+  });
+
   $('load').addEventListener('click', () => load().catch(showError));
   $('reset').addEventListener('click', reset);
   $('source').addEventListener('change', () => { buildSettingsPanel(); load().catch(showError); });
@@ -385,5 +419,4 @@ window.addEventListener('DOMContentLoaded', () => {
   $('settingsSelectAll').addEventListener('click', () => { CARD_FIELDS.forEach(f => cardSettings[f.key] = true); saveSettings(); buildSettingsPanel(); applyCardVisibility(); });
   $('settingsSelectNone').addEventListener('click', () => { CARD_FIELDS.forEach(f => { if (f.key !== 'actions') cardSettings[f.key] = false; }); saveSettings(); buildSettingsPanel(); applyCardVisibility(); });
   $('settingsReset').addEventListener('click', () => { localStorage.removeItem(SETTINGS_KEY); cardSettings = loadSettings(); saveSettings(); buildSettingsPanel(); applyCardVisibility(); });
-  load().catch(showError);
 });
