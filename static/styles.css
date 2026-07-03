@@ -107,8 +107,9 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .leaflet-popup-content { min-width: 220px; }
 @media (max-width: 980px) {
   .controls { grid-template-columns: repeat(2, 1fr); }
-  .layout { grid-template-columns: 1fr; }
-  .map-panel { position: relative; top: auto; height: 55vh; }
+  .layout { grid-template-columns: 1fr; gap: 12px; padding-inline: 14px; }
+  .map-panel { position: relative; top: auto; height: 360px; }
+  #map { min-height: 360px; height: 360px; }
 }
 @media (max-width: 560px) {
   .topbar { display: block; }

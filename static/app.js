@@ -72,6 +72,8 @@ function refreshMap(list) {
     bounds.push([item.lat, item.lng]);
   }
   if (bounds.length) state.map.fitBounds(bounds, { padding: [30, 30] });
+  setTimeout(() => state.map.invalidateSize(), 50);
+  setTimeout(() => state.map.invalidateSize(), 400);
 }
 
 function escapeHtml(str) {
