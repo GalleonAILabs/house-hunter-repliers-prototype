@@ -111,7 +111,12 @@ function renderCards(list) {
       ...item.fit.metLabels.slice(0, 4).map(x => tag('✓ ' + x, 'good')),
       ...item.fit.failedLabels.slice(0, 3).map(x => tag('× ' + x, 'bad')),
     ].join('');
-    node.querySelector('.insight').textContent = item.imageSummary || item.fit.note;
+    const insight = node.querySelector('.insight');
+    if (item.imageSummary) {
+      insight.textContent = item.imageSummary;
+    } else {
+      insight.remove();
+    }
     const dl = node.querySelector('.source');
     const sourceRows = {
       MLS: item.mls,
