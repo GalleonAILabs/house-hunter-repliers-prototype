@@ -109,8 +109,17 @@ function initMap() {
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap'
   }).addTo(state.map);
-  // Close map card on map click
   state.map.on('click', () => closeMapCard());
+
+  // ResizeObserver: any time the map container changes size, tell Leaflet.
+  // This is the only reliable fix for the tile-split problem on mobile —
+  // setTimeout/rAF both race against browser layout; ResizeObserver does not.
+  if (window.ResizeObserver) {
+    const ro = new ResizeObserver(() => {
+      state.map.invalidateSize({ animate: false });
+    });
+    ro.observe(document.getElementById('map'));
+  }
 }
 
 function markerColor(item) {
