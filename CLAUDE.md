@@ -6,23 +6,28 @@ Stdlib Python server (server.py) proxies the Repliers real-estate API.
 Frontend is vanilla HTML/CSS/JS (static/) using Leaflet for maps.
 
 ## Current problem to solve
-The Leaflet map is rendering as a broken tile grid on mobile Chrome (Android).
-The map container is sized correctly via flexbox but Leaflet is not picking up
-the real pixel dimensions before it initializes.
+Build the dynamic "I am" actor selector. Every rating, note, reject/say-no,
+and research request must be attributed to a specific `buyer_group_member`,
+selected via an explicit "I am" control, not hardcoded to Mark/Katie and not
+inferred from the shared browser session.
 
-Layout structure (body is a flex column, height:100%):
-  .topbar        flex: 0 0 52px
-  .filterbox     flex: 0 0 auto
-  .status-bar    flex: 0 0 auto
-  #viewMap       flex: 1 1 0; min-height: 0; position: relative; overflow: hidden
-    #map         position: absolute; inset: 0   ← Leaflet target
+Rules (full detail in `DATA_MODEL_NOTES.md`):
+- Selector must render dynamically from `buyer_group_members`, one choice
+  per person. Must work for 1, 2, or N members.
+- Selected person is the active actor for all subsequent rating/note/
+  say-no/research actions until changed.
+- Advisors/realtors can be actors too, but must be visually labelled so
+  their input is not confused with buyer sentiment.
+- Actions are labelled by person in the UI, e.g. "Katie said no", "Dad
+  rated 4".
 
-A ResizeObserver calling invalidateSize is already wired up but the tiles
-still split on first load on mobile.
+The Leaflet map (mobile Chrome tile-split bug) is parked as experimental.
+Do not spend further time on it; see `HANDOFF.md` and `PROJECT_BRIEF.md` for
+the parked map context and revisit path.
 
 ## What we need
-1. Fix the Leaflet mobile tile split definitively.
-2. Map view: full remaining viewport height, pins for all 104 POC listings.
+1. List is the default view; Map stays experimental/beta-labeled.
+2. Map view (when revisited): full remaining viewport height, pins for all 104 POC listings.
 3. List view: scrollable cards with commute, ratings, financial, features.
 4. Dark mode: follows system preference (prefers-color-scheme) with manual toggle.
 5. Settings panel: toggle card sections on/off, saved to localStorage.
