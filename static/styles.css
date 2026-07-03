@@ -15,33 +15,35 @@
 }
 @media (prefers-color-scheme: dark) {
   html[data-theme="auto"] {
-    --bg:     #141918; --panel:  #1e2523; --ink:    #e2ecea;
-    --muted:  #7a9590; --line:   #2c3432; --header: #0c1210;
+    --bg: #141918; --panel: #1e2523; --ink: #e2ecea;
+    --muted: #7a9590; --line: #2c3432; --header: #0c1210;
   }
 }
 html[data-theme="dark"] {
-  --bg:     #141918; --panel:  #1e2523; --ink:    #e2ecea;
-  --muted:  #7a9590; --line:   #2c3432; --header: #0c1210;
+  --bg: #141918; --panel: #1e2523; --ink: #e2ecea;
+  --muted: #7a9590; --line: #2c3432; --header: #0c1210;
 }
 html[data-theme="light"] {
-  --bg:     #f5f3ec; --panel:  #ffffff; --ink:    #18211f;
-  --muted:  #68726f; --line:   #d9d5c8; --header: #14221f;
+  --bg: #f5f3ec; --panel: #ffffff; --ink: #18211f;
+  --muted: #68726f; --line: #d9d5c8; --header: #14221f;
 }
 
-/* ── Reset / base ─────────────────────────────────────────────── */
+/* ── Base — every ancestor must carry height for flex to work on mobile ── */
 * { box-sizing: border-box; }
-html, body { height: 100%; overflow: hidden; }
+html { height: 100%; }
 body {
-  margin: 0; display: flex; flex-direction: column;
+  height: 100%; margin: 0;
+  display: flex; flex-direction: column;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
   background: var(--bg); color: var(--ink);
+  overflow: hidden;
   transition: background .2s, color .2s;
 }
 h1,h2,h3,p { margin: 0; }
 
 /* ── Header ──────────────────────────────────────────────────── */
 .topbar {
-  flex-shrink: 0; height: var(--hdr-h);
+  flex: 0 0 var(--hdr-h);
   display: flex; justify-content: space-between; align-items: center;
   padding: 0 14px; background: var(--header); color: #fff; gap: 10px;
   z-index: 600;
@@ -55,38 +57,24 @@ h1 { font-size: 19px; color: #fff; white-space: nowrap; }
 .view-btn.active { background: rgba(255,255,255,.22); color: #fff; }
 .icon-btn { background: transparent; border: 1px solid rgba(255,255,255,.28); color: #fff; border-radius: 8px; padding: 5px 9px; font-size: 15px; cursor: pointer; line-height: 1; }
 
-/* ── View sections (flex children of body) ───────────────────── */
-.view-section { flex: 1; position: relative; overflow: hidden; }
-.view-section[hidden] { display: none !important; }
-
-/* ── MAP VIEW ────────────────────────────────────────────────── */
-/* Map fills its flex parent with position:absolute so Leaflet gets real px dimensions */
-#map { position: absolute; inset: 0; }
-
-/* Filter + status float over the map */
-.map-filter-wrap {
-  position: absolute; top: 0; left: 0; right: 0; z-index: 400;
-  pointer-events: none;
-}
-.map-filter-wrap > * { pointer-events: auto; }
-
-/* ── Filters ──────────────────────────────────────────────────── */
+/* ── Filters (always in page flow — simple and reliable) ────── */
 .filterbox {
-  margin: 10px 12px 0;
-  background: var(--panel); border: 1px solid var(--line);
-  border-radius: 14px; box-shadow: var(--shadow);
+  flex: 0 0 auto;
+  background: var(--panel); border-bottom: 1px solid var(--line);
+  z-index: 200;
 }
 .filterbox > summary {
-  list-style: none; padding: 12px 16px; cursor: pointer;
+  list-style: none; padding: 11px 16px; cursor: pointer;
   font-weight: 800; font-size: 14px; color: var(--ink); user-select: none;
+  display: flex; align-items: center; justify-content: space-between;
 }
 .filterbox > summary::-webkit-details-marker { display: none; }
-.filterbox > summary::after { content: ' ▼'; color: var(--muted); font-weight: 400; }
-.filterbox[open] > summary::after { content: ' ▲'; }
+.filterbox > summary::after { content: '▼'; color: var(--muted); font-size: 11px; }
+.filterbox[open] > summary::after { content: '▲'; }
 .controls {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 10px; padding: 4px 16px 16px;
-  background: var(--panel); border-radius: 0 0 14px 14px;
+  gap: 10px; padding: 4px 16px 14px;
+  background: var(--panel);
 }
 label { display: grid; gap: 4px; font-size: 12px; font-weight: 700; color: var(--muted); }
 input, select {
@@ -100,17 +88,35 @@ button {
 }
 button.secondary { background: var(--bg); color: var(--ink); }
 
-.map-status-bar {
+/* ── Status bar ──────────────────────────────────────────────── */
+.status-bar {
+  flex: 0 0 auto;
   display: flex; justify-content: space-between; align-items: center;
-  padding: 6px 14px; background: var(--panel);
-  border: 1px solid var(--line); border-radius: 10px;
-  margin: 6px 12px 0; box-shadow: var(--shadow);
-  font-size: 13px; color: var(--muted); gap: 10px;
+  padding: 6px 14px; font-size: 13px; color: var(--muted); gap: 10px;
+  border-bottom: 1px solid var(--line); background: var(--panel);
 }
 .sort-inline { display: flex; align-items: center; gap: 6px; font-weight: 700; white-space: nowrap; }
 .sort-inline select { min-height: 30px; padding: 3px 8px; font-size: 12px; border-radius: 8px; }
 
-/* ── Map card (bottom sheet / side panel) ────────────────────── */
+/* ── View sections ───────────────────────────────────────────── */
+/* flex: 1 1 0 + min-height: 0 is the key — without min-height:0 mobile
+   browsers refuse to shrink flex children below their content size */
+.view-section {
+  flex: 1 1 0;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+.view-section[hidden] { display: none !important; }
+
+/* ── MAP — fills view-section completely ─────────────────────── */
+#map {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+}
+
+/* ── Map card popup ──────────────────────────────────────────── */
 .map-card {
   position: absolute; bottom: 0; left: 0; right: 0; z-index: 500;
   background: var(--panel); border-radius: 20px 20px 0 0;
@@ -138,12 +144,6 @@ button.secondary { background: var(--bg); color: var(--ink); }
 
 /* ── LIST VIEW ───────────────────────────────────────────────── */
 #viewList { overflow-y: auto; }
-.list-status-bar {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 10px 14px; font-size: 13px; color: var(--muted); gap: 10px;
-  border-bottom: 1px solid var(--line); background: var(--panel);
-  position: sticky; top: 0; z-index: 100;
-}
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; padding: 12px 12px 48px; }
 
 /* ── Settings drawer ─────────────────────────────────────────── */
@@ -188,20 +188,14 @@ button.secondary { background: var(--bg); color: var(--ink); }
 .fit-blue  { background: #e8f0fe; color: var(--blue);  border: 1px solid #b0c8f8; }
 .fit-amber { background: #fff8e1; color: var(--gold);  border: 1px solid #ffe082; }
 .fit-red   { background: #fff0ee; color: var(--red);   border: 1px solid #ffc8c1; }
-html[data-theme="dark"] .fit-green,
-html:is([data-theme="auto"]) .fit-green { background: #0f2e1a; border-color: #1e5c35; }
-html[data-theme="dark"] .fit-blue,
-html:is([data-theme="auto"]) .fit-blue  { background: #0f1e3d; border-color: #1e3a7a; }
-html[data-theme="dark"] .fit-amber,
-html:is([data-theme="auto"]) .fit-amber { background: #2e2200; border-color: #5c4500; }
-html[data-theme="dark"] .fit-red,
-html:is([data-theme="auto"]) .fit-red   { background: #2e0c0c; border-color: #7a1c1c; }
-/* Override back to light for explicit light theme */
+html[data-theme="dark"]  .fit-green, html[data-theme="auto"] .fit-green { background: #0f2e1a; border-color: #1e5c35; }
+html[data-theme="dark"]  .fit-blue,  html[data-theme="auto"] .fit-blue  { background: #0f1e3d; border-color: #1e3a7a; }
+html[data-theme="dark"]  .fit-amber, html[data-theme="auto"] .fit-amber { background: #2e2200; border-color: #5c4500; }
+html[data-theme="dark"]  .fit-red,   html[data-theme="auto"] .fit-red   { background: #2e0c0c; border-color: #7a1c1c; }
 html[data-theme="light"] .fit-green { background: #eaf5ec; border-color: #bfe2c7; }
 html[data-theme="light"] .fit-blue  { background: #e8f0fe; border-color: #b0c8f8; }
 html[data-theme="light"] .fit-amber { background: #fff8e1; border-color: #ffe082; }
 html[data-theme="light"] .fit-red   { background: #fff0ee; border-color: #ffc8c1; }
-
 .card-price { font-size: 22px; font-weight: 900; }
 .card-commute { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; background: var(--bg); border-radius: 10px; }
 .commute-station { font-weight: 800; font-size: 13px; }
@@ -210,8 +204,8 @@ html[data-theme="light"] .fit-red   { background: #fff0ee; border-color: #ffc8c1
 .tag { border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 700; }
 .tag.bad  { background: #fff0ee; color: var(--red);   border-color: #ffc8c1; }
 .tag.good { background: #eaf5ec; color: var(--green); border-color: #bfe2c7; }
-html[data-theme="dark"] .tag.bad,  html:is([data-theme="auto"]) .tag.bad  { background: #2e0c0c; }
-html[data-theme="dark"] .tag.good, html:is([data-theme="auto"]) .tag.good { background: #0f2e1a; }
+html[data-theme="dark"]  .tag.bad,  html[data-theme="auto"] .tag.bad  { background: #2e0c0c; }
+html[data-theme="dark"]  .tag.good, html[data-theme="auto"] .tag.good { background: #0f2e1a; }
 html[data-theme="light"] .tag.bad  { background: #fff0ee; }
 html[data-theme="light"] .tag.good { background: #eaf5ec; }
 .card-financial { background: var(--bg); border-radius: 10px; padding: 10px 14px; display: flex; flex-direction: column; gap: 6px; }

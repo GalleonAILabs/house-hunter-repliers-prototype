@@ -9,7 +9,7 @@
 </head>
 <body>
 
-  <!-- HEADER -->
+  <!-- 1. HEADER — flex: 0 0 52px -->
   <header class="topbar">
     <div class="topbar-left">
       <h1>House Hunter</h1>
@@ -17,13 +17,97 @@
     </div>
     <div class="topbar-right">
       <div class="view-toggle">
-        <button class="view-btn active" id="btnMap" data-view="map">🗺 Map</button>
-        <button class="view-btn" id="btnList" data-view="list">☰ List</button>
+        <button class="view-btn active" id="btnMap">🗺 Map</button>
+        <button class="view-btn" id="btnList">☰ List</button>
       </div>
-      <button class="icon-btn" id="themeBtn" title="Toggle dark mode">🌙</button>
+      <button class="icon-btn" id="themeBtn" title="Theme">🌓</button>
       <button class="icon-btn" id="settingsBtn" title="Card settings">⚙</button>
     </div>
   </header>
+
+  <!-- 2. FILTERS — flex: 0 0 auto, always in flow -->
+  <details class="filterbox" id="filterbox">
+    <summary>Filters</summary>
+    <section class="controls">
+      <label>Data source
+        <select id="source">
+          <option value="poc" selected>My POC data</option>
+          <option value="repliers">Repliers sample</option>
+        </select>
+      </label>
+      <label>Search
+        <input id="q" placeholder="address, town, features" />
+      </label>
+      <label>Min price
+        <input id="minPrice" type="number" placeholder="0" />
+      </label>
+      <label>Max price
+        <input id="maxPrice" type="number" placeholder="1500000" />
+      </label>
+      <label>Min beds
+        <input id="minBeds" type="number" min="0" placeholder="4" />
+      </label>
+      <label>Min baths
+        <input id="minBaths" type="number" min="0" step="0.5" placeholder="2" />
+      </label>
+      <label>Min fit
+        <select id="minFit">
+          <option value="">Any</option>
+          <option value="4">4+</option>
+          <option value="5">5+</option>
+          <option value="6">6+</option>
+          <option value="7">7+</option>
+          <option value="8">8/8</option>
+        </select>
+      </label>
+      <label>Status
+        <select id="filterStatus">
+          <option value="">All</option>
+          <option value="active">Active only</option>
+          <option value="rejected">Rejected</option>
+        </select>
+      </label>
+      <label>Page size
+        <select id="resultsPerPage">
+          <option>30</option>
+          <option selected>60</option>
+          <option>100</option>
+        </select>
+      </label>
+      <button id="load">Apply</button>
+      <button id="reset" class="secondary">Reset</button>
+    </section>
+  </details>
+
+  <!-- 3. STATUS BAR — flex: 0 0 auto, always in flow -->
+  <div class="status-bar">
+    <span id="summary">Loading…</span>
+    <label class="sort-inline">Sort
+      <select id="sort">
+        <option value="fit-desc">Fit ↓</option>
+        <option value="price-asc">Price ↑</option>
+        <option value="price-desc">Price ↓</option>
+        <option value="go-asc">Commute ↑</option>
+        <option value="sqft-desc">Sqft ↓</option>
+        <option value="lot-desc">Lot ↓</option>
+        <option value="markrank-desc">Mark ↓</option>
+      </select>
+    </label>
+  </div>
+
+  <!-- 4. MAP VIEW — flex: 1 1 0, min-height: 0 (takes all remaining space) -->
+  <div id="viewMap" class="view-section">
+    <div id="map"></div>
+    <div id="mapCard" class="map-card" hidden>
+      <button class="map-card-close" id="mapCardClose">✕</button>
+      <div class="map-card-inner" id="mapCardInner"></div>
+    </div>
+  </div>
+
+  <!-- 5. LIST VIEW — flex: 1 1 0, scrollable -->
+  <div id="viewList" class="view-section" hidden>
+    <div id="cards" class="cards"></div>
+  </div>
 
   <!-- SETTINGS PANEL -->
   <div class="settings-overlay" id="settingsOverlay" hidden></div>
@@ -40,106 +124,6 @@
       <button id="settingsReset">Defaults</button>
     </div>
   </aside>
-
-  <!-- MAP VIEW (full height, filter floats on top) -->
-  <div id="viewMap" class="view-section">
-    <div id="map"></div>
-
-    <!-- Filter floats over map -->
-    <div class="map-filter-wrap">
-      <details class="filterbox" id="filterbox">
-        <summary>Filters</summary>
-        <section class="controls">
-          <label>Data source
-            <select id="source">
-              <option value="poc" selected>My POC data</option>
-              <option value="repliers">Repliers sample</option>
-            </select>
-          </label>
-          <label>Search
-            <input id="q" placeholder="address, town, features" />
-          </label>
-          <label>Min price
-            <input id="minPrice" type="number" placeholder="0" />
-          </label>
-          <label>Max price
-            <input id="maxPrice" type="number" placeholder="1500000" />
-          </label>
-          <label>Min beds
-            <input id="minBeds" type="number" min="0" placeholder="4" />
-          </label>
-          <label>Min baths
-            <input id="minBaths" type="number" min="0" step="0.5" placeholder="2" />
-          </label>
-          <label>Min fit
-            <select id="minFit">
-              <option value="">Any</option>
-              <option value="4">4+</option>
-              <option value="5">5+</option>
-              <option value="6">6+</option>
-              <option value="7">7+</option>
-              <option value="8">8/8</option>
-            </select>
-          </label>
-          <label>Status
-            <select id="filterStatus">
-              <option value="">All</option>
-              <option value="active">Active only</option>
-              <option value="rejected">Rejected</option>
-            </select>
-          </label>
-          <label>Page size
-            <select id="resultsPerPage">
-              <option>30</option>
-              <option selected>60</option>
-              <option>100</option>
-            </select>
-          </label>
-          <button id="load">Apply</button>
-          <button id="reset" class="secondary">Reset</button>
-        </section>
-      </details>
-      <div class="map-status-bar">
-        <span id="summary">Loading…</span>
-        <label class="sort-inline">Sort
-          <select id="sort">
-            <option value="fit-desc">Fit ↓</option>
-            <option value="price-asc">Price ↑</option>
-            <option value="price-desc">Price ↓</option>
-            <option value="go-asc">Commute ↑</option>
-            <option value="sqft-desc">Sqft ↓</option>
-            <option value="lot-desc">Lot ↓</option>
-            <option value="markrank-desc">Mark ↓</option>
-          </select>
-        </label>
-      </div>
-    </div>
-
-    <!-- Card popup when pin clicked -->
-    <div id="mapCard" class="map-card" hidden>
-      <button class="map-card-close" id="mapCardClose">✕</button>
-      <div class="map-card-inner" id="mapCardInner"></div>
-    </div>
-  </div>
-
-  <!-- LIST VIEW -->
-  <div id="viewList" class="view-section" hidden>
-    <div class="list-status-bar">
-      <span id="summaryList">Loading…</span>
-      <label class="sort-inline">Sort
-        <select id="sortList">
-          <option value="fit-desc">Fit ↓</option>
-          <option value="price-asc">Price ↑</option>
-          <option value="price-desc">Price ↓</option>
-          <option value="go-asc">Commute ↑</option>
-          <option value="sqft-desc">Sqft ↓</option>
-          <option value="lot-desc">Lot ↓</option>
-          <option value="markrank-desc">Mark ↓</option>
-        </select>
-      </label>
-    </div>
-    <div id="cards" class="cards"></div>
-  </div>
 
   <!-- CARD TEMPLATE -->
   <template id="cardTemplate">
