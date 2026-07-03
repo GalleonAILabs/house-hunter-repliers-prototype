@@ -11,8 +11,8 @@
   <header class="topbar">
     <div>
       <p class="eyebrow">House Hunter Alpha Spike</p>
-      <h1>Repliers sample-data prototype</h1>
-      <p class="sub">Server-side Repliers proxy, normalized listing cards, map pins, and prototype fit scoring.</p>
+      <h1>House Hunter</h1>
+      <p class="sub">Repliers-powered cards, map pins, and fit scoring.</p>
     </div>
     <div class="pill">Sample MLS only</div>
   </header>
@@ -21,41 +21,44 @@
     <strong>What this proves:</strong> Repliers replaces scraping with clean JSON: price, beds, baths, sqft, lot, DOM, status, images, agent, brokerage, coordinates, and estimates. GO commute and Ontario zone scoring are disabled until PropTx/ITSO live data is attached.
   </section>
 
-  <section class="controls">
-    <label>Search
-      <input id="q" placeholder="city, address, style, brokerage" />
-    </label>
-    <label>Min price
-      <input id="minPrice" type="number" placeholder="0" />
-    </label>
-    <label>Max price
-      <input id="maxPrice" type="number" placeholder="1000000" />
-    </label>
-    <label>Min beds
-      <input id="minBeds" type="number" min="0" placeholder="4" />
-    </label>
-    <label>Min baths
-      <input id="minBaths" type="number" min="0" step="0.5" placeholder="2" />
-    </label>
-    <label>Min fit
-      <select id="minFit">
-        <option value="">Any</option>
-        <option value="3">3+</option>
-        <option value="4">4+</option>
-        <option value="5">5+</option>
-        <option value="6">6/6</option>
-      </select>
-    </label>
-    <label>Page size
-      <select id="resultsPerPage">
-        <option>30</option>
-        <option selected>60</option>
-        <option>100</option>
-      </select>
-    </label>
-    <button id="load">Load listings</button>
-    <button id="reset" class="secondary">Reset</button>
-  </section>
+  <details class="filterbox">
+    <summary>Filters</summary>
+    <section class="controls">
+      <label>Search
+        <input id="q" placeholder="city, address, style, brokerage" />
+      </label>
+      <label>Min price
+        <input id="minPrice" type="number" placeholder="0" />
+      </label>
+      <label>Max price
+        <input id="maxPrice" type="number" placeholder="1000000" />
+      </label>
+      <label>Min beds
+        <input id="minBeds" type="number" min="0" placeholder="4" />
+      </label>
+      <label>Min baths
+        <input id="minBaths" type="number" min="0" step="0.5" placeholder="2" />
+      </label>
+      <label>Min fit
+        <select id="minFit">
+          <option value="">Any</option>
+          <option value="3">3+</option>
+          <option value="4">4+</option>
+          <option value="5">5+</option>
+          <option value="6">6/6</option>
+        </select>
+      </label>
+      <label>Page size
+        <select id="resultsPerPage">
+          <option>30</option>
+          <option selected>60</option>
+          <option>100</option>
+        </select>
+      </label>
+      <button id="load">Load listings</button>
+      <button id="reset" class="secondary">Reset</button>
+    </section>
+  </details>
 
   <main class="layout">
     <section class="panel map-panel">
