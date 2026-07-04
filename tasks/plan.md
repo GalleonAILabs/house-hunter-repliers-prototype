@@ -411,10 +411,12 @@ finding above. Run with Claude Code; checkbox as you ship.
   - Surfaced by: Feasibility (office-hours review); Open Questions resolution
   - Files: `server.py`
   - Verify: one live API call, inspect result count
-- [ ] **T9 (P1, human: ~1-2h / CC: ~15min)** — tests — Add `test_server.py` (stdlib `unittest`, in-memory SQLite) per D5 and the Test Plan artifact
+  - **Blocked, not done.** No `REPLIERS_API_KEY` exists anywhere accessible (checked `.env`, `.env.example`, macOS keychain, `~/.hermes` skill directories — none had one). `GET /api/listings` confirmed the exact failure: `{"error": "RuntimeError", "detail": "REPLIERS_API_KEY is missing..."}`. Separately, even with a key, `fetch_repliers()` (server.py) does not pass city/metro filters to the Repliers API at all — it fetches a generic paginated sample and filters locally via `passes_local_filters()`, which only does a substring match on a `q=` search term, not a real geographic filter. `PROJECT_BRIEF.md` already documented that the free sample endpoint ignores country/province-style params. So getting a real Chicago-specific count needs two things this session couldn't provide: (1) a real API key, and (2) confirming the free tier actually supports metro-level filtering at all, or accepting `q=Chicago` as a best-effort local filter over whatever the generic sample returns. **Next action:** get a `REPLIERS_API_KEY` into `.env`, then re-run this check.
+- [x] **T9 (P1, human: ~1-2h / CC: ~15min)** — tests — Add `test_server.py` (stdlib `unittest`, in-memory SQLite) per D5 and the Test Plan artifact
   - Surfaced by: Test Review D5
   - Files: `test_server.py` (new)
   - Verify: `python3 -m unittest` passes
+  - **Done.** 23 tests, all passing, covering every path from the eng review's coverage diagram: schema creation, WAL mode, seed idempotency, backfill counts and idempotency, auth (missing/wrong/correct token) on both endpoints, batch feedback shape (all-people, null-filled), latest-state-per-action-type independence, two-actor independence, and all four POST 400 cases (unknown person, unknown POC listing, invalid action_type, missing listing_id, malformed JSON) plus the Repliers-id format-only-check path. Real `ThreadingHTTPServer` on an ephemeral port per test, isolated temp DB and fixture POC data — exercises actual HTTP routing, not isolated functions.
 
 ## What I noticed about how you think
 
