@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sqlite3
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -38,6 +39,300 @@ BASE_URL = os.getenv("REPLIERS_BASE_URL", "https://api.repliers.io").rstrip("/")
 PORT = int(os.getenv("PORT", "8787"))
 CDN_BASE = "https://cdn.repliers.io/"
 POC_DATA_PATH = ROOT / "data" / "poc_listings.json"
+DB_PATH = ROOT / "data" / "house_hunter.db"
+APP_AUTH_TOKEN = os.getenv("APP_AUTH_TOKEN", "")
+ALLOWED_ACTION_TYPES = {"rating", "note", "reject", "research_request"}
+
+# D10: known POC listing ids, loaded once at startup (see load_poc_listing_ids).
+# Repliers-sourced ids are format-checked only, not existence-checked against
+# this set — see validate_listing_id.
+POC_LISTING_IDS: set[str] = set()
+
+# Demo participants (buyer_group_id stub column stays null until a real
+# buyer_groups table exists, see PROJECT_BRIEF.md commercial path). Anees
+# and Kevin are advisors in-app even though they are also co-investors in
+# House Hunter as a product, per PROJECT_BRIEF.md.
+SEED_PEOPLE = [
+    ("Mark", "buyer"),
+    ("Katie", "buyer"),
+    ("Anees", "advisor"),
+    ("Kevin", "advisor"),
+]
+
+
+def get_db() -> sqlite3.Connection:
+    """Open a short-lived per-request connection.
+
+    server.py runs ThreadingHTTPServer, so sqlite3.Connection objects must
+    not be shared across threads. Each request opens and closes its own
+    connection instead.
+    """
+    conn = sqlite3.connect(DB_PATH, timeout=5)
+    conn.execute("PRAGMA busy_timeout = 5000")
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db() -> None:
+    """Create the schema (if missing) and seed the four demo participants."""
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(DB_PATH, timeout=5)
+    try:
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS people (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                role TEXT NOT NULL CHECK (role IN ('buyer', 'advisor')),
+                buyer_group_id INTEGER,
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS listing_feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                person_id INTEGER NOT NULL REFERENCES people(id),
+                listing_id TEXT NOT NULL,
+                action_type TEXT NOT NULL CHECK (
+                    action_type IN ('rating', 'note', 'reject', 'research_request')
+                ),
+                rating INTEGER,
+                status TEXT,
+                note TEXT,
+                reason TEXT,
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_feedback_listing ON listing_feedback(listing_id);
+            CREATE INDEX IF NOT EXISTS idx_feedback_person ON listing_feedback(person_id);
+            """
+        )
+        existing = conn.execute("SELECT COUNT(*) FROM people").fetchone()[0]
+        if existing == 0:
+            conn.executemany(
+                "INSERT INTO people (name, role) VALUES (?, ?)", SEED_PEOPLE
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+PERSON_FIELD_MAP = {
+    "Mark": ("markRank", "markComments"),
+    "Katie": ("katieRank", "katieComments"),
+}
+
+
+def backfill_poc_feedback() -> None:
+    """One-time migration: seed listing_feedback from the POC sheet export.
+
+    D14 idempotency guard: skip a person entirely if they already have any
+    listing_feedback rows, so repeated server restarts don't duplicate data.
+    """
+    if not POC_DATA_PATH.exists():
+        return
+    raw = json.loads(POC_DATA_PATH.read_text())
+    rows = raw.get("properties", [])
+
+    conn = get_db()
+    try:
+        for person_name, (rank_field, comments_field) in PERSON_FIELD_MAP.items():
+            person_row = conn.execute(
+                "SELECT id FROM people WHERE name = ?", (person_name,)
+            ).fetchone()
+            if person_row is None:
+                continue  # seed data missing this person, nothing to attach to
+            person_id = person_row["id"]
+
+            already = conn.execute(
+                "SELECT COUNT(*) FROM listing_feedback WHERE person_id = ?",
+                (person_id,),
+            ).fetchone()[0]
+            if already > 0:
+                continue  # D14: already backfilled
+
+            inserts = []
+            for row in rows:
+                listing_id = f"POC-{row.get('row')}"
+
+                rank = intish(row.get(rank_field))
+                if rank is not None:
+                    inserts.append((person_id, listing_id, "rating", rank, None, None, None))
+
+                comment = (row.get(comments_field) or "").strip()
+                if comment:
+                    inserts.append((person_id, listing_id, "note", None, None, comment, None))
+
+                if row.get("rejBy") == person_name:
+                    reason = (row.get("rejReason") or "").strip() or None
+                    inserts.append((person_id, listing_id, "reject", None, "rejected", None, reason))
+
+            if inserts:
+                conn.executemany(
+                    """
+                    INSERT INTO listing_feedback
+                        (person_id, listing_id, action_type, rating, status, note, reason)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    inserts,
+                )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def load_poc_listing_ids() -> None:
+    """D10: build the in-memory set of known POC listing ids at startup."""
+    global POC_LISTING_IDS
+    if not POC_DATA_PATH.exists():
+        POC_LISTING_IDS = set()
+        return
+    raw = json.loads(POC_DATA_PATH.read_text())
+    POC_LISTING_IDS = {f"POC-{row.get('row')}" for row in raw.get("properties", [])}
+
+
+def require_auth(handler: BaseHTTPRequestHandler) -> bool:
+    """D3/D11: shared-secret deterrent on person-data endpoints.
+
+    Not real access control. The token must live in browser JS to be sent,
+    so it is visible in dev tools — this only deters a random person who
+    finds the public tunnel URL from casually reading or writing feedback
+    data. Fails closed: an unset APP_AUTH_TOKEN rejects every request
+    rather than silently allowing everything through.
+    """
+    if not APP_AUTH_TOKEN:
+        return False
+    return handler.headers.get("X-App-Token") == APP_AUTH_TOKEN
+
+
+def validate_listing_id(listing_id: str) -> bool:
+    """D4/D10: POC ids are checked against the known set; Repliers ids
+    (no canonical id list this server owns) are only format-checked."""
+    if not listing_id:
+        return False
+    if listing_id.startswith("POC-"):
+        return listing_id in POC_LISTING_IDS
+    return True
+
+
+def person_exists(conn: sqlite3.Connection, person_id: Any) -> bool:
+    if not isinstance(person_id, int):
+        return False
+    return conn.execute("SELECT 1 FROM people WHERE id = ?", (person_id,)).fetchone() is not None
+
+
+def latest_feedback_for_listings(
+    conn: sqlite3.Connection, listing_ids: list[str]
+) -> dict[str, list[dict[str, Any]]]:
+    """Latest-state feedback per person per listing (D2).
+
+    Every known person gets an entry per requested listing, with nulls if
+    they have no feedback yet (D6's batch shape) — the frontend gets an
+    explicit "no rating yet" state without a separate lookup against
+    GET /api/people. rating/note/reject are each independently the latest
+    by action_type; updated_at is the max created_at across all of them
+    for that person on that listing.
+    """
+    if not listing_ids:
+        return {}
+
+    people = conn.execute("SELECT id, name, role FROM people ORDER BY id").fetchall()
+
+    entries: dict[tuple[str, int], dict[str, Any]] = {}
+    for listing_id in listing_ids:
+        for person in people:
+            entries[(listing_id, person["id"])] = {
+                "person_id": person["id"],
+                "person_name": person["name"],
+                "role": person["role"],
+                "rating": None,
+                "status": None,
+                "note": None,
+                "reason": None,
+                "updated_at": None,
+            }
+
+    placeholders = ",".join("?" for _ in listing_ids)
+    latest_rows = conn.execute(
+        f"""
+        SELECT lf.person_id, lf.listing_id, lf.action_type, lf.rating,
+               lf.status, lf.note, lf.reason, lf.created_at
+        FROM listing_feedback lf
+        JOIN (
+            SELECT person_id, listing_id, action_type, MAX(id) AS max_id
+            FROM listing_feedback
+            WHERE listing_id IN ({placeholders})
+            GROUP BY person_id, listing_id, action_type
+        ) latest ON lf.id = latest.max_id
+        """,
+        listing_ids,
+    ).fetchall()
+
+    for row in latest_rows:
+        entry = entries.get((row["listing_id"], row["person_id"]))
+        if entry is None:
+            continue
+        if row["action_type"] == "rating":
+            entry["rating"] = row["rating"]
+        elif row["action_type"] == "note":
+            entry["note"] = row["note"]
+        elif row["action_type"] == "reject":
+            entry["status"] = row["status"]
+            entry["reason"] = row["reason"]
+        elif row["action_type"] == "research_request":
+            entry["status"] = entry["status"] or "research_requested"
+        if entry["updated_at"] is None or row["created_at"] > entry["updated_at"]:
+            entry["updated_at"] = row["created_at"]
+
+    result: dict[str, list[dict[str, Any]]] = {listing_id: [] for listing_id in listing_ids}
+    for (listing_id, _person_id), entry in entries.items():
+        result[listing_id].append(entry)
+    return result
+
+
+def handle_feedback_post(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """D4/D10: validate person_id/listing_id explicitly, 400 on a miss."""
+    person_id = body.get("person_id")
+    listing_id = body.get("listing_id")
+    action_type = body.get("action_type")
+
+    if not isinstance(listing_id, str) or not listing_id:
+        return {"error": "invalid_request", "detail": "listing_id is required"}, 400
+    if action_type not in ALLOWED_ACTION_TYPES:
+        return {
+            "error": "invalid_request",
+            "detail": f"action_type must be one of {sorted(ALLOWED_ACTION_TYPES)}",
+        }, 400
+
+    conn = get_db()
+    try:
+        if not person_exists(conn, person_id):
+            return {"error": "unknown_person", "detail": f"person_id {person_id!r} not found"}, 400
+        if not validate_listing_id(listing_id):
+            return {"error": "unknown_listing", "detail": f"listing_id {listing_id!r} not found"}, 400
+
+        rating = body.get("rating")
+        status = body.get("status")
+        note = body.get("note")
+        reason = body.get("reason")
+        if action_type == "reject" and status is None:
+            status = "rejected"
+
+        cursor = conn.execute(
+            """
+            INSERT INTO listing_feedback
+                (person_id, listing_id, action_type, rating, status, note, reason)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (person_id, listing_id, action_type, rating, status, note, reason),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT id, created_at FROM listing_feedback WHERE id = ?", (cursor.lastrowid,)
+        ).fetchone()
+        return {"ok": True, "id": row["id"], "created_at": row["created_at"]}, 200
+    finally:
+        conn.close()
 
 
 def number(value: Any) -> float | None:
@@ -373,6 +668,29 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == "/api/poc-listings":
                 self.send_json(fetch_poc(params))
                 return
+            if parsed.path == "/api/people":
+                if not require_auth(self):
+                    self.send_json({"error": "unauthorized"}, 401)
+                    return
+                conn = get_db()
+                try:
+                    rows = conn.execute("SELECT id, name, role FROM people ORDER BY id").fetchall()
+                    self.send_json({"people": [dict(row) for row in rows]})
+                finally:
+                    conn.close()
+                return
+            if parsed.path == "/api/feedback":
+                if not require_auth(self):
+                    self.send_json({"error": "unauthorized"}, 401)
+                    return
+                listing_ids = [x for x in (params.get("listing_ids") or "").split(",") if x]
+                conn = get_db()
+                try:
+                    feedback = latest_feedback_for_listings(conn, listing_ids)
+                    self.send_json({"feedback": feedback})
+                finally:
+                    conn.close()
+                return
             if parsed.path == "/api/health":
                 self.send_json({"ok": True, "hasKey": bool(API_KEY), "baseUrl": BASE_URL})
                 return
@@ -392,8 +710,35 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:  # pragma: no cover, surfaced in browser for prototype speed
             self.send_json({"error": type(exc).__name__, "detail": str(exc)}, 500)
 
+    def do_POST(self) -> None:
+        parsed = urllib.parse.urlparse(self.path)
+        try:
+            if parsed.path == "/api/feedback":
+                if not require_auth(self):
+                    self.send_json({"error": "unauthorized"}, 401)
+                    return
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                raw_body = self.rfile.read(length) if length else b""
+                try:
+                    body = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    self.send_json({"error": "invalid_request", "detail": "malformed JSON body"}, 400)
+                    return
+                if not isinstance(body, dict):
+                    self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
+                    return
+                data, status = handle_feedback_post(body)
+                self.send_json(data, status)
+                return
+            self.send_json({"error": "not_found"}, 404)
+        except Exception as exc:  # pragma: no cover, surfaced in browser for prototype speed
+            self.send_json({"error": type(exc).__name__, "detail": str(exc)}, 500)
+
 
 def main() -> None:
+    init_db()
+    backfill_poc_feedback()
+    load_poc_listing_ids()
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     print(f"House Hunter Repliers prototype running at http://127.0.0.1:{PORT}")
     server.serve_forever()
