@@ -51,6 +51,14 @@ Hunter is rebuilt properly for a real customer.
   built around this one real team and one real buyer journey rather than a
   generic multi-tenant product, to stay grounded in an actual investment
   conversation.
+- **Anees and his partner are co-investors in House Hunter as a product,
+  not just the first realtor customer.** Their relationship to the project
+  is dual: inside the app they act as advisors (realtor/advisor role,
+  visually distinct from buyer sentiment per the Rules to follow below),
+  and at the business level they are investors in House Hunter itself. Do
+  not conflate the two: their in-app actions are still labeled and counted
+  as advisor input, never as buyer sentiment, regardless of their investor
+  status.
 - Galleon owns the app and IP.
 - The free Repliers sample account stays under Mark for prototype work.
   Paid Repliers/PropTx access (needed for real Ontario data) moves to Anees

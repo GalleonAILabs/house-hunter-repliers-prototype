@@ -239,32 +239,39 @@ and when a second realtor team actually shows up.
 
 ## Open Questions
 
-- **Anees and partner's role in the demo seed data.** `PROJECT_BRIEF.md`
-  frames Anees as the realtor/advisor lead ("Anees / Anees's realtor
-  team"), which maps him to `role: advisor`. His partner's role (a second
-  advisor, or a second buyer alongside Mark and Katie) is not yet decided
-  and directly determines the seed rows for the demo — needs an answer
-  before Next Steps item 1's seed data is written, not before the schema
-  itself.
-- Exact US metro/zip to source ~300 Repliers sample listings from, for a
-  realistic volume demo (see Next Steps item 5 for the verification step).
+Both prior open items are now resolved.
 
-**Resolved, not left open:** actor selection persists per-device via
-localStorage (same pattern as dark mode), so a shared household device
-keeps its last-selected actor across reloads. This is now specified in
-Approach A above, not a pending decision.
+**Resolved:**
+- **Anees and partner's role in the demo seed data.** Both seed as `people`
+  rows with `role: advisor` — the flat-table equivalent of
+  `realtor_team_members` in the full `DATA_MODEL_NOTES.md` schema, per
+  Approach A's acknowledged deviation (no separate `realtor_team_members`
+  table exists yet; `role: advisor` on the `people` row is how that concept
+  is represented for now). Beyond their in-app advisor role, Anees and his
+  partner are also co-investors in House Hunter as a product, not just demo
+  participants — see `PROJECT_BRIEF.md`'s commercial path for that context.
+  The investor relationship is a business fact, not a `people.role` value;
+  it does not change how their in-app actions are labeled or counted —
+  still advisor, not buyer, per `DATA_MODEL_NOTES.md`'s rule that
+  realtor/advisor input shouldn't be confused with buyer sentiment.
+- **Exact US metro to source ~300 Repliers sample listings from.** Chicago
+  metro is the chosen source for the verification call in Next Steps
+  item 8.
+- Actor selection persists per-device via localStorage (same pattern as
+  dark mode), so a shared household device keeps its last-selected actor
+  across reloads. This is specified in Approach A above.
 
 ## Next Steps
 
 1. Add SQLite (`sqlite3` stdlib, WAL mode, per-request connections per D1)
    with `people` (including the `buyer_group_id` stub column) and
-   `listing_feedback` tables per Approach A. Resolve the Anees/partner role
-   open question before writing seed data. Backfill the 104 existing
-   Mark/Katie rows from `data/poc_listings.json` into `listing_feedback`
-   per D8, guarded by D14 (only backfill a person if they have zero
-   `listing_feedback` rows yet, so repeated server restarts before the demo
-   don't create duplicates). Load the known POC listing ids into an
-   in-memory set at startup per D10.
+   `listing_feedback` tables per Approach A. Seed Mark and Katie as
+   `role: buyer`, and Anees and his partner as `role: advisor` (resolved —
+   see Open Questions). Backfill the 104 existing Mark/Katie rows from
+   `data/poc_listings.json` into `listing_feedback` per D8, guarded by D14
+   (only backfill a person if they have zero `listing_feedback` rows yet,
+   so repeated server restarts before the demo don't create duplicates).
+   Load the known POC listing ids into an in-memory set at startup per D10.
 2. Add `do_POST` handling to `server.py`'s `Handler` (none exists today) and
    the API surface: `GET /api/people`, `GET /api/feedback?listing_ids=...`
    (batch, per D6, latest-state derived via SQL per D2), `POST
@@ -299,10 +306,11 @@ Approach A above, not a pending decision.
 7. **Only after item 6 resolves successfully:** wire the deferred map-pin
    feedback UI (colored pins, popup rating controls) per D12, reusing the
    shared component built in item 4.
-8. Before swapping the Repliers sample query, run one live call for a
-   single major US metro and confirm it actually returns ~300 results in a
-   single page (or determine the pagination behavior needed) — the free
-   tier's volume/pagination limits for this query shape are unverified.
+8. Before swapping the Repliers sample query, run one live call for the
+   Chicago metro (resolved — see Open Questions) and confirm it actually
+   returns ~300 results in a single page (or determine the pagination
+   behavior needed) — the free tier's volume/pagination limits for this
+   query shape are unverified.
 9. Add `test_server.py` (stdlib `unittest`, per D5) covering schema
    creation, feedback validation, and the latest-state query against an
    in-memory SQLite db, per the Test Plan artifact.
@@ -364,8 +372,8 @@ attention rather than blocking.
 Synthesized from this review's findings. Each task derives from a specific
 finding above. Run with Claude Code; checkbox as you ship.
 
-- [ ] **T1 (P1, human: ~1h / CC: ~10min)** — persistence — Add SQLite schema (`people`, `listing_feedback`), WAL mode, per-request connections (D1), in-memory POC-id cache (D10)
-  - Surfaced by: Architecture D1, D2, D10
+- [ ] **T1 (P1, human: ~1h / CC: ~10min)** — persistence — Add SQLite schema (`people`, `listing_feedback`), WAL mode, per-request connections (D1), in-memory POC-id cache (D10); seed Mark/Katie as `role: buyer` and Anees/partner as `role: advisor`
+  - Surfaced by: Architecture D1, D2, D10; Open Questions resolution
   - Files: `server.py`
   - Verify: `test_server.py` schema tests pass
 - [ ] **T2 (P1, human: ~30min / CC: ~5min)** — persistence — Backfill 104 POC rows into `listing_feedback`, guarded by D14 idempotency check
@@ -392,8 +400,8 @@ finding above. Run with Claude Code; checkbox as you ship.
   - Surfaced by: D12
   - Files: `static/app.js`
   - Verify: manual — pins reflect active actor's feedback state
-- [ ] **T8 (P2, human: ~20min / CC: ~5min)** — data — Verify Repliers free-tier volume for a single US metro before committing to ~300 listings
-  - Surfaced by: Feasibility (office-hours review)
+- [ ] **T8 (P2, human: ~20min / CC: ~5min)** — data — Verify Repliers free-tier volume for the Chicago metro before committing to ~300 listings
+  - Surfaced by: Feasibility (office-hours review); Open Questions resolution
   - Files: `server.py`
   - Verify: one live API call, inspect result count
 - [ ] **T9 (P1, human: ~1-2h / CC: ~15min)** — tests — Add `test_server.py` (stdlib `unittest`, in-memory SQLite) per D5 and the Test Plan artifact
@@ -430,6 +438,4 @@ finding above. Run with Claude Code; checkbox as you ship.
 
 **VERDICT:** ENG REVIEW ISSUES RESOLVED — all 14 findings addressed via explicit user decisions (D1-D14). Not yet run: CEO Review (optional, not required for a scope this size), Design Review (optional; recommended once the interactive feedback UI (T4/T5) has a rough shape, since it introduces new UI components).
 
-**UNRESOLVED DECISIONS:**
-- Anees and his partner's exact roles in the demo seed data (buyer vs. advisor) — needs an answer before Next Steps item 1's seed rows are written.
-- Exact US metro/zip to source ~300 Repliers sample listings from — needs the verification call in Next Steps item 8 before committing to a number.
+NO UNRESOLVED DECISIONS
