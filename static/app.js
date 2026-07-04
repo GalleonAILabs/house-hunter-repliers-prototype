@@ -36,12 +36,20 @@ const CARD_FIELDS = [
 const SETTINGS_KEY = 'hh_card_fields_v1';
 
 // ─── Actor identity (D3/D11 auth, "I am" selector) ─────────────────────────────
-// Shared-secret deterrent, not real security — must match the server's
-// APP_AUTH_TOKEN in .env exactly. Visible in browser JS by design; see
-// tasks/plan.md D3/D11 for the accepted tradeoff.
-const APP_TOKEN = 'change_me_to_a_random_string';
+// Shared-secret deterrent, not real security — visible in browser JS by
+// design; see tasks/plan.md D3/D11 for the accepted tradeoff. Fetched from
+// GET /api/config on startup (that one endpoint is deliberately unprotected
+// so the frontend can bootstrap it) rather than hardcoded, so app.js and
+// .env can't drift out of sync.
+let APP_TOKEN = null;
 const WHO_KEY = 'hh_who_am_i';
 const authHeaders = () => ({ 'X-App-Token': APP_TOKEN });
+
+async function loadConfig() {
+  const res = await fetch('/api/config');
+  const data = await res.json();
+  APP_TOKEN = data.auth_token;
+}
 
 // ─── State ────────────────────────────────────────────────────────────────────
 const state = { map: null, markers: [], listings: [], activeView: 'map', people: [], activePerson: null, feedback: {}, openMapItem: null };
@@ -533,8 +541,12 @@ function showError(err) { console.error(err); $('summary').textContent = 'Error:
 window.addEventListener('DOMContentLoaded', () => {
   loadTheme();
   initMap();
-  loadPeople().then(() => renderCards(state.listings));
-  load().catch(showError);
+  loadConfig()
+    .then(() => {
+      loadPeople().then(() => renderCards(state.listings));
+      return load();
+    })
+    .catch(showError);
   $('whoAmI').addEventListener('change', e => setActivePerson(Number(e.target.value) || null));
   $('load').addEventListener('click', () => load().catch(showError));
   $('reset').addEventListener('click', reset);

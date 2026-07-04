@@ -694,6 +694,12 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == "/api/health":
                 self.send_json({"ok": True, "hasKey": bool(API_KEY), "baseUrl": BASE_URL})
                 return
+            if parsed.path == "/api/config":
+                # Unprotected by design: the frontend needs this to bootstrap
+                # the auth token before it can call anything else. Same
+                # deterrent-not-security tradeoff as the token itself (D3/D11).
+                self.send_json({"auth_token": APP_AUTH_TOKEN})
+                return
             if parsed.path in ("/", "/index.html"):
                 self.send_static(STATIC / "index.html", "text/html; charset=utf-8")
                 return
