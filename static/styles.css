@@ -29,6 +29,8 @@ h1 { font-size:18px; color:#fff; white-space:nowrap; }
 .view-btn { background:transparent; border:0; color:rgba(255,255,255,.65); padding:5px 10px; border-radius:6px; font-size:13px; font-weight:800; cursor:pointer; min-height:0; }
 .view-btn.active { background:rgba(255,255,255,.22); color:#fff; }
 .icon-btn { background:transparent; border:1px solid rgba(255,255,255,.28); color:#fff; border-radius:8px; padding:5px 9px; min-height:0; font-size:15px; cursor:pointer; }
+.who-am-i { background:rgba(255,255,255,.12); color:#fff; border:1px solid rgba(255,255,255,.28); border-radius:8px; padding:5px 8px; font-size:13px; font-weight:700; min-height:0; max-width:110px; }
+.who-am-i option { color:#000; }
 
 .filterbox { position:fixed; top:calc(var(--hdr-h) + 10px); left:12px; right:12px; z-index:500; background:var(--panel); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); max-height:70vh; overflow:auto; }
 .filterbox > summary { list-style:none; padding:12px 14px; cursor:pointer; font-weight:900; font-size:14px; color:var(--ink); }
@@ -68,8 +70,20 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .card-price{font-size:22px;font-weight:900}.card-commute{display:flex;flex-direction:column;gap:2px;padding:10px 12px;background:var(--bg);border-radius:10px}.commute-station{font-weight:800;font-size:13px}.commute-detail{font-size:12px;color:var(--muted)}
 .card-stats,.card-fit-tags,.card-features{display:flex;flex-wrap:wrap;gap:6px}.tag{border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700}.tag.bad{background:#fff0ee;color:var(--red);border-color:#ffc8c1}.tag.good{background:#eaf5ec;color:var(--green);border-color:#bfe2c7}
 .card-financial{background:var(--bg);border-radius:10px;padding:10px 14px;display:flex;flex-direction:column;gap:6px}.fin-row{display:flex;justify-content:space-between;font-size:13px}.fin-label{color:var(--muted)}.fin-value{font-weight:800}
-.card-ratings{display:flex;flex-direction:column;gap:6px}.rating-row{display:flex;align-items:center;gap:10px}.rating-who{font-weight:700;min-width:48px;color:var(--muted);font-size:13px}.rating-stars{color:var(--gold);letter-spacing:2px;font-size:16px}
+.card-ratings{display:flex;flex-direction:column;gap:6px}.rating-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.rating-who{font-weight:700;min-width:48px;color:var(--muted);font-size:13px}.rating-stars{color:var(--gold);letter-spacing:2px;font-size:16px}.rating-role{font-weight:400;font-style:italic;color:var(--blue);font-size:11px}
 .card-comments{background:var(--bg);border-left:3px solid var(--blue);border-radius:0 10px 10px 0;padding:10px 14px;display:flex;flex-direction:column;gap:6px}.comment-line{font-size:13px;line-height:1.45}.comment-who{font-weight:800;color:var(--muted);margin-right:4px}
+
+.card-feedback-actions{display:flex;flex-direction:column;gap:8px;padding-top:6px;border-top:1px dashed var(--line)}
+.feedback-prompt{font-size:12px;color:var(--muted);font-style:italic}
+.rate-stars{display:flex;gap:4px}
+.rate-star{background:none;border:none;padding:0;font-size:22px;line-height:1;color:var(--gold);cursor:pointer;min-height:0}
+.feedback-btn-row{display:flex;flex-wrap:wrap;gap:6px}
+.feedback-btn-row .fb-btn{font-size:12px;padding:6px 10px;min-height:0}
+.feedback-compose{display:flex;gap:6px;align-items:flex-start}
+.feedback-compose[hidden]{display:none}
+.feedback-compose textarea{flex:1;min-height:60px;font:inherit;border:1px solid var(--line);border-radius:8px;padding:6px 8px;background:var(--panel);color:var(--ink);resize:vertical}
+.feedback-compose input{flex:1}
+.feedback-status{font-size:12px;min-height:16px;color:var(--muted)}
 .card-actions{display:flex;flex-wrap:wrap;gap:8px}.card-link-btn,.card-doc-btn{display:inline-block;padding:8px 14px;border-radius:10px;font-size:13px;font-weight:800;text-decoration:none;background:var(--bg);color:var(--ink);border:1px solid var(--line)}.card-actions .show-map{font-size:13px;padding:8px 14px;min-height:0;flex:1}
 
 .settings-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:800}.settings-overlay[hidden],.settings-drawer[hidden]{display:none!important}.settings-drawer{position:fixed;top:0;right:0;height:100%;width:min(380px,96vw);background:var(--panel);color:var(--ink);z-index:900;display:flex;flex-direction:column;box-shadow:-4px 0 32px rgba(0,0,0,.25)}

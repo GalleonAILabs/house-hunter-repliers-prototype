@@ -26,16 +26,25 @@ const CARD_FIELDS = [
   { key: 'commute',   label: 'GO commute',                desc: 'Station, drive time, total to Union', defaultOn: true,  pocOnly: true },
   { key: 'stats',     label: 'Beds / baths / sqft / lot', desc: 'Key property stats',                 defaultOn: true  },
   { key: 'financial', label: 'Monthly PIT + closing',     desc: 'Monthly payment and due at closing', defaultOn: true,  pocOnly: true },
-  { key: 'ratings',   label: 'Ratings',                   desc: 'Mark and Katie star ratings',        defaultOn: true,  pocOnly: true },
+  { key: 'ratings',   label: 'Ratings',                   desc: 'Per-person star ratings',            defaultOn: true  },
   { key: 'fit',       label: 'Fit score tags',            desc: 'What the property fails on',         defaultOn: true  },
   { key: 'features',  label: 'Features',                  desc: 'Loft, home office, shop, etc.',      defaultOn: true,  pocOnly: true },
-  { key: 'comments',  label: 'Latest comments',           desc: 'Most recent note per person',        defaultOn: false, pocOnly: true },
+  { key: 'comments',  label: 'Latest comments',           desc: 'Most recent note per person',        defaultOn: false },
+  { key: 'feedbackActions', label: 'Rate / note / reject controls', desc: 'Record your feedback as the selected actor', defaultOn: true },
   { key: 'actions',   label: 'Action buttons',            desc: 'View listing, research doc, map',    defaultOn: true  },
 ];
 const SETTINGS_KEY = 'hh_card_fields_v1';
 
+// ─── Actor identity (D3/D11 auth, "I am" selector) ─────────────────────────────
+// Shared-secret deterrent, not real security — must match the server's
+// APP_AUTH_TOKEN in .env exactly. Visible in browser JS by design; see
+// tasks/plan.md D3/D11 for the accepted tradeoff.
+const APP_TOKEN = 'change_me_to_a_random_string';
+const WHO_KEY = 'hh_who_am_i';
+const authHeaders = () => ({ 'X-App-Token': APP_TOKEN });
+
 // ─── State ────────────────────────────────────────────────────────────────────
-const state = { map: null, markers: [], listings: [], activeView: 'map' };
+const state = { map: null, markers: [], listings: [], activeView: 'map', people: [], activePerson: null, feedback: {}, openMapItem: null };
 let cardSettings = loadSettings();
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -87,6 +96,167 @@ function applyCardVisibility() {
 
 function openSettings() { buildSettingsPanel(); $('settingsDrawer').hidden = false; $('settingsOverlay').hidden = false; }
 function closeSettings() { $('settingsDrawer').hidden = true; $('settingsOverlay').hidden = true; }
+
+// ─── People / "I am" actor selector ────────────────────────────────────────────
+async function loadPeople() {
+  try {
+    const res = await fetch('/api/people', { headers: authHeaders() });
+    if (!res.ok) throw new Error('failed to load people');
+    const data = await res.json();
+    state.people = data.people || [];
+  } catch (err) {
+    console.error(err);
+    state.people = [];
+  }
+  buildWhoAmI();
+}
+
+function buildWhoAmI() {
+  const sel = $('whoAmI');
+  if (!sel) return;
+  const saved = Number(localStorage.getItem(WHO_KEY)) || null;
+  sel.innerHTML = '<option value="">I am…</option>' +
+    state.people.map(p => `<option value="${p.id}">${esc(p.name)}${p.role === 'advisor' ? ' (advisor)' : ''}</option>`).join('');
+  const validSaved = saved && state.people.some(p => p.id === saved);
+  state.activePerson = validSaved ? saved : null;
+  sel.value = state.activePerson || '';
+}
+
+function setActivePerson(id) {
+  state.activePerson = id || null;
+  if (state.activePerson) localStorage.setItem(WHO_KEY, String(state.activePerson));
+  else localStorage.removeItem(WHO_KEY);
+  renderCards(state.listings);
+  if (state.openMapItem) showMapCard(state.openMapItem);
+}
+
+// ─── Feedback: batch reads (D6/D2) and writes ──────────────────────────────────
+async function fetchFeedback(listingIds) {
+  const ids = [...new Set(listingIds.filter(Boolean))];
+  if (!ids.length) return {};
+  try {
+    const res = await fetch('/api/feedback?listing_ids=' + encodeURIComponent(ids.join(',')), { headers: authHeaders() });
+    if (!res.ok) return {};
+    const data = await res.json();
+    return data.feedback || {};
+  } catch (err) {
+    console.error(err);
+    return {};
+  }
+}
+
+async function postFeedback(payload) {
+  const res = await fetch('/api/feedback', {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || data.error || 'Save failed');
+  return data;
+}
+
+function showFeedbackStatus(el, text, isError) {
+  if (!el) return;
+  el.textContent = text;
+  el.style.color = isError ? 'var(--red)' : 'var(--muted)';
+}
+
+async function submitFeedback(item, actionType, extra, statusEl) {
+  if (!state.activePerson) { showFeedbackStatus(statusEl, 'Select who you are first.', true); return; }
+  try {
+    await postFeedback({ person_id: state.activePerson, listing_id: item.mls, action_type: actionType, ...extra });
+    const fresh = await fetchFeedback([item.mls]);
+    Object.assign(state.feedback, fresh);
+    renderCards(state.listings);
+    if (state.openMapItem === item) showMapCard(item);
+  } catch (err) {
+    showFeedbackStatus(statusEl, err.message, true);
+  }
+}
+
+function buildFeedbackActions(node, item) {
+  const container = node.querySelector('.card-feedback-actions');
+  if (!container) return;
+  container.innerHTML = '';
+
+  if (!state.activePerson) {
+    const prompt = document.createElement('div');
+    prompt.className = 'feedback-prompt';
+    prompt.textContent = 'Select who you are (top right) to rate, note, reject, or request research.';
+    container.appendChild(prompt);
+    return;
+  }
+
+  const feedbackList = state.feedback[item.mls] || [];
+  const mine = feedbackList.find(f => f.person_id === state.activePerson) || {};
+  const statusEl = document.createElement('div');
+  statusEl.className = 'feedback-status';
+
+  const starsRow = document.createElement('div');
+  starsRow.className = 'rate-stars';
+  for (let i = 1; i <= 5; i++) {
+    const star = document.createElement('button');
+    star.type = 'button';
+    star.className = 'rate-star';
+    star.textContent = mine.rating >= i ? '★' : '☆';
+    star.title = `Rate ${i}`;
+    star.addEventListener('click', () => submitFeedback(item, 'rating', { rating: i }, statusEl));
+    starsRow.appendChild(star);
+  }
+
+  const noteToggle = document.createElement('button');
+  noteToggle.type = 'button';
+  noteToggle.className = 'secondary fb-btn';
+  noteToggle.textContent = '📝 Note';
+  const noteBox = document.createElement('div');
+  noteBox.className = 'feedback-compose';
+  noteBox.hidden = true;
+  const noteInput = document.createElement('textarea');
+  noteInput.placeholder = 'Add a note…';
+  noteInput.value = mine.note || '';
+  const noteSave = document.createElement('button');
+  noteSave.type = 'button';
+  noteSave.textContent = 'Save note';
+  noteSave.addEventListener('click', () => {
+    const note = noteInput.value.trim();
+    if (!note) return;
+    submitFeedback(item, 'note', { note }, statusEl);
+  });
+  noteBox.append(noteInput, noteSave);
+  noteToggle.addEventListener('click', () => { noteBox.hidden = !noteBox.hidden; });
+
+  const rejectToggle = document.createElement('button');
+  rejectToggle.type = 'button';
+  rejectToggle.className = 'secondary fb-btn';
+  rejectToggle.textContent = '🚫 Reject';
+  const rejectBox = document.createElement('div');
+  rejectBox.className = 'feedback-compose';
+  rejectBox.hidden = true;
+  const rejectInput = document.createElement('input');
+  rejectInput.placeholder = 'Reason (optional)';
+  rejectInput.value = mine.status === 'rejected' ? (mine.reason || '') : '';
+  const rejectConfirm = document.createElement('button');
+  rejectConfirm.type = 'button';
+  rejectConfirm.textContent = 'Confirm reject';
+  rejectConfirm.addEventListener('click', () => {
+    submitFeedback(item, 'reject', { reason: rejectInput.value.trim() || null }, statusEl);
+  });
+  rejectBox.append(rejectInput, rejectConfirm);
+  rejectToggle.addEventListener('click', () => { rejectBox.hidden = !rejectBox.hidden; });
+
+  const researchBtn = document.createElement('button');
+  researchBtn.type = 'button';
+  researchBtn.className = 'secondary fb-btn';
+  researchBtn.textContent = '🔍 Research';
+  researchBtn.addEventListener('click', () => submitFeedback(item, 'research_request', {}, statusEl));
+
+  const btnRow = document.createElement('div');
+  btnRow.className = 'feedback-btn-row';
+  btnRow.append(noteToggle, rejectToggle, researchBtn);
+
+  container.append(starsRow, btnRow, noteBox, rejectBox, statusEl);
+}
 
 // ─── View toggle ──────────────────────────────────────────────────────────────
 function switchView(view) {
@@ -149,11 +319,12 @@ function showMapCard(item) {
   inner.appendChild(node);
   applyCardVisibility();
   $('mapCard').hidden = false;
+  state.openMapItem = item;
   // Zoom to pin
   state.map.setView([item.lat, item.lng], Math.max(state.map.getZoom(), 12));
 }
 
-function closeMapCard() { $('mapCard').hidden = true; }
+function closeMapCard() { $('mapCard').hidden = true; state.openMapItem = null; }
 
 // ─── Card builder ─────────────────────────────────────────────────────────────
 function tag(text, cls = '') { return `<span class="tag ${cls}">${esc(text)}</span>`; }
@@ -223,12 +394,16 @@ function populateCard(node, item) {
     ].filter(Boolean).join('');
   }
 
-  // Ratings
-  if (poc) {
-    const rows = [
-      item.markRank  && `<div class="rating-row"><span class="rating-who">Mark</span><span class="rating-stars">${stars(item.markRank)}</span></div>`,
-      item.katieRank && `<div class="rating-row"><span class="rating-who">Katie</span><span class="rating-stars">${stars(item.katieRank)}</span></div>`,
-    ].filter(Boolean);
+  // Ratings — dynamic per person (D9), replaces hardcoded Mark/Katie
+  {
+    const feedbackList = state.feedback[item.mls] || [];
+    const rows = feedbackList
+      .filter(f => f.rating != null || f.status)
+      .map(f => {
+        const roleTag = f.role === 'advisor' ? ' <span class="rating-role">(advisor)</span>' : '';
+        const statusTag = f.status ? ` <span class="tag${f.status === 'rejected' ? ' bad' : ''}">${esc(f.status)}</span>` : '';
+        return `<div class="rating-row"><span class="rating-who">${esc(f.person_name)}${roleTag}</span><span class="rating-stars">${stars(f.rating)}</span>${statusTag}</div>`;
+      });
     const el = node.querySelector('.card-ratings');
     if (rows.length) el.innerHTML = rows.join('');
     else el.style.display = 'none';
@@ -242,18 +417,19 @@ function populateCard(node, item) {
     node.querySelector('.card-features').innerHTML = item.features.split(',').map(f => tag(f.trim())).join('');
   }
 
-  // Comments
-  if (poc) {
-    const lastLine = s => s ? s.split('|').pop().replace(/^\d{4}-\d{2}-\d{2}: /, '').trim() : '';
-    const rows = [
-      item.markComments    && `<div class="comment-line"><span class="comment-who">Mark</span>${esc(lastLine(item.markComments))}</div>`,
-      item.katieComments   && `<div class="comment-line"><span class="comment-who">Katie</span>${esc(lastLine(item.katieComments))}</div>`,
-      item.realtorComments && `<div class="comment-line"><span class="comment-who">Anees</span>${esc(lastLine(item.realtorComments))}</div>`,
-    ].filter(Boolean);
+  // Comments — dynamic per person (D9), replaces hardcoded Mark/Katie/Anees
+  {
+    const feedbackList = state.feedback[item.mls] || [];
+    const rows = feedbackList
+      .filter(f => f.note)
+      .map(f => `<div class="comment-line"><span class="comment-who">${esc(f.person_name)}</span>${esc(f.note)}</div>`);
     const el = node.querySelector('.card-comments');
     if (rows.length) el.innerHTML = rows.join('');
     else el.style.display = 'none';
   }
+
+  // Feedback actions (D7/D12) — shared control set for List cards and Map popups
+  buildFeedbackActions(node, item);
 
   // Actions
   const linkBtn = node.querySelector('.card-link-btn');
@@ -334,6 +510,7 @@ async function load() {
   if (sf === 'active')   listings = listings.filter(x => !/reject/i.test(x.status || ''));
   if (sf === 'rejected') listings = listings.filter(x => /reject/i.test(x.status || ''));
   state.listings = listings;
+  state.feedback = await fetchFeedback(listings.map(x => x.mls));
   const summaryText = source === 'poc'
     ? `${listings.length} of ${data.sourceCount} POC listings`
     : `${listings.length} shown · ${Number(data.sourceCount).toLocaleString()} Repliers sample available`;
@@ -356,7 +533,9 @@ function showError(err) { console.error(err); $('summary').textContent = 'Error:
 window.addEventListener('DOMContentLoaded', () => {
   loadTheme();
   initMap();
+  loadPeople().then(() => renderCards(state.listings));
   load().catch(showError);
+  $('whoAmI').addEventListener('change', e => setActivePerson(Number(e.target.value) || null));
   $('load').addEventListener('click', () => load().catch(showError));
   $('reset').addEventListener('click', reset);
   $('source').addEventListener('change', () => { buildSettingsPanel(); load().catch(showError); });

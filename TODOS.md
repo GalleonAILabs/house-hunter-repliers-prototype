@@ -53,3 +53,34 @@ is about to get access to the app, not before.
 
 **Depends on:** Nothing from this plan blocks it; it's an independent
 future workstream.
+
+## Reject and research_request share one status field
+
+**What:** `latest_feedback_for_listings()` in `server.py` merges each
+person's latest `reject` and `research_request` rows into a single `status`
+field (`entry["status"] = entry["status"] or "research_requested"`). Split
+this into two independent fields so both can be true at once — e.g.
+`status` (rejected/shortlisted/etc.) and a separate `research_requested`
+boolean with its own timestamp.
+
+**Why:** Found during T4/T5 browser testing: rejecting a listing then
+requesting research on the same listing writes the `research_request` row
+correctly to `listing_feedback`, but the merged read shows `status:
+"rejected"` and never surfaces the research request, since reject already
+claimed the shared field. The write isn't lost, just not visible in
+`GET /api/feedback`.
+
+**Pros:** Small, isolated change — only touches the merge logic in
+`latest_feedback_for_listings()`, no schema change needed (the
+`listing_feedback` rows already record both action types independently).
+
+**Cons:** Requires a small frontend change too (`buildFeedbackActions()`
+and the ratings-row renderer currently assume one `status` value per
+person).
+
+**Context:** Realistic scenario: "I don't love it, but let's find out more
+before fully deciding" — reject and research-request on the same listing by
+the same person isn't an edge case that should be impossible, just one that
+isn't rendered correctly today. Not required for the Anees demo.
+
+**Depends on:** Nothing; can be picked up independently whenever.
