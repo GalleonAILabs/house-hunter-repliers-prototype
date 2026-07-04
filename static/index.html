@@ -30,26 +30,38 @@
   <details class="filterbox" id="filterbox">
     <summary>Filters</summary>
     <section class="controls">
-      <label>Data source
-        <select id="source">
-          <option value="poc" selected>My POC data</option>
-          <option value="repliers">Repliers sample</option>
-        </select>
-      </label>
       <label>Search
-        <input id="q" placeholder="address, town, features" />
+        <input id="q" placeholder="address, town, features…" />
       </label>
-      <label>Min price
-        <input id="minPrice" type="text" inputmode="numeric" placeholder="0" />
+      <label>Price
+        <div class="range-pair">
+          <input id="minPrice" type="text" inputmode="numeric" placeholder="Min" />
+          <input id="maxPrice" type="text" inputmode="numeric" placeholder="Max" />
+        </div>
       </label>
-      <label>Max price
-        <input id="maxPrice" type="text" inputmode="numeric" placeholder="1,500,000" />
+      <label>Beds
+        <div class="range-pair">
+          <input id="minBeds" type="number" min="0" placeholder="Min" />
+          <input id="maxBeds" type="number" min="0" placeholder="Max" />
+        </div>
       </label>
-      <label>Min beds
-        <input id="minBeds" class="narrow-input" type="number" min="0" placeholder="4" />
+      <label>Baths
+        <div class="range-pair">
+          <input id="minBaths" type="number" min="0" step="0.5" placeholder="Min" />
+          <input id="maxBaths" type="number" min="0" step="0.5" placeholder="Max" />
+        </div>
       </label>
-      <label>Min baths
-        <input id="minBaths" class="narrow-input" type="number" min="0" step="0.5" placeholder="2" />
+      <label>Monthly PIT
+        <div class="range-pair">
+          <input id="minPit" type="text" inputmode="numeric" placeholder="Min" />
+          <input id="maxPit" type="text" inputmode="numeric" placeholder="Max" />
+        </div>
+      </label>
+      <label>Due at closing
+        <div class="range-pair">
+          <input id="minDue" type="text" inputmode="numeric" placeholder="Min" />
+          <input id="maxDue" type="text" inputmode="numeric" placeholder="Max" />
+        </div>
       </label>
       <label>Min fit
         <select id="minFit">
@@ -76,6 +88,12 @@
         </select>
       </label>
       <div id="personFilters" class="contents"></div>
+      <label>Data source
+        <select id="source">
+          <option value="poc" selected>My POC data</option>
+          <option value="repliers">Sample</option>
+        </select>
+      </label>
       <button id="load">Apply</button>
       <button id="reset" class="secondary">Reset</button>
     </section>

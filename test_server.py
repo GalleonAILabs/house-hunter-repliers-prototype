@@ -26,6 +26,8 @@ FIXTURE_POC = {
         {
             "row": 2,
             "address": "1 Test St",
+            "beds": 2,
+            "bedsNum": 2,
             "markRank": 4,
             "katieRank": "",
             "markComments": "Nice place",
@@ -36,12 +38,31 @@ FIXTURE_POC = {
         {
             "row": 3,
             "address": "2 Test St",
+            "beds": 5,
+            "bedsNum": 5,
             "markRank": "",
             "katieRank": 5,
             "markComments": "",
             "katieComments": "Love it",
             "rejBy": "Mark",
             "rejReason": "too small",
+        },
+        {
+            # Composite "beds" string (main + basement bedrooms), like real
+            # POC sheet rows -- regression fixture for the maxBeds/minBeds
+            # TypeError bug (comparing str to float when "beds" isn't a
+            # plain number). No feedback fields set: must not affect the
+            # backfill-count assertions in BackfillTests.
+            "row": 4,
+            "address": "3 Test St",
+            "beds": "3+1",
+            "bedsNum": 3,
+            "markRank": "",
+            "katieRank": "",
+            "markComments": "",
+            "katieComments": "",
+            "rejBy": "",
+            "rejReason": "",
         },
     ],
 }
@@ -341,6 +362,26 @@ class FeedbackWriteTests(ServerTestCase):
         katie = next(p for p in data["feedback"]["POC-2"] if p["person_name"] == "Katie")
         self.assertEqual(katie["status"], "rejected")
         self.assertEqual(katie["reason"], "too far")
+
+
+class PocListingsFilterTests(ServerTestCase):
+    """Covers /api/poc-listings query-param filtering, including the
+    minBeds/maxBeds regression: POC "beds" can be a composite display
+    string ("3+1") that isn't directly numeric-comparable."""
+
+    def test_max_beds_handles_composite_beds_string(self) -> None:
+        status, data = self.request("GET", "/api/poc-listings?maxBeds=3")
+        self.assertEqual(status, 200)
+        addresses = {item["address"] for item in data["listings"]}
+        self.assertIn("3 Test St", addresses)  # beds="3+1", bedsNum=3
+        self.assertNotIn("2 Test St", addresses)  # beds=5
+
+    def test_min_beds_handles_composite_beds_string(self) -> None:
+        status, data = self.request("GET", "/api/poc-listings?minBeds=4")
+        self.assertEqual(status, 200)
+        addresses = {item["address"] for item in data["listings"]}
+        self.assertNotIn("3 Test St", addresses)  # beds="3+1", bedsNum=3
+        self.assertIn("2 Test St", addresses)  # beds=5
 
 
 if __name__ == "__main__":

@@ -500,7 +500,8 @@ def passes_local_filters(item: dict[str, Any], params: dict[str, str]) -> bool:
         return number(params.get(name))
 
     min_price, max_price = gnum("minPrice"), gnum("maxPrice")
-    min_beds, min_baths = gnum("minBeds"), gnum("minBaths")
+    min_beds, max_beds = gnum("minBeds"), gnum("maxBeds")
+    min_baths, max_baths = gnum("minBaths"), gnum("maxBaths")
     min_fit = gnum("minFit")
     q = (params.get("q") or "").strip().lower()
 
@@ -508,9 +509,17 @@ def passes_local_filters(item: dict[str, Any], params: dict[str, str]) -> bool:
         return False
     if max_price is not None and (item.get("price") is None or item["price"] > max_price):
         return False
-    if min_beds is not None and (item.get("beds") is None or item["beds"] < min_beds):
+    # bedsNum is the always-numeric field (POC's "beds" can be a composite
+    # display string like "3+1"); Repliers items have no bedsNum key at
+    # all, so this falls back to their already-numeric "beds".
+    beds_val = item.get("bedsNum") if item.get("bedsNum") is not None else item.get("beds")
+    if min_beds is not None and (beds_val is None or beds_val < min_beds):
+        return False
+    if max_beds is not None and (beds_val is None or beds_val > max_beds):
         return False
     if min_baths is not None and (item.get("baths") is None or item["baths"] < min_baths):
+        return False
+    if max_baths is not None and (item.get("baths") is None or item["baths"] > max_baths):
         return False
     if min_fit is not None and item["fit"]["met"] < min_fit:
         return False
@@ -553,7 +562,13 @@ def normalize_poc(p: dict[str, Any]) -> dict[str, Any]:
         "price": intish(p.get("priceNum") or p.get("price")),
         "originalPrice": None,
         "soldPrice": None,
+        # "beds" stays the raw display value ("3+1" means 3 main + 1
+        # basement bedroom, meaningful to a buyer) — "bedsNum" is the
+        # always-numeric field range filters compare against, since
+        # "beds" isn't reliably numeric (49 of 105 rows are composite
+        # strings like "3+1", not plain integers).
         "beds": p.get("beds") or p.get("bedsNum"),
+        "bedsNum": intish(p.get("bedsNum") or p.get("beds")),
         "baths": number(p.get("bathsNum") or p.get("baths")),
         "sqft": intish(p.get("sqftNum") or p.get("sqft")),
         "acres": number(p.get("acresNum") or p.get("acres")),
@@ -584,6 +599,7 @@ def normalize_poc(p: dict[str, Any]) -> dict[str, Any]:
         "pitNum": number(p.get("pitNum")),
         "pit": p.get("pit") or "",
         "dueClosing": p.get("dueClosing") or "",
+        "dueNum": number(p.get("dueNum")),
         "agent": p.get("rejBy") or "",
         "brokerage": go_station,
         "estimate": None,

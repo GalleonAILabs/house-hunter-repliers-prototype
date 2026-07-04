@@ -140,33 +140,43 @@ function setActivePerson(id) {
 }
 
 // ─── Per-person rating/consensus filters (dynamic, one row per person) ────────
+// Checkboxes, OR'd within a person: check 3★+4★+5★ to replicate an old
+// "3+ stars" filter. No boxes checked = that person's filter is ignored.
 const PERSON_FILTER_OPTIONS = [
-  { value: '', label: 'Any' },
-  { value: 'not_rated', label: 'Not rated yet' },
-  { value: '1plus', label: '1+ stars' },
-  { value: '2plus', label: '2+ stars' },
-  { value: '3plus', label: '3+ stars' },
-  { value: '4plus', label: '4+ stars' },
-  { value: '5', label: '5 stars' },
-  { value: 'said_no', label: 'Said no' },
-  { value: 'not_said_no', label: 'Did not say no' },
+  { value: 'not_rated', label: 'Not rated', title: 'Not rated yet' },
+  { value: '1', label: '1★', title: '1 star' },
+  { value: '2', label: '2★', title: '2 stars' },
+  { value: '3', label: '3★', title: '3 stars' },
+  { value: '4', label: '4★', title: '4 stars' },
+  { value: '5', label: '5★', title: '5 stars' },
+  { value: 'said_no', label: 'Said no', title: 'Said no' },
 ];
 
-function personFilterId(personId) { return `personFilter_${personId}`; }
+function personFilterCbId(personId, value) { return `personFilter_${personId}_${value}`; }
 
 function buildPersonFilters() {
   const container = $('personFilters');
   if (!container) return;
   container.innerHTML = state.people.map(p => `
-    <label>${esc(p.name)}
-      <select id="${personFilterId(p.id)}" data-person-id="${p.id}">
-        ${PERSON_FILTER_OPTIONS.map(o => `<option value="${o.value}">${esc(o.label)}</option>`).join('')}
-      </select>
-    </label>
+    <div class="person-filter-block">
+      <div class="person-filter-name">${esc(p.name)}</div>
+      ${PERSON_FILTER_OPTIONS.map(o => `
+        <label class="chip" title="${esc(o.title)}">
+          <input type="checkbox" id="${personFilterCbId(p.id, o.value)}" data-person-id="${p.id}" data-value="${o.value}" />
+          ${esc(o.label)}
+        </label>
+      `).join('')}
+    </div>
   `).join('');
-  container.querySelectorAll('select[data-person-id]').forEach(sel => {
-    sel.addEventListener('change', applyFiltersAndRender);
+  container.querySelectorAll('input[type=checkbox]').forEach(cb => {
+    cb.addEventListener('change', applyFiltersAndRender);
   });
+}
+
+function checkedValuesFor(personId) {
+  return PERSON_FILTER_OPTIONS
+    .map(o => o.value)
+    .filter(v => $(personFilterCbId(personId, v))?.checked);
 }
 
 function personFeedbackFor(listingId, personId) {
@@ -175,22 +185,25 @@ function personFeedbackFor(listingId, personId) {
   return list.find(f => f.person_id === personId) || null;
 }
 
-function matchesPersonFilter(listingId, personId, value) {
-  if (!value) return true; // Any
+function matchesPersonCheckValue(listingId, personId, value) {
   const f = personFeedbackFor(listingId, personId);
   const rating = f?.rating ?? null;
   const saidNo = f?.status === 'rejected';
   switch (value) {
-    case 'not_rated':  return rating == null && !saidNo;
-    case '1plus':      return rating != null && rating >= 1;
-    case '2plus':      return rating != null && rating >= 2;
-    case '3plus':      return rating != null && rating >= 3;
-    case '4plus':      return rating != null && rating >= 4;
-    case '5':          return rating === 5;
-    case 'said_no':    return saidNo;
-    case 'not_said_no': return !saidNo;
-    default:           return true;
+    case 'not_rated': return rating == null && !saidNo;
+    case '1':         return rating === 1;
+    case '2':         return rating === 2;
+    case '3':         return rating === 3;
+    case '4':         return rating === 4;
+    case '5':         return rating === 5;
+    case 'said_no':   return saidNo;
+    default:          return false;
   }
+}
+
+function matchesPersonFilter(listingId, personId, checkedValues) {
+  if (!checkedValues.length) return true; // nothing checked = ignored
+  return checkedValues.some(v => matchesPersonCheckValue(listingId, personId, v));
 }
 
 function matchesStatusFilter(listingId, value) {
@@ -202,12 +215,39 @@ function matchesStatusFilter(listingId, value) {
   return true;
 }
 
+// ─── Keyword search (live, client-side, no Apply needed) ─────────────────────
+function matchesKeyword(item, keyword) {
+  if (!keyword) return true;
+  const feedbackList = state.feedback[item.mls] || [];
+  const hay = [
+    item.address, item.city, item.state, item.propertyType, item.style,
+    item.brokerage, item.goStation, item.features,
+    ...feedbackList.map(f => f.note), ...feedbackList.map(f => f.research_note),
+  ].filter(Boolean).join(' ').toLowerCase();
+  return hay.includes(keyword);
+}
+
+// ─── Numeric range helpers (PIT / due-at-closing, client-side only — POC-only fields) ──
+function matchesRange(value, minId, maxId) {
+  const min = numericFieldValue(minId);
+  const max = numericFieldValue(maxId);
+  if (!min && !max) return true;
+  if (value == null) return false; // an active min/max can't match an unknown value
+  if (min && value < Number(min)) return false;
+  if (max && value > Number(max)) return false;
+  return true;
+}
+
 function filterByFeedback(listings) {
   const statusVal = $('filterStatus')?.value || '';
-  const personFilters = state.people.map(p => ({ id: p.id, value: $(personFilterId(p.id))?.value || '' }));
+  const keyword = ($('q')?.value || '').trim().toLowerCase();
+  const personFilters = state.people.map(p => ({ id: p.id, values: checkedValuesFor(p.id) }));
   return listings.filter(item => {
     if (!matchesStatusFilter(item.mls, statusVal)) return false;
-    return personFilters.every(pf => matchesPersonFilter(item.mls, pf.id, pf.value));
+    if (!matchesKeyword(item, keyword)) return false;
+    if (!matchesRange(item.pitNum, 'minPit', 'maxPit')) return false;
+    if (!matchesRange(item.dueNum, 'minDue', 'maxDue')) return false;
+    return personFilters.every(pf => matchesPersonFilter(item.mls, pf.id, pf.values));
   });
 }
 
@@ -629,7 +669,10 @@ function numericFieldValue(id) {
 // ─── Load ─────────────────────────────────────────────────────────────────────
 function filterParams() {
   const p = new URLSearchParams();
-  ['q','minBeds','minBaths','minFit','resultsPerPage'].forEach(id => {
+  // Note: minBaths/maxBaths can be decimal (step=0.5) — read directly, not
+  // through numericFieldValue() which strips non-digits for whole-dollar
+  // comma-formatted fields and would corrupt "2.5" into "25".
+  ['minBeds','maxBeds','minBaths','maxBaths','minFit','resultsPerPage'].forEach(id => {
     const v = $(id)?.value.trim();
     if (v) p.set(id, v);
   });
@@ -657,19 +700,26 @@ async function load() {
 }
 
 function reset() {
-  ['q','minPrice','maxPrice','minBeds','minBaths','minFit','filterStatus'].forEach(id => { const el=$(id); if(el) { el.value=''; delete el.dataset.raw; } });
+  ['q','minPrice','maxPrice','minBeds','maxBeds','minBaths','maxBaths','minPit','maxPit','minDue','maxDue','minFit','filterStatus']
+    .forEach(id => { const el=$(id); if(el) { el.value=''; delete el.dataset.raw; } });
   $('resultsPerPage').value = '60';
-  state.people.forEach(p => { const el = $(personFilterId(p.id)); if (el) el.value = ''; });
+  state.people.forEach(p => {
+    PERSON_FILTER_OPTIONS.forEach(o => { const cb = $(personFilterCbId(p.id, o.value)); if (cb) cb.checked = false; });
+  });
   load().catch(showError);
 }
 function showError(err) { console.error(err); $('summary').textContent = 'Error: ' + err.message; }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
+function debounce(fn, ms) {
+  let timer;
+  return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); };
+}
+
 window.addEventListener('DOMContentLoaded', () => {
   loadTheme();
   initMap();
-  wirePriceInput('minPrice');
-  wirePriceInput('maxPrice');
+  ['minPrice', 'maxPrice', 'minPit', 'maxPit', 'minDue', 'maxDue'].forEach(wirePriceInput);
   loadConfig()
     .then(() => {
       loadPeople().then(applyFiltersAndRender);
@@ -680,6 +730,11 @@ window.addEventListener('DOMContentLoaded', () => {
   $('load').addEventListener('click', () => load().catch(showError));
   $('reset').addEventListener('click', reset);
   $('filterStatus')?.addEventListener('change', applyFiltersAndRender);
+  $('q')?.addEventListener('input', debounce(applyFiltersAndRender, 150));
+  $('minPit')?.addEventListener('change', applyFiltersAndRender);
+  $('maxPit')?.addEventListener('change', applyFiltersAndRender);
+  $('minDue')?.addEventListener('change', applyFiltersAndRender);
+  $('maxDue')?.addEventListener('change', applyFiltersAndRender);
   $('source').addEventListener('change', () => { buildSettingsPanel(); load().catch(showError); });
   $('sort')?.addEventListener('change', e => { syncSort(e.target.value); renderCards(state.listings); refreshMap(state.listings); });
   $('sortList')?.addEventListener('change', e => { syncSort(e.target.value); renderCards(state.listings); });
