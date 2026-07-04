@@ -125,7 +125,7 @@ function buildWhoAmI() {
   if (!sel) return;
   const saved = Number(localStorage.getItem(WHO_KEY)) || null;
   sel.innerHTML = '<option value="">I am…</option>' +
-    state.people.map(p => `<option value="${p.id}">${esc(p.name)}${p.role === 'advisor' ? ' (advisor)' : ''}</option>`).join('');
+    state.people.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
   const validSaved = saved && state.people.some(p => p.id === saved);
   state.activePerson = validSaved ? saved : null;
   sel.value = state.activePerson || '';
@@ -158,7 +158,7 @@ function buildPersonFilters() {
   const container = $('personFilters');
   if (!container) return;
   container.innerHTML = state.people.map(p => `
-    <label>${esc(p.name)}${p.role === 'advisor' ? ' <span class="person-filter-role">(advisor)</span>' : ''}
+    <label>${esc(p.name)}
       <select id="${personFilterId(p.id)}" data-person-id="${p.id}">
         ${PERSON_FILTER_OPTIONS.map(o => `<option value="${o.value}">${esc(o.label)}</option>`).join('')}
       </select>
@@ -340,8 +340,16 @@ function buildFeedbackActions(node, item) {
   const researchBtn = document.createElement('button');
   researchBtn.type = 'button';
   researchBtn.className = 'secondary fb-btn';
-  researchBtn.textContent = '🔍 Research';
-  researchBtn.addEventListener('click', () => submitFeedback(item, 'research_request', {}, statusEl));
+  const alreadyRequested = mine.status === 'research_requested';
+  if (alreadyRequested) researchBtn.classList.add('fb-btn-requested');
+  researchBtn.textContent = alreadyRequested ? '✅ Requested' : '🔍 Research';
+  researchBtn.addEventListener('click', () => {
+    // Placeholder until the real research agent is wired in — the note
+    // captures the actual question so it's not lost once that lands.
+    const question = prompt('What should the research agent look into for this property?');
+    if (!question || !question.trim()) return;
+    submitFeedback(item, 'research_request', { note: question.trim() }, statusEl);
+  });
 
   const btnRow = document.createElement('div');
   btnRow.className = 'feedback-btn-row';
@@ -366,7 +374,7 @@ function initMap() {
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap', maxZoom: 19
   }).addTo(state.map);
-  state.map.on('click', () => closeMapCard());
+  state.map.on('click', () => { closeMapCard(); closeFilters(); });
   window.addEventListener('resize', () => state.map?.invalidateSize({ animate: false }));
 }
 
@@ -390,7 +398,7 @@ function refreshMap(list) {
       radius: 10, weight: 2, color: '#fff',
       fillColor: markerColor(item), fillOpacity: 0.92,
     }).addTo(state.map);
-    marker.on('click', e => { L.DomEvent.stopPropagation(e); showMapCard(item); });
+    marker.on('click', e => { L.DomEvent.stopPropagation(e); showMapCard(item); closeFilters(); });
     marker._hhItem = item;
     state.markers.push(marker);
     bounds.push([item.lat, item.lng]);
@@ -417,6 +425,11 @@ function showMapCard(item) {
 }
 
 function closeMapCard() { $('mapCard').hidden = true; state.openMapItem = null; }
+
+function closeFilters() {
+  const fb = $('filterbox');
+  if (fb) fb.open = false;
+}
 
 // ─── Card builder ─────────────────────────────────────────────────────────────
 function tag(text, cls = '') { return `<span class="tag ${cls}">${esc(text)}</span>`; }
@@ -492,9 +505,8 @@ function populateCard(node, item) {
     const rows = feedbackList
       .filter(f => f.rating != null || f.status)
       .map(f => {
-        const roleTag = f.role === 'advisor' ? ' <span class="rating-role">(advisor)</span>' : '';
         const statusTag = f.status ? ` <span class="tag${f.status === 'rejected' ? ' bad' : ''}">${esc(f.status)}</span>` : '';
-        return `<div class="rating-row"><span class="rating-who">${esc(f.person_name)}${roleTag}</span><span class="rating-stars">${stars(f.rating)}</span>${statusTag}</div>`;
+        return `<div class="rating-row"><span class="rating-who">${esc(f.person_name)}</span><span class="rating-stars">${stars(f.rating)}</span>${statusTag}</div>`;
       });
     const el = node.querySelector('.card-ratings');
     if (rows.length) el.innerHTML = rows.join('');
@@ -512,9 +524,12 @@ function populateCard(node, item) {
   // Comments — dynamic per person (D9), replaces hardcoded Mark/Katie/Anees
   {
     const feedbackList = state.feedback[item.mls] || [];
-    const rows = feedbackList
-      .filter(f => f.note)
-      .map(f => `<div class="comment-line"><span class="comment-who">${esc(f.person_name)}</span>${esc(f.note)}</div>`);
+    const rows = [
+      ...feedbackList.filter(f => f.note).map(f =>
+        `<div class="comment-line"><span class="comment-who">${esc(f.person_name)}</span>${esc(f.note)}</div>`),
+      ...feedbackList.filter(f => f.research_note).map(f =>
+        `<div class="comment-line"><span class="comment-who">${esc(f.person_name)} (research)</span>${esc(f.research_note)}</div>`),
+    ];
     const el = node.querySelector('.card-comments');
     if (rows.length) el.innerHTML = rows.join('');
     else el.style.display = 'none';
@@ -527,7 +542,14 @@ function populateCard(node, item) {
   const linkBtn = node.querySelector('.card-link-btn');
   const docBtn  = node.querySelector('.card-doc-btn');
   if (poc?.link) linkBtn.href = poc.link; else linkBtn.style.display = 'none';
-  if (poc?.doc)  docBtn.href  = poc.doc;  else docBtn.style.display = 'none';
+  if (poc?.doc) {
+    docBtn.href = poc.doc;
+    docBtn.textContent = 'Research doc';
+  } else {
+    // Repliers listings have no research doc yet — fall back to a Drive search.
+    docBtn.href = 'https://drive.google.com/drive/search?q=' + encodeURIComponent(item.address || '');
+    docBtn.textContent = 'Search Drive';
+  }
 
   // Show on map (list view only — switches to map view and shows card)
   const showMapBtn = node.querySelector('.show-map');
@@ -580,11 +602,39 @@ function sortListings(list) {
   return s;
 }
 
+// ─── Price inputs: comma-formatted display, raw digits for filtering ──────────
+function formatThousands(digits) {
+  return digits ? Number(digits).toLocaleString('en-US') : '';
+}
+
+function wirePriceInput(id) {
+  const el = $(id);
+  if (!el) return;
+  el.addEventListener('blur', () => {
+    const digits = el.value.replace(/[^\d]/g, '');
+    el.dataset.raw = digits;
+    el.value = formatThousands(digits);
+  });
+  el.addEventListener('focus', () => {
+    if (el.dataset.raw) el.value = el.dataset.raw;
+  });
+}
+
+function numericFieldValue(id) {
+  const el = $(id);
+  if (!el) return '';
+  return el.dataset.raw || el.value.replace(/[^\d]/g, '');
+}
+
 // ─── Load ─────────────────────────────────────────────────────────────────────
 function filterParams() {
   const p = new URLSearchParams();
-  ['q','minPrice','maxPrice','minBeds','minBaths','minFit','resultsPerPage'].forEach(id => {
+  ['q','minBeds','minBaths','minFit','resultsPerPage'].forEach(id => {
     const v = $(id)?.value.trim();
+    if (v) p.set(id, v);
+  });
+  ['minPrice','maxPrice'].forEach(id => {
+    const v = numericFieldValue(id);
     if (v) p.set(id, v);
   });
   return p;
@@ -607,7 +657,7 @@ async function load() {
 }
 
 function reset() {
-  ['q','minPrice','maxPrice','minBeds','minBaths','minFit','filterStatus'].forEach(id => { const el=$(id); if(el) el.value=''; });
+  ['q','minPrice','maxPrice','minBeds','minBaths','minFit','filterStatus'].forEach(id => { const el=$(id); if(el) { el.value=''; delete el.dataset.raw; } });
   $('resultsPerPage').value = '60';
   state.people.forEach(p => { const el = $(personFilterId(p.id)); if (el) el.value = ''; });
   load().catch(showError);
@@ -618,6 +668,8 @@ function showError(err) { console.error(err); $('summary').textContent = 'Error:
 window.addEventListener('DOMContentLoaded', () => {
   loadTheme();
   initMap();
+  wirePriceInput('minPrice');
+  wirePriceInput('maxPrice');
   loadConfig()
     .then(() => {
       loadPeople().then(applyFiltersAndRender);

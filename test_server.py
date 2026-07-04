@@ -223,6 +223,24 @@ class FeedbackReadTests(ServerTestCase):
         self.assertEqual(mark["status"], "rejected")
         self.assertEqual(mark["reason"], "too small")
 
+    def test_research_note_surfaced_separately_from_note(self) -> None:
+        # research_request's question text must not clobber, or be clobbered
+        # by, a regular note on the same person/listing.
+        self.request(
+            "POST", "/api/feedback", token=self.TOKEN,
+            body={"person_id": 1, "listing_id": "POC-2", "action_type": "note", "note": "Nice place"},
+        )
+        self.request(
+            "POST", "/api/feedback", token=self.TOKEN,
+            body={"person_id": 1, "listing_id": "POC-2", "action_type": "research_request",
+                  "note": "What's the zoning history here?"},
+        )
+        _, data = self.request("GET", "/api/feedback?listing_ids=POC-2", token=self.TOKEN)
+        mark = next(p for p in data["feedback"]["POC-2"] if p["person_name"] == "Mark")
+        self.assertEqual(mark["note"], "Nice place")
+        self.assertEqual(mark["research_note"], "What's the zoning history here?")
+        self.assertEqual(mark["status"], "research_requested")
+
     def test_two_people_rate_independently(self) -> None:
         self.request(
             "POST", "/api/feedback", token=self.TOKEN,

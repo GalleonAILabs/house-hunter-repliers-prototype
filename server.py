@@ -249,6 +249,7 @@ def latest_feedback_for_listings(
                 "status": None,
                 "note": None,
                 "reason": None,
+                "research_note": None,
                 "updated_at": None,
             }
 
@@ -281,6 +282,7 @@ def latest_feedback_for_listings(
             entry["reason"] = row["reason"]
         elif row["action_type"] == "research_request":
             entry["status"] = entry["status"] or "research_requested"
+            entry["research_note"] = row["note"]
         if entry["updated_at"] is None or row["created_at"] > entry["updated_at"]:
             entry["updated_at"] = row["created_at"]
 
