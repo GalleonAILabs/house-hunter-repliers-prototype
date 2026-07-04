@@ -372,34 +372,41 @@ attention rather than blocking.
 Synthesized from this review's findings. Each task derives from a specific
 finding above. Run with Claude Code; checkbox as you ship.
 
-- [ ] **T1 (P1, human: ~1h / CC: ~10min)** — persistence — Add SQLite schema (`people`, `listing_feedback`), WAL mode, per-request connections (D1), in-memory POC-id cache (D10); seed Mark/Katie as `role: buyer` and Anees/partner as `role: advisor`
+- [x] **T1 (P1, human: ~1h / CC: ~10min)** — persistence — Add SQLite schema (`people`, `listing_feedback`), WAL mode, per-request connections (D1), in-memory POC-id cache (D10); seed Mark/Katie as `role: buyer` and Anees/partner as `role: advisor`
   - Surfaced by: Architecture D1, D2, D10; Open Questions resolution
   - Files: `server.py`
   - Verify: `test_server.py` schema tests pass
-- [ ] **T2 (P1, human: ~30min / CC: ~5min)** — persistence — Backfill 104 POC rows into `listing_feedback`, guarded by D14 idempotency check
+  - **Done.** Schema, WAL mode, and seed data verified directly; idempotent across repeated `init_db()` calls and real server restarts. In-memory POC-id cache (`load_poc_listing_ids()`) ended up built in T3, where it's actually consumed.
+- [x] **T2 (P1, human: ~30min / CC: ~5min)** — persistence — Backfill 104 POC rows into `listing_feedback`, guarded by D14 idempotency check
   - Surfaced by: Outside voice D8, Failure Modes D14
   - Files: `server.py` (or a small one-time migration script)
   - Verify: run server twice, confirm no duplicate rows for Mark/Katie
-- [ ] **T3 (P1, human: ~1.5h / CC: ~15min)** — API — Add `do_POST`, `GET /api/people`, `GET /api/feedback?listing_ids=...` (batch, D6), `POST /api/feedback` (D4 validation), shared-secret token on GET+POST (D3/D11)
+  - **Done.** Row counts matched the source data exactly (Mark 78/77/41, Katie 5/11/5 rating/note/reject, 217 total). Idempotency confirmed across repeated calls and a real restart.
+- [x] **T3 (P1, human: ~1.5h / CC: ~15min)** — API — Add `do_POST`, `GET /api/people`, `GET /api/feedback?listing_ids=...` (batch, D6), `POST /api/feedback` (D4 validation), shared-secret token on GET+POST (D3/D11)
   - Surfaced by: Architecture D2, D3, D4, D6, D10, D11
   - Files: `server.py`
   - Verify: `test_server.py` API tests pass; manual curl smoke test
-- [ ] **T4 (P1, human: ~1h / CC: ~10min)** — frontend — Build "I am" actor selector UI in top bar, backed by `GET /api/people`, localStorage-persisted
+  - **Done.** All three endpoints verified via curl: auth fails closed, batch feedback returns null-filled per-person entries, person_id/listing_id validation returns clean 400s.
+- [x] **T4 (P1, human: ~1h / CC: ~10min)** — frontend — Build "I am" actor selector UI in top bar, backed by `GET /api/people`, localStorage-persisted
   - Surfaced by: Office-hours design, Architecture (actor selector)
   - Files: `static/app.js`, `static/index.html`, `static/styles.css`
   - Verify: manual — select actor, reload, confirm persistence
-- [ ] **T5 (P1, human: ~3-4h / CC: ~30min)** — frontend — Build interactive feedback UI (rate/note/reject/research) as one shared component for List cards, wire to `POST /api/feedback`; rewrite `populateCard()` to render dynamic per-person feedback via D6 batch endpoint (D9)
+  - **Done.** Verified in browser: selector populates from the API, persists across reload, switching actors correctly isolates each person's own feedback state.
+- [x] **T5 (P1, human: ~3-4h / CC: ~30min)** — frontend — Build interactive feedback UI (rate/note/reject/research) as one shared component for List cards, wire to `POST /api/feedback`; rewrite `populateCard()` to render dynamic per-person feedback via D6 batch endpoint (D9)
   - Surfaced by: Outside voice D7, D9
   - Files: `static/app.js`, `static/styles.css`
   - Verify: manual — rate as two different actors, confirm both persist independently; card no longer shows hardcoded Mark/Katie fields
-- [ ] **T6 (P2, human: ~0.5-1.5 days / CC: ~1-2h)** — map — Time-boxed Leaflet fix per Next Steps item 6, hard-stop fallback to List-only if unresolved
+  - **Done.** Verified rating/note/reject/research all write and re-render correctly. Found and fixed a real CSS bug during testing (`.feedback-compose{display:flex}` defeated the native `[hidden]` attribute). Found and deferred to TODOS.md: `reject` and `research_request` share one merged `status` field, so a research request on an already-rejected listing saves but doesn't visibly change status.
+- [x] **T6 (P2, human: ~0.5-1.5 days / CC: ~1-2h)** — map — Time-boxed Leaflet fix per Next Steps item 6, hard-stop fallback to List-only if unresolved
   - Surfaced by: Premise 4 reconciliation, D13
-  - Files: `static/app.js`, `static/styles.css`
+  - Files: `static/index.html` (not `app.js`/`styles.css` as originally scoped)
   - Verify: map renders correctly on local Wi-Fi (doubles as demo validation per D13)
-- [ ] **T7 (P2, human: ~1h / CC: ~10min)** — map — Wire deferred map-pin feedback UI, reusing T5's shared component, only after T6 succeeds
+  - **Done, root cause found — not a tunnel or mobile issue.** `leaflet.css`'s `<link>` tag carried a corrupted SRI integrity hash (its ending matched the `leaflet.js` tag's hash, not its own file's real hash), so Chrome silently blocked the stylesheet in every browser, every time, regardless of tunnel or device. Without Leaflet's CSS, `.leaflet-tile` computed to `position: static` instead of `absolute`, so tiles stacked in normal document flow with a transform shift on top — the exact "broken tile grid" symptom. Fixed with the real hash (verified via `openssl dgst -sha256`). Confirmed clean on both a 412x915 mobile viewport and 1280x800 desktop viewport, direct localhost, no tunnel; survives Map/List toggling; zero console errors. This entire bug predates and is unrelated to every fix attempt logged in `HANDOFF.md` — none of them touched the actual root cause.
+- [x] **T7 (P2, human: ~1h / CC: ~10min)** — map — Wire deferred map-pin feedback UI, reusing T5's shared component, only after T6 succeeds
   - Surfaced by: D12
   - Files: `static/app.js`
   - Verify: manual — pins reflect active actor's feedback state
+  - **Done, no new code needed.** `populateCard()` was already shared between List cards and the Map popup (D12), so the moment T6 fixed tile rendering, pin clicks opened popups with the full working feedback UI automatically. Verified via a synthetic click on a marker.
 - [ ] **T8 (P2, human: ~20min / CC: ~5min)** — data — Verify Repliers free-tier volume for the Chicago metro before committing to ~300 listings
   - Surfaced by: Feasibility (office-hours review); Open Questions resolution
   - Files: `server.py`
