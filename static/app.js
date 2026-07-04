@@ -52,7 +52,7 @@ async function loadConfig() {
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────
-const state = { map: null, markers: [], listings: [], activeView: 'map', people: [], activePerson: null, feedback: {}, openMapItem: null };
+const state = { map: null, markers: [], rawListings: [], listings: [], activeView: 'map', people: [], activePerson: null, feedback: {}, openMapItem: null, source: 'poc', sourceCount: 0 };
 let cardSettings = loadSettings();
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -117,6 +117,7 @@ async function loadPeople() {
     state.people = [];
   }
   buildWhoAmI();
+  buildPersonFilters();
 }
 
 function buildWhoAmI() {
@@ -134,8 +135,91 @@ function setActivePerson(id) {
   state.activePerson = id || null;
   if (state.activePerson) localStorage.setItem(WHO_KEY, String(state.activePerson));
   else localStorage.removeItem(WHO_KEY);
-  renderCards(state.listings);
+  applyFiltersAndRender();
   if (state.openMapItem) showMapCard(state.openMapItem);
+}
+
+// ─── Per-person rating/consensus filters (dynamic, one row per person) ────────
+const PERSON_FILTER_OPTIONS = [
+  { value: '', label: 'Any' },
+  { value: 'not_rated', label: 'Not rated yet' },
+  { value: '1plus', label: '1+ stars' },
+  { value: '2plus', label: '2+ stars' },
+  { value: '3plus', label: '3+ stars' },
+  { value: '4plus', label: '4+ stars' },
+  { value: '5', label: '5 stars' },
+  { value: 'said_no', label: 'Said no' },
+  { value: 'not_said_no', label: 'Did not say no' },
+];
+
+function personFilterId(personId) { return `personFilter_${personId}`; }
+
+function buildPersonFilters() {
+  const container = $('personFilters');
+  if (!container) return;
+  container.innerHTML = state.people.map(p => `
+    <label>${esc(p.name)}${p.role === 'advisor' ? ' <span class="person-filter-role">(advisor)</span>' : ''}
+      <select id="${personFilterId(p.id)}" data-person-id="${p.id}">
+        ${PERSON_FILTER_OPTIONS.map(o => `<option value="${o.value}">${esc(o.label)}</option>`).join('')}
+      </select>
+    </label>
+  `).join('');
+  container.querySelectorAll('select[data-person-id]').forEach(sel => {
+    sel.addEventListener('change', applyFiltersAndRender);
+  });
+}
+
+function personFeedbackFor(listingId, personId) {
+  if (!personId) return null;
+  const list = state.feedback[listingId] || [];
+  return list.find(f => f.person_id === personId) || null;
+}
+
+function matchesPersonFilter(listingId, personId, value) {
+  if (!value) return true; // Any
+  const f = personFeedbackFor(listingId, personId);
+  const rating = f?.rating ?? null;
+  const saidNo = f?.status === 'rejected';
+  switch (value) {
+    case 'not_rated':  return rating == null && !saidNo;
+    case '1plus':      return rating != null && rating >= 1;
+    case '2plus':      return rating != null && rating >= 2;
+    case '3plus':      return rating != null && rating >= 3;
+    case '4plus':      return rating != null && rating >= 4;
+    case '5':          return rating === 5;
+    case 'said_no':    return saidNo;
+    case 'not_said_no': return !saidNo;
+    default:           return true;
+  }
+}
+
+function matchesStatusFilter(listingId, value) {
+  if (!value || !state.activePerson) return true; // no-op without an active actor
+  const f = personFeedbackFor(listingId, state.activePerson);
+  const saidNo = f?.status === 'rejected';
+  if (value === 'active') return !saidNo;
+  if (value === 'rejected') return saidNo;
+  return true;
+}
+
+function filterByFeedback(listings) {
+  const statusVal = $('filterStatus')?.value || '';
+  const personFilters = state.people.map(p => ({ id: p.id, value: $(personFilterId(p.id))?.value || '' }));
+  return listings.filter(item => {
+    if (!matchesStatusFilter(item.mls, statusVal)) return false;
+    return personFilters.every(pf => matchesPersonFilter(item.mls, pf.id, pf.value));
+  });
+}
+
+function applyFiltersAndRender() {
+  state.listings = filterByFeedback(state.rawListings);
+  refreshMap(state.listings);
+  renderCards(state.listings);
+  const summaryText = state.source === 'poc'
+    ? `${state.listings.length} of ${state.sourceCount} POC listings`
+    : `${state.listings.length} shown · ${Number(state.sourceCount).toLocaleString()} Repliers sample available`;
+  if ($('summary'))     $('summary').textContent = summaryText;
+  if ($('summaryList')) $('summaryList').textContent = summaryText;
 }
 
 // ─── Feedback: batch reads (D6/D2) and writes ──────────────────────────────────
@@ -492,7 +576,7 @@ function sortListings(list) {
   if (mode === 'go-asc')        s.sort((a,b) => cmp(a,b, x => x.poc?.goTotal ?? x.dom, 1));
   if (mode === 'sqft-desc')     s.sort((a,b) => cmp(a,b, x => x.sqft, -1));
   if (mode === 'lot-desc')      s.sort((a,b) => cmp(a,b, x => x.acres, -1));
-  if (mode === 'markrank-desc') s.sort((a,b) => cmp(a,b, x => x.markRank ? +x.markRank : null, -1));
+  if (mode === 'myrating-desc') s.sort((a,b) => cmp(a,b, x => personFeedbackFor(x.mls, state.activePerson)?.rating ?? null, -1));
   return s;
 }
 
@@ -513,26 +597,19 @@ async function load() {
   const res = await fetch((source === 'poc' ? '/api/poc-listings' : '/api/listings') + '?' + filterParams());
   const data = await res.json();
   if (!res.ok) throw new Error(data.detail || data.error || 'Load failed');
-  const sf = $('filterStatus')?.value || '';
-  let listings = data.listings;
-  if (sf === 'active')   listings = listings.filter(x => !/reject/i.test(x.status || ''));
-  if (sf === 'rejected') listings = listings.filter(x => /reject/i.test(x.status || ''));
-  state.listings = listings;
-  state.feedback = await fetchFeedback(listings.map(x => x.mls));
-  const summaryText = source === 'poc'
-    ? `${listings.length} of ${data.sourceCount} POC listings`
-    : `${listings.length} shown · ${Number(data.sourceCount).toLocaleString()} Repliers sample available`;
-  if ($('summary'))     $('summary').textContent = summaryText;
-  if ($('summaryList')) $('summaryList').textContent = summaryText;
+  state.rawListings = data.listings;
+  state.source = source;
+  state.sourceCount = data.sourceCount;
+  state.feedback = await fetchFeedback(state.rawListings.map(x => x.mls));
   if (source === 'poc') state.map?.setView([44.0, -79.5], 7);
   else state.map?.setView([39.5, -95], 4);
-  refreshMap(listings);
-  renderCards(listings);
+  applyFiltersAndRender();
 }
 
 function reset() {
   ['q','minPrice','maxPrice','minBeds','minBaths','minFit','filterStatus'].forEach(id => { const el=$(id); if(el) el.value=''; });
   $('resultsPerPage').value = '60';
+  state.people.forEach(p => { const el = $(personFilterId(p.id)); if (el) el.value = ''; });
   load().catch(showError);
 }
 function showError(err) { console.error(err); $('summary').textContent = 'Error: ' + err.message; }
@@ -543,13 +620,14 @@ window.addEventListener('DOMContentLoaded', () => {
   initMap();
   loadConfig()
     .then(() => {
-      loadPeople().then(() => renderCards(state.listings));
+      loadPeople().then(applyFiltersAndRender);
       return load();
     })
     .catch(showError);
   $('whoAmI').addEventListener('change', e => setActivePerson(Number(e.target.value) || null));
   $('load').addEventListener('click', () => load().catch(showError));
   $('reset').addEventListener('click', reset);
+  $('filterStatus')?.addEventListener('change', applyFiltersAndRender);
   $('source').addEventListener('change', () => { buildSettingsPanel(); load().catch(showError); });
   $('sort')?.addEventListener('change', e => { syncSort(e.target.value); renderCards(state.listings); refreshMap(state.listings); });
   $('sortList')?.addEventListener('change', e => { syncSort(e.target.value); renderCards(state.listings); });

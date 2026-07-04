@@ -38,6 +38,8 @@ h1 { font-size:18px; color:#fff; white-space:nowrap; }
 .filterbox > summary::after { content:' ▼'; color:var(--muted); font-weight:400; }
 .filterbox[open] > summary::after { content:' ▲'; }
 .controls { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:10px; padding:0 14px 14px; }
+.contents { display:contents; }
+.person-filter-role { font-weight:400; font-style:italic; color:var(--blue); }
 label { display:grid; gap:4px; font-size:12px; font-weight:700; color:var(--muted); }
 input,select { font:inherit; min-height:38px; border:1px solid var(--line); border-radius:10px; padding:8px 10px; background:var(--panel); color:var(--ink); }
 button { font:inherit; border-radius:10px; cursor:pointer; background:var(--ink); color:var(--panel); border:1px solid var(--line); font-weight:800; padding:8px 16px; min-height:38px; }
