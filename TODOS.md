@@ -84,3 +84,32 @@ the same person isn't an edge case that should be impossible, just one that
 isn't rendered correctly today. Not required for the Anees demo.
 
 **Depends on:** Nothing; can be picked up independently whenever.
+
+## Wire the Chicago-metro query into fetch_repliers()
+
+**What:** `fetch_repliers()` in `server.py` currently sends only `pageNum`
+and `resultsPerPage` to the Repliers API — no location filter at all, so
+`/api/listings` returns whatever the API's default global sample order is.
+Add the verified 50-mile-radius query (`lat=41.8781&long=-87.6298&radius=50`)
+so the Repliers data source actually returns the Chicago-metro sample
+(197 listings) the demo is meant to prove the pipeline against.
+
+**Why:** T8 confirmed the API supports real server-side location filtering
+(`city=`, `lat`/`long`/`radius`) — contrary to the earlier assumption that
+only local substring filtering was possible. `fetch_repliers()` was written
+before this was verified and never used it.
+
+**Pros:** Small, isolated change (add the query params in one function);
+makes the Repliers data source demo-realistic instead of an arbitrary
+global sample.
+
+**Cons:** None significant — it's a strict improvement over the current
+unfiltered query.
+
+**Context:** T8 also found the original "~300 listings" target was an
+unverified estimate — the free tier plateaus around 250 total in the whole
+Chicago region even at a 200-mile radius, so 197 (50mi, genuinely
+metro-scoped) is the realistic number. `PROJECT_BRIEF.md`/the design doc's
+"~300 listings" language should be corrected to "~200" alongside this fix.
+
+**Depends on:** Nothing; `REPLIERS_API_KEY` is now in `.env`.

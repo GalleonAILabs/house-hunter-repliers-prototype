@@ -407,11 +407,20 @@ finding above. Run with Claude Code; checkbox as you ship.
   - Files: `static/app.js`
   - Verify: manual — pins reflect active actor's feedback state
   - **Done, no new code needed.** `populateCard()` was already shared between List cards and the Map popup (D12), so the moment T6 fixed tile rendering, pin clicks opened popups with the full working feedback UI automatically. Verified via a synthetic click on a marker.
-- [ ] **T8 (P2, human: ~20min / CC: ~5min)** — data — Verify Repliers free-tier volume for the Chicago metro before committing to ~300 listings
+- [x] **T8 (P2, human: ~20min / CC: ~5min)** — data — Verify Repliers free-tier volume for the Chicago metro before committing to ~300 listings
   - Surfaced by: Feasibility (office-hours review); Open Questions resolution
   - Files: `server.py`
   - Verify: one live API call, inspect result count
-  - **Blocked, not done.** No `REPLIERS_API_KEY` exists anywhere accessible (checked `.env`, `.env.example`, macOS keychain, `~/.hermes` skill directories — none had one). `GET /api/listings` confirmed the exact failure: `{"error": "RuntimeError", "detail": "REPLIERS_API_KEY is missing..."}`. Separately, even with a key, `fetch_repliers()` (server.py) does not pass city/metro filters to the Repliers API at all — it fetches a generic paginated sample and filters locally via `passes_local_filters()`, which only does a substring match on a `q=` search term, not a real geographic filter. `PROJECT_BRIEF.md` already documented that the free sample endpoint ignores country/province-style params. So getting a real Chicago-specific count needs two things this session couldn't provide: (1) a real API key, and (2) confirming the free tier actually supports metro-level filtering at all, or accepting `q=Chicago` as a best-effort local filter over whatever the generic sample returns. **Next action:** get a `REPLIERS_API_KEY` into `.env`, then re-run this check.
+  - **Done — real key now in `.env`. Result: the free tier does NOT support ~300 for Chicago metro; that number was an unverified estimate.** The Repliers API does support real server-side location filtering (`city=`, and `lat`/`long`/`radius`), contrary to the T3-era assumption that only local substring filtering was possible — `fetch_repliers()` just never used those params. Live counts against the real API:
+    | Query | Count |
+    |---|---|
+    | `city=Chicago` (city proper) | 122 |
+    | 25mi radius from downtown | 146 |
+    | 50mi radius (Chicago-Naperville-Elgin metro) | 197 |
+    | 100mi radius (beyond any real metro definition) | 236 |
+    | 200mi radius (reaches Milwaukee/Indiana — no longer "Chicago metro") | 250 |
+
+    The count plateaus around 250 even at 200 miles — the free/sample tier's total inventory in that whole region is capped well under 300 regardless of radius; there is no query that reaches the original ~300 target while still meaning "Chicago metro." **Recommendation:** use the 50-mile-radius query (`lat=41.8781&long=-87.6298&radius=50`, 197 listings) as the realistic volume figure for the Repliers-integration demo, and update `PROJECT_BRIEF.md`/the design doc's "~300 listings" language to "~200 listings" to match reality. Implementing this query in `fetch_repliers()` itself (currently sends only `pageNum`/`resultsPerPage`, no location params at all) is a follow-up, not yet done.
 - [x] **T9 (P1, human: ~1-2h / CC: ~15min)** — tests — Add `test_server.py` (stdlib `unittest`, in-memory SQLite) per D5 and the Test Plan artifact
   - Surfaced by: Test Review D5
   - Files: `test_server.py` (new)
