@@ -325,6 +325,10 @@ function buildFeedbackActions(node, item) {
   const statusEl = document.createElement('div');
   statusEl.className = 'feedback-status';
 
+  const starsLabel = document.createElement('div');
+  starsLabel.className = 'rate-stars-label';
+  starsLabel.textContent = 'Your rating';
+
   const starsRow = document.createElement('div');
   starsRow.className = 'rate-stars';
   for (let i = 1; i <= 5; i++) {
@@ -360,7 +364,7 @@ function buildFeedbackActions(node, item) {
 
   const rejectToggle = document.createElement('button');
   rejectToggle.type = 'button';
-  rejectToggle.className = 'secondary fb-btn';
+  rejectToggle.className = 'secondary fb-btn fb-btn-reject';
   rejectToggle.textContent = '🚫 Reject';
   const rejectBox = document.createElement('div');
   rejectBox.className = 'feedback-compose';
@@ -395,7 +399,7 @@ function buildFeedbackActions(node, item) {
   btnRow.className = 'feedback-btn-row';
   btnRow.append(noteToggle, rejectToggle, researchBtn);
 
-  container.append(starsRow, btnRow, noteBox, rejectBox, statusEl);
+  container.append(starsLabel, starsRow, btnRow, noteBox, rejectBox, statusEl);
 }
 
 // ─── View toggle ──────────────────────────────────────────────────────────────

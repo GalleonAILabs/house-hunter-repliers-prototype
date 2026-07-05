@@ -47,7 +47,7 @@ button { font:inherit; border-radius:10px; cursor:pointer; background:var(--ink)
 button.secondary { background:var(--bg); color:var(--ink); }
 #load, #reset { padding:6px 10px; font-weight:700; font-size:13px; min-height:32px; }
 
-.person-filter-block { grid-column:1/-1; display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:5px 0; border-top:1px dashed var(--line); }
+.person-filter-block { grid-column:1/-1; min-width:0; display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:5px 0; border-top:1px dashed var(--line); }
 .person-filter-name { font-size:11px; font-weight:800; color:var(--ink); min-width:46px; }
 .chip { display:inline-flex; align-items:center; gap:3px; font-size:11px; font-weight:600; color:var(--ink); background:var(--bg); border:1px solid var(--line); border-radius:999px; padding:3px 8px; cursor:pointer; white-space:nowrap; }
 .chip input[type=checkbox] { width:13px; height:13px; margin:0; accent-color:var(--green); cursor:pointer; }
@@ -84,11 +84,13 @@ button.secondary { background:var(--bg); color:var(--ink); }
 
 .card-feedback-actions{display:flex;flex-direction:column;gap:8px;padding-top:6px;border-top:1px dashed var(--line)}
 .feedback-prompt{font-size:12px;color:var(--muted);font-style:italic}
+.rate-stars-label{font-size:12px;font-weight:700;color:var(--muted)}
 .rate-stars{display:flex;gap:4px}
 .rate-star{background:none;border:none;padding:0;font-size:22px;line-height:1;color:var(--gold);cursor:pointer;min-height:0}
 .feedback-btn-row{display:flex;flex-wrap:wrap;gap:6px}
 .feedback-btn-row .fb-btn{font-size:12px;padding:6px 10px;min-height:0}
 .fb-btn-requested{background:var(--green);color:#fff;border-color:var(--green)}
+.fb-btn-reject{color:var(--red);border-color:var(--red)}
 .feedback-compose{display:flex;gap:6px;align-items:flex-start}
 .feedback-compose[hidden]{display:none}
 .feedback-compose textarea{flex:1;min-height:60px;font:inherit;border:1px solid var(--line);border-radius:8px;padding:6px 8px;background:var(--panel);color:var(--ink);resize:vertical}
@@ -99,4 +101,4 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .settings-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:800}.settings-overlay[hidden],.settings-drawer[hidden]{display:none!important}.settings-drawer{position:fixed;top:0;right:0;height:100%;width:min(380px,96vw);background:var(--panel);color:var(--ink);z-index:900;display:flex;flex-direction:column;box-shadow:-4px 0 32px rgba(0,0,0,.25)}
 .settings-header{display:flex;justify-content:space-between;align-items:center;padding:20px 20px 16px;border-bottom:1px solid var(--line)}.settings-title{font-size:18px;font-weight:800}.close-btn{background:var(--bg);border:1px solid var(--line);border-radius:8px;width:32px;height:32px;min-height:0;padding:0;font-size:16px;color:var(--ink);display:flex;align-items:center;justify-content:center}.settings-desc{color:var(--muted);font-size:14px;padding:14px 20px 4px;line-height:1.5}.settings-fields{flex:1;overflow-y:auto;padding:6px 14px 12px}.settings-row{display:flex;align-items:center;gap:14px;padding:13px 8px;border-radius:10px;cursor:pointer;font-size:15px;font-weight:500;border-bottom:1px solid var(--line)}.settings-row:hover{background:var(--bg)}.settings-row input[type=checkbox]{width:20px;height:20px;accent-color:var(--green);cursor:pointer;flex-shrink:0}.field-desc{font-size:12px;color:var(--muted);margin-top:3px}.settings-footer{padding:16px 20px;border-top:1px solid var(--line);display:flex;gap:8px}.settings-footer button{flex:1;min-height:40px}
 
-@media (max-width:600px){ h1{font-size:16px}.view-btn{padding:5px 8px;font-size:12px}.cards{grid-template-columns:1fr}.controls{grid-template-columns:1fr 1fr}.topbar{padding:0 10px}.status-bar{left:10px;right:10px;bottom:10px}.filterbox{left:10px;right:10px} }
+@media (max-width:600px){ h1{font-size:16px}.view-btn{padding:5px 8px;font-size:12px}.cards{grid-template-columns:1fr}.controls{grid-template-columns:1fr}.topbar{padding:0 10px}.topbar-right{gap:4px}.icon-btn{padding:5px 6px}.status-bar{left:10px;right:10px;bottom:10px}.filterbox{left:10px;right:10px}.who-am-i{max-width:64px} }
