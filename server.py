@@ -749,6 +749,9 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == "/layers/go-stations.geojson":
                 self.send_static(STATIC / "layers" / "go_stations.geojson", "application/geo+json; charset=utf-8")
                 return
+            if parsed.path == "/layers/go-lines.geojson":
+                self.send_static(STATIC / "layers" / "go_lines.geojson", "application/geo+json; charset=utf-8")
+                return
             if parsed.path == "/layers/highway-413.geojson":
                 self.send_static(STATIC / "layers" / "highway_413.geojson", "application/geo+json; charset=utf-8")
                 return

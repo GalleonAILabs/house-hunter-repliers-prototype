@@ -467,7 +467,7 @@ function switchView(view) {
 }
 
 // ─── Map (Mapbox GL JS) ────────────────────────────────────────────────────────
-const MAP_LAYER_IDS = ['listings-circles', 'clusters-circles', 'clusters-labels', 'go-stations-circles', 'go-lines-layer', 'hwy413-line'];
+const MAP_LAYER_IDS = ['listings-circles', 'clusters-circles', 'clusters-labels', 'go-stations-existing-circles', 'go-stations-planned-circles', 'go-lines-layer', 'hwy413-line'];
 
 function findListing(mls) {
   return state.listings.find(x => x.mls === mls) || null;
@@ -571,22 +571,16 @@ function setupMapSources() {
   map.on('mouseenter', 'clusters-circles', () => { map.getCanvas().style.cursor = 'pointer'; });
   map.on('mouseleave', 'clusters-circles', () => { map.getCanvas().style.cursor = ''; });
 
-  // GO Train Stations + GO Lines + Highway 413 -- off by default (layer toggle panel).
-  // go_stations.geojson mixes Point (station) and LineString (line corridor)
-  // features in one source; circle/line layer types each auto-filter to
-  // their matching geometry, so one source serves both layers.
+  // GO Stations + GO Lines + Highway 413 -- off by default (layer toggle panel).
+  // Stations and lines are DELIBERATELY separate sources/files (go-stations.geojson
+  // is Point-only, go-lines.geojson is LineString-only) -- a single mixed source
+  // previously caused GTFS route-shape vertices to render as station-like pins.
   map.addSource('go-stations', { type: 'geojson', data: '/layers/go-stations.geojson' });
   map.addLayer({
-    id: 'go-lines-layer',
-    type: 'line',
-    source: 'go-stations',
-    layout: { visibility: 'none' },
-    paint: { 'line-color': ['get', 'color'], 'line-width': 3 },
-  });
-  map.addLayer({
-    id: 'go-stations-circles',
+    id: 'go-stations-existing-circles',
     type: 'circle',
     source: 'go-stations',
+    filter: ['==', ['get', 'status'], 'Existing'],
     layout: { visibility: 'none' },
     paint: {
       'circle-radius': 6,
@@ -595,19 +589,46 @@ function setupMapSources() {
       'circle-stroke-color': '#fff',
     },
   });
-  let goStationPopup = null;
-  map.on('mouseenter', 'go-stations-circles', e => {
-    map.getCanvas().style.cursor = 'pointer';
-    const p = e.features[0].properties;
-    goStationPopup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false, className: 'go-station-tooltip', offset: 10 })
-      .setLngLat(e.features[0].geometry.coordinates)
-      .setHTML(`<strong>${esc(p.name)}</strong><br>${esc(p.lines)}`)
-      .addTo(map);
+  map.addLayer({
+    id: 'go-stations-planned-circles',
+    type: 'circle',
+    source: 'go-stations',
+    filter: ['!=', ['get', 'status'], 'Existing'],
+    layout: { visibility: 'none' },
+    paint: {
+      // Hollow ring, not a filled dot -- visually distinct from confirmed
+      // (existing) stations at a glance.
+      'circle-radius': 6,
+      'circle-color': 'rgba(0,0,0,0)',
+      'circle-stroke-width': 2,
+      'circle-stroke-color': '#e8b400',
+    },
   });
-  map.on('mouseleave', 'go-stations-circles', () => {
-    map.getCanvas().style.cursor = '';
-    goStationPopup?.remove();
-    goStationPopup = null;
+  let goStationPopup = null;
+  const GO_STATION_LAYERS = ['go-stations-existing-circles', 'go-stations-planned-circles'];
+  GO_STATION_LAYERS.forEach(layerId => {
+    map.on('mouseenter', layerId, e => {
+      map.getCanvas().style.cursor = 'pointer';
+      const p = e.features[0].properties;
+      goStationPopup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false, className: 'go-station-tooltip', offset: 10 })
+        .setLngLat(e.features[0].geometry.coordinates)
+        .setHTML(`<strong>${esc(p.name)}</strong>${p.status !== 'Existing' ? ' (planned)' : ''}<br>${esc(p.lines || '')}`)
+        .addTo(map);
+    });
+    map.on('mouseleave', layerId, () => {
+      map.getCanvas().style.cursor = '';
+      goStationPopup?.remove();
+      goStationPopup = null;
+    });
+  });
+
+  map.addSource('go-lines', { type: 'geojson', data: '/layers/go-lines.geojson' });
+  map.addLayer({
+    id: 'go-lines-layer',
+    type: 'line',
+    source: 'go-lines',
+    layout: { visibility: 'none' },
+    paint: { 'line-color': ['get', 'color'], 'line-width': 3 },
   });
 
   map.addSource('hwy413', { type: 'geojson', data: '/layers/highway-413.geojson' });
@@ -992,7 +1013,11 @@ window.addEventListener('DOMContentLoaded', () => {
     .catch(showError);
   $('layerGoStations')?.addEventListener('change', e => {
     if (!state.mapReady) return;
-    state.map.setLayoutProperty('go-stations-circles', 'visibility', e.target.checked ? 'visible' : 'none');
+    state.map.setLayoutProperty('go-stations-existing-circles', 'visibility', e.target.checked ? 'visible' : 'none');
+  });
+  $('layerGoStationsPlanned')?.addEventListener('change', e => {
+    if (!state.mapReady) return;
+    state.map.setLayoutProperty('go-stations-planned-circles', 'visibility', e.target.checked ? 'visible' : 'none');
   });
   $('layerGoLines')?.addEventListener('change', e => {
     if (!state.mapReady) return;
