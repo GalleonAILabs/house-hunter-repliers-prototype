@@ -35,6 +35,13 @@ const CARD_FIELDS = [
 ];
 const SETTINGS_KEY = 'hh_card_fields_v1';
 
+const TIER_LABELS = { top: 'Top pick', mid: 'Mid', bottom: 'Bottom' };
+
+function lotDimsLabel(item) {
+  const round1 = n => (Number(n) % 1 === 0 ? Number(n) : Math.round(Number(n) * 10) / 10);
+  return `${round1(item.frontageNum)} x ${round1(item.depthNum)} ft`;
+}
+
 // ─── Actor identity (D3/D11 auth, "I am" selector) ─────────────────────────────
 // Shared-secret deterrent, not real security — visible in browser JS by
 // design; see tasks/plan.md D3/D11 for the accepted tradeoff. Fetched from
@@ -238,6 +245,28 @@ function matchesRange(value, minId, maxId) {
   return true;
 }
 
+// Same as matchesRange() but reads the raw input value directly instead of
+// through numericFieldValue()'s digit-stripping — sqft/acres/commute can be
+// decimals (e.g. 0.567 acres), which numericFieldValue would corrupt.
+function matchesRangeDirect(value, minId, maxId) {
+  const minRaw = ($(minId)?.value || '').trim();
+  const maxRaw = ($(maxId)?.value || '').trim();
+  if (!minRaw && !maxRaw) return true;
+  if (value == null) return false;
+  if (minRaw && value < Number(minRaw)) return false;
+  if (maxRaw && value > Number(maxRaw)) return false;
+  return true;
+}
+
+// Keyword-in-features checkboxes — text match only, not a confirmed feature.
+function matchesFeatureKeywords(item) {
+  const text = (item.features || '').toLowerCase();
+  if ($('featGarage')?.checked && !text.includes('garage')) return false;
+  if ($('featPool')?.checked && !text.includes('pool')) return false;
+  if ($('featBasement')?.checked && !text.includes('basement')) return false;
+  return true;
+}
+
 function filterByFeedback(listings) {
   const statusVal = $('filterStatus')?.value || '';
   const keyword = ($('q')?.value || '').trim().toLowerCase();
@@ -247,6 +276,10 @@ function filterByFeedback(listings) {
     if (!matchesKeyword(item, keyword)) return false;
     if (!matchesRange(item.pitNum, 'minPit', 'maxPit')) return false;
     if (!matchesRange(item.dueNum, 'minDue', 'maxDue')) return false;
+    if (!matchesRangeDirect(item.sqft, 'minSqft', 'maxSqft')) return false;
+    if (!matchesRangeDirect(item.acres, 'minAcres', 'maxAcres')) return false;
+    if (!matchesRangeDirect(item.goMin, '', 'maxCommute')) return false;
+    if (!matchesFeatureKeywords(item)) return false;
     return personFilters.every(pf => matchesPersonFilter(item.mls, pf.id, pf.values));
   });
 }
@@ -500,6 +533,9 @@ function populateCard(node, item) {
   node.querySelector('.address').textContent = item.address;
   node.querySelector('.meta').textContent = [item.beds && item.beds + ' beds', item.propertyType !== 'House Hunter POC' && item.propertyType].filter(Boolean).join(' · ');
 
+  // Tier badge — subtle, text-only; hidden automatically via :empty when unknown
+  node.querySelector('.tier-badge').textContent = TIER_LABELS[(item.tier || '').toLowerCase()] || '';
+
   // Fit badge
   const fit = item.fit;
   const fb = node.querySelector('.fit-badge');
@@ -528,6 +564,7 @@ function populateCard(node, item) {
     item.baths && tag(num(item.baths) + ' baths'),
     item.sqft && tag(num(item.sqft) + ' sqft'),
     item.acres && tag(num(item.acres, ' ac')),
+    poc && item.frontageNum && item.depthNum && tag(lotDimsLabel(item)),
     !poc && item.dom && tag(num(item.dom) + ' DOM'),
     !poc && item.imageCount && tag(num(item.imageCount) + ' photos'),
   ].filter(Boolean);
@@ -704,9 +741,10 @@ async function load() {
 }
 
 function reset() {
-  ['q','minPrice','maxPrice','minBeds','maxBeds','minBaths','maxBaths','minPit','maxPit','minDue','maxDue','minFit','filterStatus']
+  ['q','minPrice','maxPrice','minBeds','maxBeds','minBaths','maxBaths','minSqft','maxSqft','minAcres','maxAcres','maxCommute','minPit','maxPit','minDue','maxDue','minFit','filterStatus']
     .forEach(id => { const el=$(id); if(el) { el.value=''; delete el.dataset.raw; } });
   $('resultsPerPage').value = '60';
+  ['featGarage','featPool','featBasement'].forEach(id => { const el = $(id); if (el) el.checked = false; });
   state.people.forEach(p => {
     PERSON_FILTER_OPTIONS.forEach(o => { const cb = $(personFilterCbId(p.id, o.value)); if (cb) cb.checked = false; });
   });
@@ -739,6 +777,8 @@ window.addEventListener('DOMContentLoaded', () => {
   $('maxPit')?.addEventListener('change', applyFiltersAndRender);
   $('minDue')?.addEventListener('change', applyFiltersAndRender);
   $('maxDue')?.addEventListener('change', applyFiltersAndRender);
+  ['minSqft','maxSqft','minAcres','maxAcres','maxCommute'].forEach(id => $(id)?.addEventListener('change', applyFiltersAndRender));
+  ['featGarage','featPool','featBasement'].forEach(id => $(id)?.addEventListener('change', applyFiltersAndRender));
   $('source').addEventListener('change', () => { buildSettingsPanel(); load().catch(showError); });
   $('sort')?.addEventListener('change', e => { syncSort(e.target.value); renderCards(state.listings); refreshMap(state.listings); });
   $('sortList')?.addEventListener('change', e => { syncSort(e.target.value); renderCards(state.listings); });
