@@ -49,6 +49,7 @@ function lotDimsLabel(item) {
 // so the frontend can bootstrap it) rather than hardcoded, so app.js and
 // .env can't drift out of sync.
 let APP_TOKEN = null;
+let MAPBOX_TOKEN = null;
 const WHO_KEY = 'hh_who_am_i';
 const authHeaders = () => ({ 'X-App-Token': APP_TOKEN });
 
@@ -56,10 +57,11 @@ async function loadConfig() {
   const res = await fetch('/api/config');
   const data = await res.json();
   APP_TOKEN = data.auth_token;
+  MAPBOX_TOKEN = data.mapbox_token;
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────
-const state = { map: null, markers: [], rawListings: [], listings: [], activeView: 'map', people: [], activePerson: null, feedback: {}, openMapItem: null, source: 'poc', sourceCount: 0, clusters: [] };
+const state = { map: null, mapReady: false, rawListings: [], listings: [], activeView: 'map', people: [], activePerson: null, feedback: {}, openMapItem: null, source: 'poc', sourceCount: 0, clusters: [] };
 let cardSettings = loadSettings();
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -461,41 +463,165 @@ function switchView(view) {
   $('viewList').hidden = view !== 'list';
   $('btnMap').classList.toggle('active', view === 'map');
   $('btnList').classList.toggle('active', view === 'list');
-  if (view === 'map') requestAnimationFrame(() => state.map?.invalidateSize({ animate: false }));
+  if (view === 'map') requestAnimationFrame(() => state.map?.resize());
 }
 
-// ─── Map, same pattern as the working POC: #map is 100% of the page ───────────
+// ─── Map (Mapbox GL JS) ────────────────────────────────────────────────────────
+const MAP_LAYER_IDS = ['listings-circles', 'clusters-circles', 'clusters-labels', 'go-stations-circles', 'hwy413-line'];
+
+function findListing(mls) {
+  return state.listings.find(x => x.mls === mls) || null;
+}
+
+function emptyFC() { return { type: 'FeatureCollection', features: [] }; }
+
+function lngLatBoundsOf(pairs) {
+  // pairs: array of [lng, lat]
+  if (!pairs.length) return null;
+  let west = pairs[0][0], east = pairs[0][0], south = pairs[0][1], north = pairs[0][1];
+  pairs.forEach(([lng, lat]) => {
+    west = Math.min(west, lng); east = Math.max(east, lng);
+    south = Math.min(south, lat); north = Math.max(north, lat);
+  });
+  return [[west, south], [east, north]];
+}
+
 function initMap() {
-  state.map = L.map('map', { zoomControl: true }).setView([44.0, -79.5], 7);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap', maxZoom: 19
-  }).addTo(state.map);
-  state.map.on('click', () => { closeMapCard(); closeFilters(); });
-  window.addEventListener('resize', () => state.map?.invalidateSize({ animate: false }));
+  mapboxgl.accessToken = MAPBOX_TOKEN;
+  state.map = new mapboxgl.Map({
+    container: 'map',
+    style: 'mapbox://styles/mapbox/streets-v12',
+    center: [-79.5, 44.0],
+    zoom: 9,
+  });
+  state.map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
+
+  state.map.on('load', () => {
+    setupMapSources();
+    state.mapReady = true;
+    // Data may have already loaded while the map style was still loading.
+    if (state.rawListings.length) applyFiltersAndRender();
+  });
+
+  // Background click (i.e. not on a pin/cluster/layer feature) closes the
+  // card + filter panel, same as the old Leaflet map-click behaviour.
+  state.map.on('click', e => {
+    const hits = state.map.queryRenderedFeatures(e.point, {
+      layers: MAP_LAYER_IDS.filter(id => state.map.getLayer(id)),
+    });
+    if (!hits.length) { closeMapCard(); closeFilters(); }
+  });
+
+  window.addEventListener('resize', () => state.map?.resize());
 }
 
-// Rejected/rated status must come from the ACTIVE actor's live feedback
+function setupMapSources() {
+  const map = state.map;
+
+  map.addSource('listings', { type: 'geojson', data: emptyFC() });
+  map.addLayer({
+    id: 'listings-circles',
+    type: 'circle',
+    source: 'listings',
+    paint: {
+      'circle-radius': 10,
+      'circle-color': ['get', 'color'],
+      'circle-opacity': 0.92,
+      'circle-stroke-width': 2,
+      'circle-stroke-color': '#fff',
+    },
+  });
+  map.on('click', 'listings-circles', e => {
+    const item = findListing(e.features[0].properties.mls);
+    if (item) { showMapCard(item); closeFilters(); }
+  });
+  map.on('mouseenter', 'listings-circles', () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', 'listings-circles', () => { map.getCanvas().style.cursor = ''; });
+
+  map.addSource('clusters', { type: 'geojson', data: emptyFC() });
+  map.addLayer({
+    id: 'clusters-circles',
+    type: 'circle',
+    source: 'clusters',
+    paint: {
+      'circle-radius': ['get', 'radius'],
+      'circle-color': '#2b67d6',
+      'circle-opacity': 0.75,
+      'circle-stroke-width': 2,
+      'circle-stroke-color': '#fff',
+    },
+  });
+  map.addLayer({
+    id: 'clusters-labels',
+    type: 'symbol',
+    source: 'clusters',
+    layout: {
+      'text-field': ['get', 'count'],
+      'text-size': 12,
+      'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
+    },
+    paint: { 'text-color': '#18211f' },
+  });
+  map.on('click', 'clusters-circles', e => {
+    const p = e.features[0].properties;
+    if (p.swLng != null) {
+      map.fitBounds([[p.swLng, p.swLat], [p.neLng, p.neLat]], { padding: 20 });
+    }
+  });
+  map.on('mouseenter', 'clusters-circles', () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', 'clusters-circles', () => { map.getCanvas().style.cursor = ''; });
+
+  // GO Train Stations + Highway 413 -- off by default (D: layer toggle panel).
+  map.addSource('go-stations', { type: 'geojson', data: '/layers/go-stations.geojson' });
+  map.addLayer({
+    id: 'go-stations-circles',
+    type: 'circle',
+    source: 'go-stations',
+    layout: { visibility: 'none' },
+    paint: {
+      'circle-radius': 6,
+      'circle-color': ['get', 'statusColor'],
+      'circle-stroke-width': 1,
+      'circle-stroke-color': '#fff',
+    },
+  });
+  let goStationPopup = null;
+  map.on('mouseenter', 'go-stations-circles', e => {
+    map.getCanvas().style.cursor = 'pointer';
+    const p = e.features[0].properties;
+    goStationPopup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false, className: 'go-station-tooltip', offset: 10 })
+      .setLngLat(e.features[0].geometry.coordinates)
+      .setHTML(`<strong>${esc(p.name)}</strong><br>${esc(p.lines)}`)
+      .addTo(map);
+  });
+  map.on('mouseleave', 'go-stations-circles', () => {
+    map.getCanvas().style.cursor = '';
+    goStationPopup?.remove();
+    goStationPopup = null;
+  });
+
+  map.addSource('hwy413', { type: 'geojson', data: '/layers/highway-413.geojson' });
+  map.addLayer({
+    id: 'hwy413-line',
+    type: 'line',
+    source: 'hwy413',
+    layout: { visibility: 'none' },
+    paint: { 'line-color': '#b3261e', 'line-opacity': 0.55, 'line-width': 4 },
+  });
+}
+
+// Rejected status must come from the ACTIVE actor's live feedback
 // (listing_feedback), not item.status -- for POC listings that field is a
 // static historical snapshot (pre-multi-actor) and can say "Rejected" for a
-// listing the active actor never rejected. See markerColor()/markerOpacity().
+// listing the active actor never rejected.
 function markerColor(item) {
   const f = personFeedbackFor(item.mls, state.activePerson);
   if (f?.status === 'rejected') return '#aaa';
-  const m = item.fit?.met ?? 0;
-  if (m >= 7) return '#16803a';
-  if (m >= 5) return '#2b67d6';
-  if (m >= 4) return '#c58900';
-  return '#b3261e';
-}
-
-// Faded fill = the active actor hasn't rated this listing yet. No-op
-// (solid) with no actor selected, since "not yet rated" only means
-// something relative to a specific person.
-function markerOpacity(item) {
-  if (!state.activePerson) return 0.92;
-  const f = personFeedbackFor(item.mls, state.activePerson);
-  if (f?.status === 'rejected') return 0.92;
-  return f?.rating != null ? 0.92 : 0.4;
+  const total = item.fit?.total || 8;
+  const ratio = (item.fit?.met ?? 0) / total;
+  if (ratio >= 0.75) return '#16803a'; // green -- strong fit
+  if (ratio >= 0.5) return '#e8b400';  // yellow -- good fit
+  return '#e8720c';                    // orange -- possible fit
 }
 
 function clusterRadius(count) {
@@ -503,46 +629,49 @@ function clusterRadius(count) {
 }
 
 function refreshMap(list) {
-  state.markers.forEach(m => m.remove());
-  state.markers = [];
+  if (!state.mapReady) return;
   closeMapCard();
-  const bounds = [];
   const useClusters = currentSource() === 'repliers' && $('clusterToggle')?.checked && (state.clusters || []).length;
+
+  const listingsFC = emptyFC();
+  const clustersFC = emptyFC();
+  const bounds = [];
+
   if (useClusters) {
     state.clusters.forEach(c => {
       if (c.lat == null || c.lng == null) return;
-      const marker = L.circleMarker([c.lat, c.lng], {
-        radius: clusterRadius(c.count), weight: 2, color: '#fff',
-        fillColor: '#2b67d6', fillOpacity: 0.75,
-      }).addTo(state.map);
-      marker.bindTooltip(String(c.count), { permanent: true, direction: 'center', className: 'cluster-label' });
-      marker.on('click', e => {
-        L.DomEvent.stopPropagation(e);
-        if (c.bounds) {
-          state.map.fitBounds([
-            [c.bounds.top_left.latitude, c.bounds.top_left.longitude],
-            [c.bounds.bottom_right.latitude, c.bounds.bottom_right.longitude],
-          ], { padding: [20, 20] });
-        }
+      const b = c.bounds;
+      clustersFC.features.push({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [c.lng, c.lat] },
+        properties: {
+          count: c.count,
+          radius: clusterRadius(c.count),
+          swLng: b ? b.top_left.longitude : null,
+          swLat: b ? b.bottom_right.latitude : null,
+          neLng: b ? b.bottom_right.longitude : null,
+          neLat: b ? b.top_left.latitude : null,
+        },
       });
-      state.markers.push(marker);
-      bounds.push([c.lat, c.lng]);
+      bounds.push([c.lng, c.lat]);
     });
   } else {
     list.forEach(item => {
       if (item.lat == null || item.lng == null) return;
-      const marker = L.circleMarker([item.lat, item.lng], {
-        radius: 10, weight: 2, color: '#fff',
-        fillColor: markerColor(item), fillOpacity: markerOpacity(item),
-      }).addTo(state.map);
-      marker.on('click', e => { L.DomEvent.stopPropagation(e); showMapCard(item); closeFilters(); });
-      marker._hhItem = item;
-      state.markers.push(marker);
-      bounds.push([item.lat, item.lng]);
+      listingsFC.features.push({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [item.lng, item.lat] },
+        properties: { mls: item.mls, color: markerColor(item) },
+      });
+      bounds.push([item.lng, item.lat]);
     });
   }
-  if (bounds.length) state.map.fitBounds(bounds, { padding: [40, 40] });
-  requestAnimationFrame(() => state.map?.invalidateSize({ animate: false }));
+
+  state.map.getSource('listings').setData(listingsFC);
+  state.map.getSource('clusters').setData(clustersFC);
+  const b = lngLatBoundsOf(bounds);
+  if (b) state.map.fitBounds(b, { padding: 40, maxZoom: 15 });
+  requestAnimationFrame(() => state.map?.resize());
 }
 
 // ─── Map card popup ───────────────────────────────────────────────────────────
@@ -559,7 +688,7 @@ function showMapCard(item) {
   $('mapCard').hidden = false;
   state.openMapItem = item;
   // Zoom to pin
-  state.map.setView([item.lat, item.lng], Math.max(state.map.getZoom(), 12));
+  state.map.easeTo({ center: [item.lng, item.lat], zoom: Math.max(state.map.getZoom(), 12) });
 }
 
 function closeMapCard() { $('mapCard').hidden = true; state.openMapItem = null; }
@@ -710,9 +839,8 @@ function populateCard(node, item) {
   if (showMapBtn) {
     showMapBtn.addEventListener('click', () => {
       switchView('map');
-      const marker = state.markers.find(m => m._hhItem === item);
-      if (marker) {
-        state.map.setView(marker.getLatLng(), 13);
+      if (item.lat != null && item.lng != null) {
+        state.map.jumpTo({ center: [item.lng, item.lat], zoom: 13 });
         setTimeout(() => showMapCard(item), 100);
       }
     });
@@ -816,8 +944,8 @@ async function load() {
   state.sourceCount = data.sourceCount;
   state.clusters = data.clusters || [];
   state.feedback = await fetchFeedback(state.rawListings.map(x => x.mls));
-  if (source === 'poc') state.map?.setView([44.0, -79.5], 7);
-  else state.map?.setView([39.5, -95], 4);
+  if (source === 'poc') state.map?.jumpTo({ center: [-79.5, 44.0], zoom: 9 });
+  else state.map?.jumpTo({ center: [-87.6298, 41.8781], zoom: 10 });
   applyFiltersAndRender();
 }
 
@@ -841,14 +969,25 @@ function debounce(fn, ms) {
 
 window.addEventListener('DOMContentLoaded', () => {
   loadTheme();
-  initMap();
   ['minPrice', 'maxPrice', 'minPit', 'maxPit', 'minDue', 'maxDue'].forEach(wirePriceInput);
   loadConfig()
     .then(() => {
+      // A Mapbox init failure (WebGL disabled, blocked CDN, bad token) must
+      // not take down the rest of the app -- List view has nothing to do
+      // with the map and should keep working regardless.
+      try { initMap(); } catch (err) { console.error('Map init failed:', err); }
       loadPeople().then(applyFiltersAndRender);
       return load();
     })
     .catch(showError);
+  $('layerGoStations')?.addEventListener('change', e => {
+    if (!state.mapReady) return;
+    state.map.setLayoutProperty('go-stations-circles', 'visibility', e.target.checked ? 'visible' : 'none');
+  });
+  $('layerHwy413')?.addEventListener('change', e => {
+    if (!state.mapReady) return;
+    state.map.setLayoutProperty('hwy413-line', 'visibility', e.target.checked ? 'visible' : 'none');
+  });
   $('whoAmI').addEventListener('change', e => setActivePerson(Number(e.target.value) || null));
   $('load').addEventListener('click', () => load().catch(showError));
   $('reset').addEventListener('click', reset);

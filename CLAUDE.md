@@ -3,7 +3,9 @@
 ## What this is
 A mobile-first home search prototype for a family buyer group.
 Stdlib Python server (server.py) proxies the Repliers real-estate API.
-Frontend is vanilla HTML/CSS/JS (static/) using Leaflet for maps.
+Frontend is vanilla HTML/CSS/JS (static/) using Mapbox GL JS v3 for maps
+(migrated from Leaflet; requires MAPBOX_TOKEN in .env, served to the
+frontend via GET /api/config since Mapbox tokens are meant to be public).
 
 ## Current problem to solve
 Build the dynamic "I am" actor selector. Every rating, note, reject/say-no,
@@ -21,13 +23,17 @@ Rules (full detail in `DATA_MODEL_NOTES.md`):
 - Actions are labelled by person in the UI, e.g. "Katie said no", "Dad
   rated 4".
 
-The Leaflet map (mobile Chrome tile-split bug) is parked as experimental.
-Do not spend further time on it; see `HANDOFF.md` and `PROJECT_BRIEF.md` for
-the parked map context and revisit path.
+The map is no longer parked/experimental -- the original Leaflet tile-split
+bug was root-caused (a corrupted SRI hash, see git history) and fixed, and
+the map has since been migrated to Mapbox GL JS with GO Train Stations and
+Highway 413 GeoJSON overlay layers, pin colouring by fit score, and a
+clustering toggle for the Sample Data source. `HANDOFF.md`/`PROJECT_BRIEF.md`
+describe the earlier parked state; treat this note as authoritative over
+those for map status.
 
 ## What we need
-1. List is the default view; Map stays experimental/beta-labeled.
-2. Map view (when revisited): full remaining viewport height, pins for all 104 POC listings.
+1. List is the default view; Map is a fully supported second view.
+2. Map view: full remaining viewport height, pins for all POC listings.
 3. List view: scrollable cards with commute, ratings, financial, features.
 4. Dark mode: follows system preference (prefers-color-scheme) with manual toggle.
 5. Settings panel: toggle card sections on/off, saved to localStorage.
@@ -47,7 +53,9 @@ Git remote: https://github.com/GalleonAILabs/house-hunter-repliers-prototype
 
 ## Server
 Running on port 8787 (python3.11 server.py)
-Endpoints: /api/health, /api/listings, /api/poc-listings
+Endpoints: /api/health, /api/config, /api/listings, /api/poc-listings,
+/api/people, /api/feedback, /layers/go-stations.geojson,
+/layers/highway-413.geojson
 Phone test tunnel: https://house-hunter-repliers-mark.loca.lt
 
 ## Constraints

@@ -113,3 +113,29 @@ metro-scoped) is the realistic number. `PROJECT_BRIEF.md`/the design doc's
 "~300 listings" language should be corrected to "~200" alongside this fix.
 
 **Depends on:** Nothing; `REPLIERS_API_KEY` is now in `.env`.
+
+## Canadian vs US mortgage calculator selection during onboarding
+
+**What:** The mortgage/PIT calculator currently assumes Canadian semi-annual
+compounding unconditionally. Add a country selection step during onboarding
+that sets the correct compounding formula: semi-annual for Canada, monthly
+for the US.
+
+**Why:** House Hunter's financial numbers (Monthly PIT, due at closing) are
+only correct for a Canadian mortgage. A US buyer group using the same tool
+would see a PIT figure computed with the wrong compounding convention,
+silently wrong rather than obviously broken.
+
+**Pros:** Small, well-scoped fix once picked up -- one formula branch keyed
+off a single onboarding answer, no schema change.
+
+**Cons:** Needs an onboarding step to exist first (there isn't one today --
+"I am" actor selection is the closest thing, and country isn't currently
+part of that model).
+
+**Context:** Not needed for the current Mark/Katie/Anees/Kevin demo (all
+Canadian, Ontario listings). Relevant the moment a US-based buyer group or
+market is added.
+
+**Depends on:** Nothing; independent of the current listing_feedback/actor
+model.

@@ -41,6 +41,10 @@ CDN_BASE = "https://cdn.repliers.io/"
 POC_DATA_PATH = ROOT / "data" / "poc_listings.json"
 DB_PATH = ROOT / "data" / "house_hunter.db"
 APP_AUTH_TOKEN = os.getenv("APP_AUTH_TOKEN", "")
+# Mapbox tokens are meant to be public/client-side (restricted by URL on the
+# Mapbox account, not by secrecy) -- unlike REPLIERS_API_KEY, it's fine for
+# this to travel through the unprotected /api/config bootstrap endpoint.
+MAPBOX_TOKEN = os.getenv("MAPBOX_TOKEN", "")
 ALLOWED_ACTION_TYPES = {"rating", "note", "reject", "research_request"}
 
 # D10: known POC listing ids, loaded once at startup (see load_poc_listing_ids).
@@ -740,7 +744,13 @@ class Handler(BaseHTTPRequestHandler):
                 # Unprotected by design: the frontend needs this to bootstrap
                 # the auth token before it can call anything else. Same
                 # deterrent-not-security tradeoff as the token itself (D3/D11).
-                self.send_json({"auth_token": APP_AUTH_TOKEN})
+                self.send_json({"auth_token": APP_AUTH_TOKEN, "mapbox_token": MAPBOX_TOKEN})
+                return
+            if parsed.path == "/layers/go-stations.geojson":
+                self.send_static(STATIC / "layers" / "go_stations.geojson", "application/geo+json; charset=utf-8")
+                return
+            if parsed.path == "/layers/highway-413.geojson":
+                self.send_static(STATIC / "layers" / "highway_413.geojson", "application/geo+json; charset=utf-8")
                 return
             if parsed.path in ("/", "/index.html"):
                 self.send_static(STATIC / "index.html", "text/html; charset=utf-8")

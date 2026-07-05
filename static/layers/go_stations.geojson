@@ -1,0 +1,1178 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.3802085,
+          43.6456424
+        ]
+      },
+      "properties": {
+        "name": "Union",
+        "status": "Existing",
+        "lines": "Lakeshore West, Lakeshore East, Kitchener, Barrie, Stouffville, Richmond Hill, Milton",
+        "municipality": "Toronto",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.4187762,
+          43.6351854
+        ]
+      },
+      "properties": {
+        "name": "Exhibition",
+        "status": "Existing",
+        "lines": "Lakeshore West",
+        "municipality": "Toronto",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.4977927,
+          43.6164261
+        ]
+      },
+      "properties": {
+        "name": "Mimico",
+        "status": "Existing",
+        "lines": "Lakeshore West",
+        "municipality": "Toronto",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.5453111,
+          43.5920303
+        ]
+      },
+      "properties": {
+        "name": "Long Branch",
+        "status": "Existing",
+        "lines": "Lakeshore West",
+        "municipality": "Toronto",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.3003555,
+          43.6864333
+        ]
+      },
+      "properties": {
+        "name": "Danforth",
+        "status": "Existing",
+        "lines": "Lakeshore East",
+        "municipality": "Toronto",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.2566068,
+          43.7741043
+        ]
+      },
+      "properties": {
+        "name": "Scarborough",
+        "status": "Existing",
+        "lines": "Lakeshore East",
+        "municipality": "Toronto",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.2654,
+          43.7313
+        ]
+      },
+      "properties": {
+        "name": "Eglinton",
+        "status": "Existing",
+        "lines": "Lakeshore East",
+        "municipality": "Toronto",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.2114,
+          43.7565
+        ]
+      },
+      "properties": {
+        "name": "Guildwood",
+        "status": "Existing",
+        "lines": "Lakeshore East",
+        "municipality": "Toronto",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.1407,
+          43.8084
+        ]
+      },
+      "properties": {
+        "name": "Rouge Hill",
+        "status": "Existing",
+        "lines": "Lakeshore East",
+        "municipality": "Toronto",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.0908,
+          43.8384
+        ]
+      },
+      "properties": {
+        "name": "Pickering",
+        "status": "Existing",
+        "lines": "Lakeshore East",
+        "municipality": "Pickering",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.0197,
+          43.8508
+        ]
+      },
+      "properties": {
+        "name": "Ajax",
+        "status": "Existing",
+        "lines": "Lakeshore East",
+        "municipality": "Ajax",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.9424,
+          43.8731
+        ]
+      },
+      "properties": {
+        "name": "Whitby",
+        "status": "Existing",
+        "lines": "Lakeshore East",
+        "municipality": "Whitby",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.8659,
+          43.8993
+        ]
+      },
+      "properties": {
+        "name": "Oshawa",
+        "status": "Existing",
+        "lines": "Lakeshore East",
+        "municipality": "Oshawa",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.4116,
+          43.6645
+        ]
+      },
+      "properties": {
+        "name": "Bloor",
+        "status": "Existing",
+        "lines": "Kitchener",
+        "municipality": "Toronto",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.5215,
+          43.7034
+        ]
+      },
+      "properties": {
+        "name": "Weston",
+        "status": "Existing",
+        "lines": "Kitchener",
+        "municipality": "Toronto",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.5586,
+          43.7286
+        ]
+      },
+      "properties": {
+        "name": "Etobicoke North",
+        "status": "Existing",
+        "lines": "Kitchener",
+        "municipality": "Toronto",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.6304,
+          43.7214
+        ]
+      },
+      "properties": {
+        "name": "Malton",
+        "status": "Existing",
+        "lines": "Kitchener",
+        "municipality": "Mississauga",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.6912,
+          43.7382
+        ]
+      },
+      "properties": {
+        "name": "Bramalea",
+        "status": "Existing",
+        "lines": "Kitchener",
+        "municipality": "Brampton",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.7599,
+          43.6834
+        ]
+      },
+      "properties": {
+        "name": "Brampton",
+        "status": "Existing",
+        "lines": "Kitchener",
+        "municipality": "Brampton",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.8197,
+          43.6901
+        ]
+      },
+      "properties": {
+        "name": "Mount Pleasant",
+        "status": "Existing",
+        "lines": "Kitchener",
+        "municipality": "Brampton",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.9142,
+          43.6512
+        ]
+      },
+      "properties": {
+        "name": "Georgetown",
+        "status": "Existing",
+        "lines": "Kitchener",
+        "municipality": "Halton Hills",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.0432,
+          43.6301
+        ]
+      },
+      "properties": {
+        "name": "Acton",
+        "status": "Existing",
+        "lines": "Kitchener",
+        "municipality": "Halton Hills",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.2482,
+          43.5448
+        ]
+      },
+      "properties": {
+        "name": "Guelph Central",
+        "status": "Existing",
+        "lines": "Kitchener",
+        "municipality": "Guelph",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.4925,
+          43.4516
+        ]
+      },
+      "properties": {
+        "name": "Kitchener",
+        "status": "Existing",
+        "lines": "Kitchener",
+        "municipality": "Kitchener",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.4771,
+          43.7497
+        ]
+      },
+      "properties": {
+        "name": "Downsview Park",
+        "status": "Existing",
+        "lines": "Barrie",
+        "municipality": "Toronto",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.5269,
+          43.8414
+        ]
+      },
+      "properties": {
+        "name": "Rutherford",
+        "status": "Existing",
+        "lines": "Barrie",
+        "municipality": "Vaughan",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.5083,
+          43.8557
+        ]
+      },
+      "properties": {
+        "name": "Maple",
+        "status": "Existing",
+        "lines": "Barrie",
+        "municipality": "Vaughan",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.5261,
+          43.9234
+        ]
+      },
+      "properties": {
+        "name": "King City",
+        "status": "Existing",
+        "lines": "Barrie",
+        "municipality": "King",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.4669,
+          43.9981
+        ]
+      },
+      "properties": {
+        "name": "Aurora",
+        "status": "Existing",
+        "lines": "Barrie",
+        "municipality": "Aurora",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.4612,
+          44.0568
+        ]
+      },
+      "properties": {
+        "name": "Newmarket",
+        "status": "Existing",
+        "lines": "Barrie",
+        "municipality": "Newmarket",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.4456,
+          44.1013
+        ]
+      },
+      "properties": {
+        "name": "East Gwillimbury",
+        "status": "Existing",
+        "lines": "Barrie",
+        "municipality": "East Gwillimbury",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.5603,
+          44.1149
+        ]
+      },
+      "properties": {
+        "name": "Bradford",
+        "status": "Existing",
+        "lines": "Barrie",
+        "municipality": "Bradford West Gwillimbury",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.6831,
+          44.3399
+        ]
+      },
+      "properties": {
+        "name": "Barrie South",
+        "status": "Existing",
+        "lines": "Barrie",
+        "municipality": "Barrie",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.6897,
+          44.3899
+        ]
+      },
+      "properties": {
+        "name": "Allandale Waterfront",
+        "status": "Existing",
+        "lines": "Barrie",
+        "municipality": "Barrie",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.2641,
+          43.7308
+        ]
+      },
+      "properties": {
+        "name": "Kennedy",
+        "status": "Existing",
+        "lines": "Stouffville",
+        "municipality": "Toronto",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.2755,
+          43.7846
+        ]
+      },
+      "properties": {
+        "name": "Agincourt",
+        "status": "Existing",
+        "lines": "Stouffville",
+        "municipality": "Toronto",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.2746,
+          43.8219
+        ]
+      },
+      "properties": {
+        "name": "Milliken",
+        "status": "Existing",
+        "lines": "Stouffville",
+        "municipality": "Toronto",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.2963,
+          43.8609
+        ]
+      },
+      "properties": {
+        "name": "Unionville",
+        "status": "Existing",
+        "lines": "Stouffville",
+        "municipality": "Markham",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.2793,
+          43.8918
+        ]
+      },
+      "properties": {
+        "name": "Centennial",
+        "status": "Existing",
+        "lines": "Stouffville",
+        "municipality": "Markham",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.2663,
+          43.8683
+        ]
+      },
+      "properties": {
+        "name": "Markham",
+        "status": "Existing",
+        "lines": "Stouffville",
+        "municipality": "Markham",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.2508,
+          43.8918
+        ]
+      },
+      "properties": {
+        "name": "Mount Joy",
+        "status": "Existing",
+        "lines": "Stouffville",
+        "municipality": "Markham",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.2497,
+          43.9713
+        ]
+      },
+      "properties": {
+        "name": "Stouffville",
+        "status": "Existing",
+        "lines": "Stouffville",
+        "municipality": "Whitchurch-Stouffville",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.3807,
+          43.7957
+        ]
+      },
+      "properties": {
+        "name": "Old Cummer",
+        "status": "Existing",
+        "lines": "Richmond Hill",
+        "municipality": "Toronto",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.4114,
+          43.8416
+        ]
+      },
+      "properties": {
+        "name": "Langstaff",
+        "status": "Existing",
+        "lines": "Richmond Hill",
+        "municipality": "Richmond Hill",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.4331,
+          43.8701
+        ]
+      },
+      "properties": {
+        "name": "Richmond Hill",
+        "status": "Existing",
+        "lines": "Richmond Hill",
+        "municipality": "Richmond Hill",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.3697,
+          43.9831
+        ]
+      },
+      "properties": {
+        "name": "Gormley",
+        "status": "Existing",
+        "lines": "Richmond Hill",
+        "municipality": "Whitchurch-Stouffville",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.3697,
+          44.0268
+        ]
+      },
+      "properties": {
+        "name": "Bloomington",
+        "status": "Existing",
+        "lines": "Richmond Hill",
+        "municipality": "Richmond Hill",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.6197,
+          43.5814
+        ]
+      },
+      "properties": {
+        "name": "Cooksville",
+        "status": "Existing",
+        "lines": "Milton",
+        "municipality": "Mississauga",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.6512,
+          43.5548
+        ]
+      },
+      "properties": {
+        "name": "Erindale",
+        "status": "Existing",
+        "lines": "Milton",
+        "municipality": "Mississauga",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.7197,
+          43.5814
+        ]
+      },
+      "properties": {
+        "name": "Streetsville",
+        "status": "Existing",
+        "lines": "Milton",
+        "municipality": "Mississauga",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.7697,
+          43.5814
+        ]
+      },
+      "properties": {
+        "name": "Meadowvale",
+        "status": "Existing",
+        "lines": "Milton",
+        "municipality": "Mississauga",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.7997,
+          43.5814
+        ]
+      },
+      "properties": {
+        "name": "Lisgar",
+        "status": "Existing",
+        "lines": "Milton",
+        "municipality": "Mississauga",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.8831,
+          43.5148
+        ]
+      },
+      "properties": {
+        "name": "Milton",
+        "status": "Existing",
+        "lines": "Milton",
+        "municipality": "Milton",
+        "statusColor": "#16803a"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.4116,
+          43.6901
+        ]
+      },
+      "properties": {
+        "name": "St Clair",
+        "status": "Planned: SmartTrack",
+        "lines": "Kitchener",
+        "municipality": "Toronto",
+        "statusColor": "#e8b400"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.4216,
+          43.6401
+        ]
+      },
+      "properties": {
+        "name": "Liberty Village",
+        "status": "Planned: SmartTrack",
+        "lines": "Lakeshore West",
+        "municipality": "Toronto",
+        "statusColor": "#e8b400"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.3497,
+          43.6534
+        ]
+      },
+      "properties": {
+        "name": "East Harbour",
+        "status": "Planned: SmartTrack",
+        "lines": "Lakeshore East, Stouffville",
+        "municipality": "Toronto",
+        "statusColor": "#e8b400"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.3497,
+          43.7808
+        ]
+      },
+      "properties": {
+        "name": "Finch",
+        "status": "Planned: SmartTrack",
+        "lines": "Stouffville",
+        "municipality": "Toronto",
+        "statusColor": "#e8b400"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.3197,
+          43.6697
+        ]
+      },
+      "properties": {
+        "name": "Woodbine",
+        "status": "Planned: SmartTrack hub",
+        "lines": "Lakeshore East, Stouffville",
+        "municipality": "Toronto",
+        "statusColor": "#e8b400"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.4812,
+          44.0768
+        ]
+      },
+      "properties": {
+        "name": "Mulock",
+        "status": "Planned: GO Expansion",
+        "lines": "Barrie",
+        "municipality": "Newmarket",
+        "statusColor": "#e8b400"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.5431,
+          44.1568
+        ]
+      },
+      "properties": {
+        "name": "Innisfil",
+        "status": "Planned: GO Expansion",
+        "lines": "Barrie",
+        "municipality": "Innisfil",
+        "statusColor": "#e8b400"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.6931,
+          44.3997
+        ]
+      },
+      "properties": {
+        "name": "Barrie Allandale",
+        "status": "Planned: GO Expansion",
+        "lines": "Barrie",
+        "municipality": "Barrie",
+        "statusColor": "#e8b400"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.2441,
+          43.7134
+        ]
+      },
+      "properties": {
+        "name": "Goldhawk",
+        "status": "Planned: GO Expansion",
+        "lines": "Stouffville",
+        "municipality": "Markham",
+        "statusColor": "#e8b400"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.2641,
+          43.8134
+        ]
+      },
+      "properties": {
+        "name": "Steeles",
+        "status": "Planned: GO Expansion",
+        "lines": "Stouffville",
+        "municipality": "Markham",
+        "statusColor": "#e8b400"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.6141,
+          43.5134
+        ]
+      },
+      "properties": {
+        "name": "Clarkson",
+        "status": "Planned: Lakeshore East extension",
+        "lines": "Lakeshore West",
+        "municipality": "Mississauga",
+        "statusColor": "#e8b400"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.5831,
+          43.5534
+        ]
+      },
+      "properties": {
+        "name": "Port Credit",
+        "status": "Planned: Lakeshore East extension",
+        "lines": "Lakeshore West",
+        "municipality": "Mississauga",
+        "statusColor": "#e8b400"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.6441,
+          43.5734
+        ]
+      },
+      "properties": {
+        "name": "Dixie",
+        "status": "Planned: Lakeshore East extension",
+        "lines": "Lakeshore West",
+        "municipality": "Mississauga",
+        "statusColor": "#e8b400"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.5431,
+          43.5534
+        ]
+      },
+      "properties": {
+        "name": "Lakeview",
+        "status": "Planned: Lakeshore East extension",
+        "lines": "Lakeshore West",
+        "municipality": "Mississauga",
+        "statusColor": "#e8b400"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.6831,
+          43.9134
+        ]
+      },
+      "properties": {
+        "name": "Bowmanville",
+        "status": "Proposed: under study",
+        "lines": "Lakeshore East",
+        "municipality": "Clarington",
+        "statusColor": "#8a8f8c"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.5397,
+          43.7808
+        ]
+      },
+      "properties": {
+        "name": "Finch West",
+        "status": "Proposed: former SmartTrack on hold",
+        "lines": "Kitchener",
+        "municipality": "Toronto",
+        "statusColor": "#8a8f8c"
+      }
+    }
+  ]
+}

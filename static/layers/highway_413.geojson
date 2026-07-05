@@ -1,0 +1,302 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -79.882817,
+            43.513671
+          ],
+          [
+            -79.9142216,
+            43.6512888
+          ],
+          [
+            -79.7599366,
+            43.685832
+          ],
+          [
+            -79.7599366,
+            43.685832
+          ],
+          [
+            -79.9066871,
+            43.8320698
+          ],
+          [
+            -79.8931,
+            43.8997
+          ],
+          [
+            -79.8731,
+            43.9234
+          ],
+          [
+            -79.8331,
+            43.9534
+          ],
+          [
+            -79.7931,
+            44.0134
+          ],
+          [
+            -79.7531,
+            44.0534
+          ],
+          [
+            -79.7131,
+            44.0834
+          ],
+          [
+            -79.6731,
+            44.1134
+          ],
+          [
+            -79.6331,
+            44.1334
+          ],
+          [
+            -79.5931,
+            44.1534
+          ],
+          [
+            -79.5531,
+            44.1734
+          ]
+        ]
+      },
+      "properties": {
+        "name": "Highway 413 Corridor",
+        "status": "approved"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.882817,
+          43.513671
+        ]
+      },
+      "properties": {
+        "name": "Interchange 1",
+        "municipality": null,
+        "note": "Name/municipality not provided in source data; placeholder label only."
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.9142216,
+          43.6512888
+        ]
+      },
+      "properties": {
+        "name": "Interchange 2",
+        "municipality": null,
+        "note": "Name/municipality not provided in source data; placeholder label only."
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.7599366,
+          43.685832
+        ]
+      },
+      "properties": {
+        "name": "Interchange 3",
+        "municipality": null,
+        "note": "Name/municipality not provided in source data; placeholder label only."
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.7599366,
+          43.685832
+        ]
+      },
+      "properties": {
+        "name": "Interchange 4",
+        "municipality": null,
+        "note": "Name/municipality not provided in source data; placeholder label only."
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.9066871,
+          43.8320698
+        ]
+      },
+      "properties": {
+        "name": "Interchange 5",
+        "municipality": null,
+        "note": "Name/municipality not provided in source data; placeholder label only."
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.8931,
+          43.8997
+        ]
+      },
+      "properties": {
+        "name": "Interchange 6",
+        "municipality": null,
+        "note": "Name/municipality not provided in source data; placeholder label only."
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.8731,
+          43.9234
+        ]
+      },
+      "properties": {
+        "name": "Interchange 7",
+        "municipality": null,
+        "note": "Name/municipality not provided in source data; placeholder label only."
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.8331,
+          43.9534
+        ]
+      },
+      "properties": {
+        "name": "Interchange 8",
+        "municipality": null,
+        "note": "Name/municipality not provided in source data; placeholder label only."
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.7931,
+          44.0134
+        ]
+      },
+      "properties": {
+        "name": "Interchange 9",
+        "municipality": null,
+        "note": "Name/municipality not provided in source data; placeholder label only."
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.7531,
+          44.0534
+        ]
+      },
+      "properties": {
+        "name": "Interchange 10",
+        "municipality": null,
+        "note": "Name/municipality not provided in source data; placeholder label only."
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.7131,
+          44.0834
+        ]
+      },
+      "properties": {
+        "name": "Interchange 11",
+        "municipality": null,
+        "note": "Name/municipality not provided in source data; placeholder label only."
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.6731,
+          44.1134
+        ]
+      },
+      "properties": {
+        "name": "Interchange 12",
+        "municipality": null,
+        "note": "Name/municipality not provided in source data; placeholder label only."
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.6331,
+          44.1334
+        ]
+      },
+      "properties": {
+        "name": "Interchange 13",
+        "municipality": null,
+        "note": "Name/municipality not provided in source data; placeholder label only."
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.5931,
+          44.1534
+        ]
+      },
+      "properties": {
+        "name": "Interchange 14",
+        "municipality": null,
+        "note": "Name/municipality not provided in source data; placeholder label only."
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -79.5531,
+          44.1734
+        ]
+      },
+      "properties": {
+        "name": "Interchange 15",
+        "municipality": null,
+        "note": "Name/municipality not provided in source data; placeholder label only."
+      }
+    }
+  ]
+}
