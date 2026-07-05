@@ -140,28 +140,45 @@ market is added.
 **Depends on:** Nothing; independent of the current listing_feedback/actor
 model.
 
-## Highway 413 needs the real MTO corridor geometry
+## Highway 413 geometry is derived/simplified, not the authoritative file
 
-**What:** `static/layers/highway_413.geojson`'s LineString is currently just
-straight segments connecting 15 bare interchange coordinate points (no
-names/municipality were sourced for them either -- see the point features'
-placeholder `"Interchange N"` labels). Replace it with the actual corridor
-polygon/route from the MTO Highway 413 Environmental Assessment GeoJSON
-once that file is sourced.
+**What:** `static/layers/highway_413.geojson` now uses real MTO/WSP design
+geometry (sourced from the project's public ArcGIS Online data --
+`EE_CAN_ON_HWY_413_Design_Lines_20260302_PUBIC`, ~78k raw vertices) instead
+of straight lines between guessed points, and its 15 interchange points use
+real cross-street names and municipalities from the published interchange
+list (cross-checked against the "15 interchanges, 4 freeway-to-freeway"
+official figure). But the LineString itself is a statistical simplification
+(PCA-axis binning + smoothing) of that raw data, not a direct copy of an
+authoritative single-alignment file -- MTO doesn't appear to publish one in
+that form. 13 of 15 interchange points are placed by proportional distance
+along the simplified line using the published km-markers; only the two
+freeway-to-freeway interchanges with the least ambiguous published km
+figures (410, 427) were cross-validated and corrected against the actual
+"Proposed New Structure" bridge-cluster locations in the same source data.
+Replace with MTO's authoritative alignment file directly if/when they
+publish one, and consider structure-cluster-validating the remaining 11
+interchange points the same way 410/427 were.
 
-**Why:** Straight lines between widely-spaced points cut through terrain
-the real highway doesn't, and don't reflect the actual approved/proposed
-alignment. Fine as a rough "where roughly is this" indicator for now, not
-accurate enough to represent to Anees or anyone else as the real route.
+**Why:** A statistically-derived line and proportionally-placed points are
+real improvements over guessed centroids, but they're still an
+approximation with a documented, non-zero error margin -- worth being
+explicit about rather than presenting as survey-grade.
 
-**Pros:** Isolated change -- swap the file, keep the same layer/paint setup
-in app.js (red, semi-transparent, 4px line).
+**Pros:** Already a large accuracy improvement, grounded in the actual
+government design data instead of estimation; isolated file swap if a
+better source shows up later.
 
-**Cons:** Depends on sourcing the MTO EA GeoJSON (or digitizing an
-equivalent), which hasn't happened yet.
+**Cons:** Depends on MTO publishing (or someone digitizing) a cleaner
+authoritative centerline; the remaining interchange-placement refinement is
+manual, slow work (structure-cluster disambiguation got ambiguous past the
+4 freeway-to-freeway junctions, since the same "structure" layer also
+includes river/creek bridge crossings unrelated to any interchange).
 
-**Context:** Requested during Mapbox migration; kept the approximate
-version rather than blocking on the real file.
+**Context:** Requested twice -- first pass used municipality centroids
+(inaccurate), second pass found the project's public ArcGIS Experience
+Builder app, traced its backing web map to the raw FeatureServer layers,
+and queried those directly for the real design geometry.
 
 **Depends on:** Sourcing the MTO Environmental Assessment GeoJSON (or an
 equivalent authoritative corridor file).

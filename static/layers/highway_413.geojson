@@ -7,70 +7,360 @@
         "type": "LineString",
         "coordinates": [
           [
-            -79.882817,
-            43.513671
+            -79.83746900421936,
+            43.56448391119131
           ],
           [
-            -79.9142216,
-            43.6512888
+            -79.83379991870679,
+            43.567791488983495
           ],
           [
-            -79.7599366,
-            43.685832
+            -79.83040064001284,
+            43.570742653932996
           ],
           [
-            -79.7599366,
-            43.685832
+            -79.82603748259685,
+            43.574000863955526
           ],
           [
-            -79.9066871,
-            43.8320698
+            -79.82256365853034,
+            43.57661223700354
           ],
           [
-            -79.8931,
-            43.8997
+            -79.81840636868304,
+            43.58015401777585
           ],
           [
-            -79.8731,
-            43.9234
+            -79.8155126993043,
+            43.583982901262836
           ],
           [
-            -79.8331,
-            43.9534
+            -79.81342184475658,
+            43.58903274255015
           ],
           [
-            -79.7931,
-            44.0134
+            -79.8117082294879,
+            43.59369150816914
           ],
           [
-            -79.7531,
-            44.0534
+            -79.80807238798536,
+            43.59688874175634
           ],
           [
-            -79.7131,
-            44.0834
+            -79.8130712504318,
+            43.608896507705175
           ],
           [
-            -79.6731,
-            44.1134
+            -79.82646636234477,
+            43.62862989798176
           ],
           [
-            -79.6331,
-            44.1334
+            -79.84686801467176,
+            43.654391401528095
           ],
           [
-            -79.5931,
-            44.1534
+            -79.85266159859151,
+            43.66608189967828
           ],
           [
-            -79.5531,
-            44.1734
+            -79.85018107118329,
+            43.67020832447648
+          ],
+          [
+            -79.85646252438023,
+            43.68283536645217
+          ],
+          [
+            -79.86781388965939,
+            43.699758615317556
+          ],
+          [
+            -79.87930966638807,
+            43.71653362772937
+          ],
+          [
+            -79.87590503464844,
+            43.72067529672449
+          ],
+          [
+            -79.8722319478954,
+            43.724992269810535
+          ],
+          [
+            -79.86881626046896,
+            43.72892303648331
+          ],
+          [
+            -79.86659634966463,
+            43.733193798832474
+          ],
+          [
+            -79.86537947679427,
+            43.73798928972561
+          ],
+          [
+            -79.86411263127847,
+            43.74363561783832
+          ],
+          [
+            -79.86226458685042,
+            43.748806938820735
+          ],
+          [
+            -79.85935289860328,
+            43.75280440125395
+          ],
+          [
+            -79.85689855901104,
+            43.75723431808665
+          ],
+          [
+            -79.85433691440069,
+            43.761815685895435
+          ],
+          [
+            -79.85227564153264,
+            43.7667908279869
+          ],
+          [
+            -79.84910997660226,
+            43.771140231524015
+          ],
+          [
+            -79.8460065660705,
+            43.774630924528935
+          ],
+          [
+            -79.83981762590234,
+            43.775927797271315
+          ],
+          [
+            -79.82953692097718,
+            43.77317568286776
+          ],
+          [
+            -79.81507615577064,
+            43.76653927294533
+          ],
+          [
+            -79.81267308489016,
+            43.77004144314219
+          ],
+          [
+            -79.81506340504082,
+            43.778989246178774
+          ],
+          [
+            -79.82078326961609,
+            43.79158352666203
+          ],
+          [
+            -79.81749386115854,
+            43.79521711959748
+          ],
+          [
+            -79.81325239579435,
+            43.79760337196712
+          ],
+          [
+            -79.80938536780498,
+            43.800151273558434
+          ],
+          [
+            -79.80502140916495,
+            43.803494495354634
+          ],
+          [
+            -79.80049465751495,
+            43.80660731388394
+          ],
+          [
+            -79.7960609260942,
+            43.8097792588321
+          ],
+          [
+            -79.79205374666503,
+            43.81251581065474
+          ],
+          [
+            -79.78855787102466,
+            43.81515848254895
+          ],
+          [
+            -79.78473559702282,
+            43.81824687490329
+          ],
+          [
+            -79.78068234736888,
+            43.821598362217024
+          ],
+          [
+            -79.77585070660358,
+            43.82462165647913
+          ],
+          [
+            -79.77111116006621,
+            43.826679426091914
+          ],
+          [
+            -79.76504397711012,
+            43.8287767779799
+          ],
+          [
+            -79.75918151312935,
+            43.83045403571288
+          ],
+          [
+            -79.75327729789463,
+            43.83186562729143
+          ],
+          [
+            -79.7482996459566,
+            43.83255572171973
+          ],
+          [
+            -79.74260344987874,
+            43.83337388529474
+          ],
+          [
+            -79.73547478538754,
+            43.83358649682833
+          ],
+          [
+            -79.72792689009084,
+            43.833752894673104
+          ],
+          [
+            -79.72073886073471,
+            43.83303184080258
+          ],
+          [
+            -79.71440495065029,
+            43.8337437973326
+          ],
+          [
+            -79.70846694297235,
+            43.83513032257897
+          ],
+          [
+            -79.70292237853188,
+            43.837505998913265
+          ],
+          [
+            -79.69764891405059,
+            43.83948301809884
+          ],
+          [
+            -79.68945571065542,
+            43.83862697799824
+          ],
+          [
+            -79.67813305666317,
+            43.83463408346588
+          ],
+          [
+            -79.66931115311755,
+            43.8320193641394
+          ],
+          [
+            -79.66761177997539,
+            43.837000888299066
+          ],
+          [
+            -79.66933929203765,
+            43.84545622161374
+          ],
+          [
+            -79.67003186603485,
+            43.85277599532086
+          ],
+          [
+            -79.6655019040381,
+            43.85778784805115
+          ],
+          [
+            -79.66121795658917,
+            43.86282958207275
+          ],
+          [
+            -79.65580540674594,
+            43.86795184784962
+          ],
+          [
+            -79.65155485036735,
+            43.870791928406675
+          ],
+          [
+            -79.64788900161369,
+            43.873172740049796
+          ],
+          [
+            -79.6430905799469,
+            43.87480888594292
+          ],
+          [
+            -79.63745373610824,
+            43.8762888088815
+          ],
+          [
+            -79.63083915206475,
+            43.87766859938699
+          ],
+          [
+            -79.62561239287722,
+            43.87945083372821
+          ],
+          [
+            -79.62002899824387,
+            43.881547425292325
+          ],
+          [
+            -79.61140281615133,
+            43.884713838239556
+          ],
+          [
+            -79.60246635125434,
+            43.887826184489406
+          ],
+          [
+            -79.59390642084743,
+            43.89036615315405
+          ],
+          [
+            -79.58754530138378,
+            43.89159426273809
+          ],
+          [
+            -79.58014516147999,
+            43.89188591748723
+          ],
+          [
+            -79.57286441376938,
+            43.89193132412267
+          ],
+          [
+            -79.56609740366467,
+            43.891860687796054
+          ],
+          [
+            -79.56242162325226,
+            43.89476631984049
+          ],
+          [
+            -79.56050122522707,
+            43.89947606309858
+          ],
+          [
+            -79.5600625915577,
+            43.90597642770758
           ]
         ]
       },
       "properties": {
         "name": "Highway 413 Corridor",
-        "status": "approved"
+        "status": "preliminary design (not yet under construction)",
+        "source": "MTO/WSP Highway 413 EA public ArcGIS data (EE_CAN_ON_HWY_413_Design_Lines_20260302_PUBIC, FeatureServer layer 76), simplified from ~78k raw design-line vertices via PCA-axis binning + smoothing",
+        "accuracy_note": "Simplified/derived from real MTO design geometry, not an exact copy -- follow-up in TODOS.md to replace with the authoritative alignment file if/when MTO publishes one directly."
       }
     },
     {
@@ -78,14 +368,15 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -79.882817,
-          43.513671
+          -79.83746900421936,
+          43.56448391119131
         ]
       },
       "properties": {
-        "name": "Interchange 1",
-        "municipality": null,
-        "note": "Name/municipality not provided in source data; placeholder label only."
+        "name": "Highway 401 / Highway 407 ETR",
+        "municipality": "Halton Hills / Milton / Mississauga",
+        "km": 0,
+        "freewayToFreeway": true
       }
     },
     {
@@ -93,14 +384,15 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -79.9142216,
-          43.6512888
+          -79.80887123051025,
+          43.59880764114027
         ]
       },
       "properties": {
-        "name": "Interchange 2",
-        "municipality": null,
-        "note": "Name/municipality not provided in source data; placeholder label only."
+        "name": "Winston Churchill Boulevard (Regional Road 19)",
+        "municipality": "Brampton",
+        "km": 4,
+        "freewayToFreeway": false
       }
     },
     {
@@ -108,14 +400,15 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -79.7599366,
-          43.685832
+          -79.83976845084098,
+          43.64542666495319
         ]
       },
       "properties": {
-        "name": "Interchange 3",
-        "municipality": null,
-        "note": "Name/municipality not provided in source data; placeholder label only."
+        "name": "Bovaird Drive (Regional Road 107)",
+        "municipality": "Brampton",
+        "km": 9,
+        "freewayToFreeway": false
       }
     },
     {
@@ -123,14 +416,15 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -79.7599366,
-          43.685832
+          -79.8569674668918,
+          43.68358816292871
         ]
       },
       "properties": {
-        "name": "Interchange 4",
-        "municipality": null,
-        "note": "Name/municipality not provided in source data; placeholder label only."
+        "name": "Mayfield Road (Regional Road 14)",
+        "municipality": "Caledon",
+        "km": 13,
+        "freewayToFreeway": false
       }
     },
     {
@@ -138,14 +432,15 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -79.9066871,
-          43.8320698
+          -79.86502411411688,
+          43.73957314051921
         ]
       },
       "properties": {
-        "name": "Interchange 5",
-        "municipality": null,
-        "note": "Name/municipality not provided in source data; placeholder label only."
+        "name": "Chinguacousy Road",
+        "municipality": "Caledon",
+        "km": 19,
+        "freewayToFreeway": false
       }
     },
     {
@@ -153,14 +448,15 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -79.8931,
-          43.8997
+          -79.85082483936726,
+          43.768784129302276
         ]
       },
       "properties": {
-        "name": "Interchange 6",
-        "municipality": null,
-        "note": "Name/municipality not provided in source data; placeholder label only."
+        "name": "Highway 10 (Hurontario Street)",
+        "municipality": "Caledon",
+        "km": 22,
+        "freewayToFreeway": false
       }
     },
     {
@@ -168,14 +464,16 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -79.8731,
-          43.9234
+          -79.83988200792234,
+          43.77591430622365
         ]
       },
       "properties": {
-        "name": "Interchange 7",
-        "municipality": null,
-        "note": "Name/municipality not provided in source data; placeholder label only."
+        "name": "Highway 410",
+        "municipality": "Caledon",
+        "km": 23.1,
+        "freewayToFreeway": true,
+        "note": "Position refined against the actual 'Proposed New Structure' bridge/ramp cluster in the same source data (was off by several km when placed by proportional distance alone against the published Wikipedia km-marker)."
       }
     },
     {
@@ -183,14 +481,15 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -79.8331,
-          43.9534
+          -79.81813187827284,
+          43.78574556217733
         ]
       },
       "properties": {
-        "name": "Interchange 8",
-        "municipality": null,
-        "note": "Name/municipality not provided in source data; placeholder label only."
+        "name": "Bramalea Road",
+        "municipality": "Caledon",
+        "km": 27,
+        "freewayToFreeway": false
       }
     },
     {
@@ -198,14 +497,15 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -79.7931,
-          44.0134
+          -79.79667660967331,
+          43.80933879137182
         ]
       },
       "properties": {
-        "name": "Interchange 9",
-        "municipality": null,
-        "note": "Name/municipality not provided in source data; placeholder label only."
+        "name": "Airport Road (Regional Road 7)",
+        "municipality": "Caledon",
+        "km": 30,
+        "freewayToFreeway": false
       }
     },
     {
@@ -213,14 +513,15 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -79.7531,
-          44.0534
+          -79.73610187834785,
+          43.83356779385863
         ]
       },
       "properties": {
-        "name": "Interchange 10",
-        "municipality": null,
-        "note": "Name/municipality not provided in source data; placeholder label only."
+        "name": "The Gore Road (Regional Road 8)",
+        "municipality": "Caledon",
+        "km": 35,
+        "freewayToFreeway": false
       }
     },
     {
@@ -228,14 +529,15 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -79.7131,
-          44.0834
+          -79.70787999663399,
+          43.83538181113872
         ]
       },
       "properties": {
-        "name": "Interchange 11",
-        "municipality": null,
-        "note": "Name/municipality not provided in source data; placeholder label only."
+        "name": "Humber Station Road",
+        "municipality": "Caledon",
+        "km": 37,
+        "freewayToFreeway": false
       }
     },
     {
@@ -243,14 +545,16 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -79.6731,
-          44.1134
+          -79.6893185682309,
+          43.83857861519943
         ]
       },
       "properties": {
-        "name": "Interchange 12",
-        "municipality": null,
-        "note": "Name/municipality not provided in source data; placeholder label only."
+        "name": "Highway 427",
+        "municipality": "Vaughan / Caledon (Peel-York boundary)",
+        "km": 38.4,
+        "freewayToFreeway": true,
+        "note": "Position refined against the actual 'Proposed New Structure' bridge/ramp cluster in the same source data (was off by several km when placed by proportional distance alone against the published Wikipedia km-marker)."
       }
     },
     {
@@ -258,14 +562,15 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -79.6331,
-          44.1334
+          -79.65285342430501,
+          43.86992426444371
         ]
       },
       "properties": {
-        "name": "Interchange 13",
-        "municipality": null,
-        "note": "Name/municipality not provided in source data; placeholder label only."
+        "name": "Highway 27 (Regional Road 27)",
+        "municipality": "Vaughan",
+        "km": 44,
+        "freewayToFreeway": false
       }
     },
     {
@@ -273,14 +578,15 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -79.5931,
-          44.1534
+          -79.56201476525351,
+          43.89576413211248
         ]
       },
       "properties": {
-        "name": "Interchange 14",
-        "municipality": null,
-        "note": "Name/municipality not provided in source data; placeholder label only."
+        "name": "Weston Road (Regional Road 56)",
+        "municipality": "Vaughan",
+        "km": 51,
+        "freewayToFreeway": false
       }
     },
     {
@@ -288,14 +594,15 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -79.5531,
-          44.1734
+          -79.5600625915577,
+          43.90597642770758
         ]
       },
       "properties": {
-        "name": "Interchange 15",
-        "municipality": null,
-        "note": "Name/municipality not provided in source data; placeholder label only."
+        "name": "Highway 400",
+        "municipality": "Vaughan",
+        "km": 52,
+        "freewayToFreeway": true
       }
     }
   ]
