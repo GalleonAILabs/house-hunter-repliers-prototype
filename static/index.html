@@ -21,8 +21,7 @@
         <button class="view-btn" id="btnList">☰ List</button>
       </div>
       <select class="who-am-i" id="whoAmI" title="Who you are — every rating, note, reject, and research request is recorded as this person"></select>
-      <button class="icon-btn" id="themeBtn" title="Theme">🌓</button>
-      <button class="icon-btn" id="settingsBtn" title="Card settings">⚙</button>
+      <button class="icon-btn" id="settingsBtn" title="Settings">⚙</button>
     </div>
   </header>
 
@@ -39,30 +38,34 @@
           <input id="maxPrice" type="text" inputmode="numeric" placeholder="Max" />
         </div>
       </label>
-      <label>Beds
-        <div class="range-pair">
-          <input id="minBeds" type="number" min="0" placeholder="Min" />
-          <input id="maxBeds" type="number" min="0" placeholder="Max" />
-        </div>
-      </label>
-      <label>Baths
-        <div class="range-pair">
-          <input id="minBaths" type="number" min="0" step="0.5" placeholder="Min" />
-          <input id="maxBaths" type="number" min="0" step="0.5" placeholder="Max" />
-        </div>
-      </label>
-      <label>Sqft
-        <div class="range-pair">
-          <input id="minSqft" type="number" min="0" step="50" placeholder="Min" />
-          <input id="maxSqft" type="number" min="0" step="50" placeholder="Max" />
-        </div>
-      </label>
-      <label>Lot size (acres)
-        <div class="range-pair">
-          <input id="minAcres" type="number" min="0" step="0.1" placeholder="Min" />
-          <input id="maxAcres" type="number" min="0" step="0.1" placeholder="Max" />
-        </div>
-      </label>
+      <div class="filter-row-pair">
+        <label>Beds
+          <div class="range-pair">
+            <input id="minBeds" type="number" min="0" placeholder="Min" />
+            <input id="maxBeds" type="number" min="0" placeholder="Max" />
+          </div>
+        </label>
+        <label>Baths
+          <div class="range-pair">
+            <input id="minBaths" type="number" min="0" step="0.5" placeholder="Min" />
+            <input id="maxBaths" type="number" min="0" step="0.5" placeholder="Max" />
+          </div>
+        </label>
+      </div>
+      <div class="filter-row-pair">
+        <label>Sqft
+          <div class="range-pair">
+            <input id="minSqft" type="number" min="0" step="50" placeholder="Min" />
+            <input id="maxSqft" type="number" min="0" step="50" placeholder="Max" />
+          </div>
+        </label>
+        <label>Lot size (acres)
+          <div class="range-pair">
+            <input id="minAcres" type="number" min="0" step="0.1" placeholder="Min" />
+            <input id="maxAcres" type="number" min="0" step="0.1" placeholder="Max" />
+          </div>
+        </label>
+      </div>
       <label>Max commute (min)
         <input id="maxCommute" type="number" min="0" step="1" placeholder="Any" />
       </label>
@@ -109,10 +112,13 @@
         <label class="chip"><input type="checkbox" id="featPool" /> Mentions pool</label>
         <label class="chip"><input type="checkbox" id="featBasement" /> Mentions basement</label>
       </div>
+      <div class="filter-toggle-row" id="clusterFilterRow" hidden>
+        <label class="chip"><input type="checkbox" id="clusterToggle" /> Group nearby pins (cluster)</label>
+      </div>
       <label>Data source
         <select id="source">
           <option value="poc" selected>My POC data</option>
-          <option value="repliers">Sample</option>
+          <option value="repliers">Sample Data</option>
         </select>
       </label>
       <button id="load">Apply</button>
@@ -139,6 +145,18 @@
   <!-- 4. MAP VIEW — flex: 1 1 0, min-height: 0 (takes all remaining space) -->
   <div id="viewMap" class="view-section">
     <div id="map"></div>
+    <details class="map-legend" id="mapLegend">
+      <summary>Legend</summary>
+      <div class="map-legend-body">
+        <div class="legend-row"><span class="legend-swatch" style="background:#16803a"></span>Great fit (7-8/8)</div>
+        <div class="legend-row"><span class="legend-swatch" style="background:#2b67d6"></span>Good fit (5-6/8)</div>
+        <div class="legend-row"><span class="legend-swatch" style="background:#c58900"></span>Fair fit (4/8)</div>
+        <div class="legend-row"><span class="legend-swatch" style="background:#b3261e"></span>Poor fit (&lt;4/8)</div>
+        <div class="legend-row"><span class="legend-swatch" style="background:#aaa"></span>Rejected by you</div>
+        <div class="legend-row"><span class="legend-swatch legend-swatch-faded" style="background:#2b67d6"></span>Not yet rated by you</div>
+        <p class="legend-hint" id="legendHint">Select "I am" (top right) to see rejected / not-yet-rated status</p>
+      </div>
+    </details>
     <div id="mapCard" class="map-card" hidden>
       <button class="map-card-close" id="mapCardClose">✕</button>
       <div class="map-card-inner" id="mapCardInner"></div>
@@ -156,6 +174,13 @@
     <div class="settings-header">
       <span class="settings-title">Card settings</span>
       <button class="close-btn" id="settingsClose">✕</button>
+    </div>
+    <div class="settings-row settings-theme-row">
+      <button class="theme-toggle-btn" id="themeBtn" title="Theme">🌓</button>
+      <div>
+        <div>Theme</div>
+        <div class="field-desc">Follows system by default — tap to cycle auto / light / dark</div>
+      </div>
     </div>
     <p class="settings-desc">Choose which sections appear on each listing card.</p>
     <div class="settings-fields" id="settingsFields"></div>

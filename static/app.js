@@ -59,7 +59,7 @@ async function loadConfig() {
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────
-const state = { map: null, markers: [], rawListings: [], listings: [], activeView: 'map', people: [], activePerson: null, feedback: {}, openMapItem: null, source: 'poc', sourceCount: 0 };
+const state = { map: null, markers: [], rawListings: [], listings: [], activeView: 'map', people: [], activePerson: null, feedback: {}, openMapItem: null, source: 'poc', sourceCount: 0, clusters: [] };
 let cardSettings = loadSettings();
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -136,30 +136,50 @@ function buildWhoAmI() {
   const validSaved = saved && state.people.some(p => p.id === saved);
   state.activePerson = validSaved ? saved : null;
   sel.value = state.activePerson || '';
+  updateLegendHint();
 }
 
 function setActivePerson(id) {
   state.activePerson = id || null;
   if (state.activePerson) localStorage.setItem(WHO_KEY, String(state.activePerson));
   else localStorage.removeItem(WHO_KEY);
+  updateLegendHint();
   applyFiltersAndRender();
   if (state.openMapItem) showMapCard(state.openMapItem);
+}
+
+function updateLegendHint() {
+  const hint = $('legendHint');
+  if (hint) hint.hidden = !!state.activePerson;
 }
 
 // ─── Per-person rating/consensus filters (dynamic, one row per person) ────────
 // Checkboxes, OR'd within a person: check 3★+4★+5★ to replicate an old
 // "3+ stars" filter. No boxes checked = that person's filter is ignored.
 const PERSON_FILTER_OPTIONS = [
-  { value: 'not_rated', label: 'Not rated', title: 'Not rated yet' },
   { value: '1', label: '1★', title: '1 star' },
   { value: '2', label: '2★', title: '2 stars' },
   { value: '3', label: '3★', title: '3 stars' },
   { value: '4', label: '4★', title: '4 stars' },
   { value: '5', label: '5★', title: '5 stars' },
+  { value: 'not_rated', label: 'Not rated', title: 'Not rated yet' },
   { value: 'said_no', label: 'Said no', title: 'Said no' },
 ];
+// Two fixed rows per person, independent of viewport width: stars together,
+// not_rated/said_no together. See PERSON_FILTER_OPTIONS above for OR matching.
+const PERSON_FILTER_ROWS = [['1', '2', '3', '4', '5'], ['not_rated', 'said_no']];
 
 function personFilterCbId(personId, value) { return `personFilter_${personId}_${value}`; }
+
+function personFilterChip(personId, value) {
+  const o = PERSON_FILTER_OPTIONS.find(x => x.value === value);
+  return `
+    <label class="chip" title="${esc(o.title)}">
+      <input type="checkbox" id="${personFilterCbId(personId, o.value)}" data-person-id="${personId}" data-value="${o.value}" />
+      ${esc(o.label)}
+    </label>
+  `;
+}
 
 function buildPersonFilters() {
   const container = $('personFilters');
@@ -167,11 +187,10 @@ function buildPersonFilters() {
   container.innerHTML = state.people.map(p => `
     <div class="person-filter-block">
       <div class="person-filter-name">${esc(p.name)}</div>
-      ${PERSON_FILTER_OPTIONS.map(o => `
-        <label class="chip" title="${esc(o.title)}">
-          <input type="checkbox" id="${personFilterCbId(p.id, o.value)}" data-person-id="${p.id}" data-value="${o.value}" />
-          ${esc(o.label)}
-        </label>
+      ${PERSON_FILTER_ROWS.map((row, i) => `
+        <div class="person-filter-row${i > 0 ? ' person-filter-row-break' : ''}">
+          ${row.map(v => personFilterChip(p.id, v)).join('')}
+        </div>
       `).join('')}
     </div>
   `).join('');
@@ -290,7 +309,7 @@ function applyFiltersAndRender() {
   renderCards(state.listings);
   const summaryText = state.source === 'poc'
     ? `${state.listings.length} of ${state.sourceCount} POC listings`
-    : `${state.listings.length} shown · ${Number(state.sourceCount).toLocaleString()} Repliers sample available`;
+    : `${state.listings.length} shown · ${Number(state.sourceCount).toLocaleString()} Sample Data available`;
   if ($('summary'))     $('summary').textContent = summaryText;
   if ($('summaryList')) $('summaryList').textContent = summaryText;
 }
@@ -455,8 +474,13 @@ function initMap() {
   window.addEventListener('resize', () => state.map?.invalidateSize({ animate: false }));
 }
 
+// Rejected/rated status must come from the ACTIVE actor's live feedback
+// (listing_feedback), not item.status -- for POC listings that field is a
+// static historical snapshot (pre-multi-actor) and can say "Rejected" for a
+// listing the active actor never rejected. See markerColor()/markerOpacity().
 function markerColor(item) {
-  if (/reject/i.test(item.status || '')) return '#aaa';
+  const f = personFeedbackFor(item.mls, state.activePerson);
+  if (f?.status === 'rejected') return '#aaa';
   const m = item.fit?.met ?? 0;
   if (m >= 7) return '#16803a';
   if (m >= 5) return '#2b67d6';
@@ -464,22 +488,59 @@ function markerColor(item) {
   return '#b3261e';
 }
 
+// Faded fill = the active actor hasn't rated this listing yet. No-op
+// (solid) with no actor selected, since "not yet rated" only means
+// something relative to a specific person.
+function markerOpacity(item) {
+  if (!state.activePerson) return 0.92;
+  const f = personFeedbackFor(item.mls, state.activePerson);
+  if (f?.status === 'rejected') return 0.92;
+  return f?.rating != null ? 0.92 : 0.4;
+}
+
+function clusterRadius(count) {
+  return Math.min(40, 12 + Math.log2(count + 1) * 5);
+}
+
 function refreshMap(list) {
   state.markers.forEach(m => m.remove());
   state.markers = [];
   closeMapCard();
   const bounds = [];
-  list.forEach(item => {
-    if (item.lat == null || item.lng == null) return;
-    const marker = L.circleMarker([item.lat, item.lng], {
-      radius: 10, weight: 2, color: '#fff',
-      fillColor: markerColor(item), fillOpacity: 0.92,
-    }).addTo(state.map);
-    marker.on('click', e => { L.DomEvent.stopPropagation(e); showMapCard(item); closeFilters(); });
-    marker._hhItem = item;
-    state.markers.push(marker);
-    bounds.push([item.lat, item.lng]);
-  });
+  const useClusters = currentSource() === 'repliers' && $('clusterToggle')?.checked && (state.clusters || []).length;
+  if (useClusters) {
+    state.clusters.forEach(c => {
+      if (c.lat == null || c.lng == null) return;
+      const marker = L.circleMarker([c.lat, c.lng], {
+        radius: clusterRadius(c.count), weight: 2, color: '#fff',
+        fillColor: '#2b67d6', fillOpacity: 0.75,
+      }).addTo(state.map);
+      marker.bindTooltip(String(c.count), { permanent: true, direction: 'center', className: 'cluster-label' });
+      marker.on('click', e => {
+        L.DomEvent.stopPropagation(e);
+        if (c.bounds) {
+          state.map.fitBounds([
+            [c.bounds.top_left.latitude, c.bounds.top_left.longitude],
+            [c.bounds.bottom_right.latitude, c.bounds.bottom_right.longitude],
+          ], { padding: [20, 20] });
+        }
+      });
+      state.markers.push(marker);
+      bounds.push([c.lat, c.lng]);
+    });
+  } else {
+    list.forEach(item => {
+      if (item.lat == null || item.lng == null) return;
+      const marker = L.circleMarker([item.lat, item.lng], {
+        radius: 10, weight: 2, color: '#fff',
+        fillColor: markerColor(item), fillOpacity: markerOpacity(item),
+      }).addTo(state.map);
+      marker.on('click', e => { L.DomEvent.stopPropagation(e); showMapCard(item); closeFilters(); });
+      marker._hhItem = item;
+      state.markers.push(marker);
+      bounds.push([item.lat, item.lng]);
+    });
+  }
   if (bounds.length) state.map.fitBounds(bounds, { padding: [40, 40] });
   requestAnimationFrame(() => state.map?.invalidateSize({ animate: false }));
 }
@@ -520,13 +581,25 @@ function populateCard(node, item) {
   img.alt = item.address;
   if (!item.image) node.querySelector('.card-photo-wrap').style.display = 'none';
 
-  // Status badge
+  // Status badge — POC's raw "status" is a static historical snapshot from
+  // before the multi-actor model (can say "Rejected" for a listing the
+  // active actor never rejected), so POC badges use the actor's live
+  // feedback instead. Repliers listings have no such history; their status
+  // is real MLS status and shown as-is.
   const badge = node.querySelector('.card-status-badge');
-  const st = (item.status || '').toLowerCase();
-  if (st && st !== 'new' && st !== 'poc') {
-    badge.textContent = item.status;
-    badge.className = 'card-status-badge ' +
-      (/reject/i.test(st) ? 'badge-rejected' : /short/i.test(st) ? 'badge-shortlist' : 'badge-reviewing');
+  if (poc) {
+    const mine = personFeedbackFor(item.mls, state.activePerson);
+    if (mine?.status === 'rejected') {
+      badge.textContent = 'Rejected';
+      badge.className = 'card-status-badge badge-rejected';
+    }
+  } else {
+    const st = (item.status || '').toLowerCase();
+    if (st && st !== 'new' && st !== 'poc') {
+      badge.textContent = item.status;
+      badge.className = 'card-status-badge ' +
+        (/reject/i.test(st) ? 'badge-rejected' : /short/i.test(st) ? 'badge-shortlist' : 'badge-reviewing');
+    }
   }
 
   // Address + meta
@@ -721,19 +794,27 @@ function filterParams() {
     const v = numericFieldValue(id);
     if (v) p.set(id, v);
   });
+  if (currentSource() === 'repliers' && $('clusterToggle')?.checked) p.set('cluster', 'true');
   return p;
+}
+
+function updateClusterVisibility() {
+  const row = $('clusterFilterRow');
+  if (row) row.hidden = currentSource() !== 'repliers';
 }
 
 async function load() {
   const source = currentSource();
-  $('summary').textContent = source === 'poc' ? 'Loading your POC data…' : 'Loading Repliers sample data…';
-  $('sourcePill').textContent = source === 'poc' ? 'POC' : 'Repliers';
+  updateClusterVisibility();
+  $('summary').textContent = source === 'poc' ? 'Loading your POC data…' : 'Loading Sample Data…';
+  $('sourcePill').textContent = source === 'poc' ? 'POC' : 'Sample Data';
   const res = await fetch((source === 'poc' ? '/api/poc-listings' : '/api/listings') + '?' + filterParams());
   const data = await res.json();
   if (!res.ok) throw new Error(data.detail || data.error || 'Load failed');
   state.rawListings = data.listings;
   state.source = source;
   state.sourceCount = data.sourceCount;
+  state.clusters = data.clusters || [];
   state.feedback = await fetchFeedback(state.rawListings.map(x => x.mls));
   if (source === 'poc') state.map?.setView([44.0, -79.5], 7);
   else state.map?.setView([39.5, -95], 4);
@@ -744,7 +825,7 @@ function reset() {
   ['q','minPrice','maxPrice','minBeds','maxBeds','minBaths','maxBaths','minSqft','maxSqft','minAcres','maxAcres','maxCommute','minPit','maxPit','minDue','maxDue','minFit','filterStatus']
     .forEach(id => { const el=$(id); if(el) { el.value=''; delete el.dataset.raw; } });
   $('resultsPerPage').value = '60';
-  ['featGarage','featPool','featBasement'].forEach(id => { const el = $(id); if (el) el.checked = false; });
+  ['featGarage','featPool','featBasement','clusterToggle'].forEach(id => { const el = $(id); if (el) el.checked = false; });
   state.people.forEach(p => {
     PERSON_FILTER_OPTIONS.forEach(o => { const cb = $(personFilterCbId(p.id, o.value)); if (cb) cb.checked = false; });
   });
@@ -779,7 +860,8 @@ window.addEventListener('DOMContentLoaded', () => {
   $('maxDue')?.addEventListener('change', applyFiltersAndRender);
   ['minSqft','maxSqft','minAcres','maxAcres','maxCommute'].forEach(id => $(id)?.addEventListener('change', applyFiltersAndRender));
   ['featGarage','featPool','featBasement'].forEach(id => $(id)?.addEventListener('change', applyFiltersAndRender));
-  $('source').addEventListener('change', () => { buildSettingsPanel(); load().catch(showError); });
+  $('source').addEventListener('change', () => { buildSettingsPanel(); updateClusterVisibility(); load().catch(showError); });
+  $('clusterToggle')?.addEventListener('change', () => load().catch(showError));
   $('sort')?.addEventListener('change', e => { syncSort(e.target.value); renderCards(state.listings); refreshMap(state.listings); });
   $('sortList')?.addEventListener('change', e => { syncSort(e.target.value); renderCards(state.listings); });
   $('btnMap').addEventListener('click', () => switchView('map'));

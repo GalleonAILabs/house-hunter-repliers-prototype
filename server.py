@@ -488,6 +488,16 @@ def fetch_repliers(params: dict[str, str]) -> dict[str, Any]:
         "pageNum": str(page),
         "resultsPerPage": str(per_page),
     }
+    # Repliers supports server-side map clustering (cluster=true, plus
+    # clusterPrecision/clusterLimit) for showing density instead of thousands
+    # of individual pins. Confirmed live: the flat "listings" array is
+    # unaffected by cluster mode -- clusters show up separately under
+    # aggregates.map.clusters, so the rest of this pipeline (normalize,
+    # local filters) doesn't need to change either way.
+    if (params.get("cluster") or "").lower() in ("1", "true", "yes"):
+        query["cluster"] = "true"
+        query["clusterPrecision"] = "10"
+        query["clusterLimit"] = "50"
     # Keep API-side filtering conservative until live Ontario data is available.
     url = f"{BASE_URL}/listings?{urllib.parse.urlencode(query)}"
     req = urllib.request.Request(url, headers={"REPLIERS-API-KEY": API_KEY})
@@ -676,6 +686,16 @@ class Handler(BaseHTTPRequestHandler):
                 raw = fetch_repliers(params)
                 normalized = [normalize(row) for row in raw.get("listings", [])]
                 filtered = [item for item in normalized if passes_local_filters(item, params)]
+                raw_clusters = ((raw.get("aggregates") or {}).get("map") or {}).get("clusters") or []
+                clusters = [
+                    {
+                        "count": c.get("count"),
+                        "lat": (c.get("location") or {}).get("latitude"),
+                        "lng": (c.get("location") or {}).get("longitude"),
+                        "bounds": c.get("bounds"),
+                    }
+                    for c in raw_clusters
+                ]
                 self.send_json({
                     "apiVersion": raw.get("apiVersion"),
                     "sourceCount": raw.get("count"),
@@ -683,6 +703,7 @@ class Handler(BaseHTTPRequestHandler):
                     "pageSize": raw.get("pageSize"),
                     "returned": len(filtered),
                     "listings": filtered,
+                    "clusters": clusters,
                     "prototypeNote": "Free Repliers sample data. Live Ontario feed requires PropTx/ITSO paid access.",
                 })
                 return
