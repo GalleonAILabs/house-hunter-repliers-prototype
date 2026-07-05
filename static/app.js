@@ -467,7 +467,7 @@ function switchView(view) {
 }
 
 // ─── Map (Mapbox GL JS) ────────────────────────────────────────────────────────
-const MAP_LAYER_IDS = ['listings-circles', 'clusters-circles', 'clusters-labels', 'go-stations-circles', 'hwy413-line'];
+const MAP_LAYER_IDS = ['listings-circles', 'clusters-circles', 'clusters-labels', 'go-stations-circles', 'go-lines-layer', 'hwy413-line'];
 
 function findListing(mls) {
   return state.listings.find(x => x.mls === mls) || null;
@@ -571,8 +571,18 @@ function setupMapSources() {
   map.on('mouseenter', 'clusters-circles', () => { map.getCanvas().style.cursor = 'pointer'; });
   map.on('mouseleave', 'clusters-circles', () => { map.getCanvas().style.cursor = ''; });
 
-  // GO Train Stations + Highway 413 -- off by default (D: layer toggle panel).
+  // GO Train Stations + GO Lines + Highway 413 -- off by default (layer toggle panel).
+  // go_stations.geojson mixes Point (station) and LineString (line corridor)
+  // features in one source; circle/line layer types each auto-filter to
+  // their matching geometry, so one source serves both layers.
   map.addSource('go-stations', { type: 'geojson', data: '/layers/go-stations.geojson' });
+  map.addLayer({
+    id: 'go-lines-layer',
+    type: 'line',
+    source: 'go-stations',
+    layout: { visibility: 'none' },
+    paint: { 'line-color': ['get', 'color'], 'line-width': 3 },
+  });
   map.addLayer({
     id: 'go-stations-circles',
     type: 'circle',
@@ -983,6 +993,10 @@ window.addEventListener('DOMContentLoaded', () => {
   $('layerGoStations')?.addEventListener('change', e => {
     if (!state.mapReady) return;
     state.map.setLayoutProperty('go-stations-circles', 'visibility', e.target.checked ? 'visible' : 'none');
+  });
+  $('layerGoLines')?.addEventListener('change', e => {
+    if (!state.mapReady) return;
+    state.map.setLayoutProperty('go-lines-layer', 'visibility', e.target.checked ? 'visible' : 'none');
   });
   $('layerHwy413')?.addEventListener('change', e => {
     if (!state.mapReady) return;

@@ -139,3 +139,29 @@ market is added.
 
 **Depends on:** Nothing; independent of the current listing_feedback/actor
 model.
+
+## Highway 413 needs the real MTO corridor geometry
+
+**What:** `static/layers/highway_413.geojson`'s LineString is currently just
+straight segments connecting 15 bare interchange coordinate points (no
+names/municipality were sourced for them either -- see the point features'
+placeholder `"Interchange N"` labels). Replace it with the actual corridor
+polygon/route from the MTO Highway 413 Environmental Assessment GeoJSON
+once that file is sourced.
+
+**Why:** Straight lines between widely-spaced points cut through terrain
+the real highway doesn't, and don't reflect the actual approved/proposed
+alignment. Fine as a rough "where roughly is this" indicator for now, not
+accurate enough to represent to Anees or anyone else as the real route.
+
+**Pros:** Isolated change -- swap the file, keep the same layer/paint setup
+in app.js (red, semi-transparent, 4px line).
+
+**Cons:** Depends on sourcing the MTO EA GeoJSON (or digitizing an
+equivalent), which hasn't happened yet.
+
+**Context:** Requested during Mapbox migration; kept the approximate
+version rather than blocking on the real file.
+
+**Depends on:** Sourcing the MTO Environmental Assessment GeoJSON (or an
+equivalent authoritative corridor file).
