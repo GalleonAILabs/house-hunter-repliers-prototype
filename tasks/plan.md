@@ -427,6 +427,43 @@ finding above. Run with Claude Code; checkbox as you ship.
   - Verify: `python3 -m unittest` passes
   - **Done.** 23 tests, all passing, covering every path from the eng review's coverage diagram: schema creation, WAL mode, seed idempotency, backfill counts and idempotency, auth (missing/wrong/correct token) on both endpoints, batch feedback shape (all-people, null-filled), latest-state-per-action-type independence, two-actor independence, and all four POST 400 cases (unknown person, unknown POC listing, invalid action_type, missing listing_id, malformed JSON) plus the Repliers-id format-only-check path. Real `ThreadingHTTPServer` on an ephemeral port per test, isolated temp DB and fixture POC data — exercises actual HTTP routing, not isolated functions.
 
+## Batch 2
+
+Kicked off as a batch, run to completion without interactive prompts, on
+branch `batch2-ui-fixes`. Ambiguities resolved and logged in `DECISIONS.md`
+at the repo root rather than stopping to ask. Checkbox as shipped.
+
+- [ ] **T10 (P2, human: ~1h / CC: ~15min)** -- frontend -- Persist filter, map layer, and sort state across reloads via localStorage, same mechanism as dark mode and card settings. Last-used-state persistence only, no second reset concept beyond the existing Reset button.
+  - Files: `static/app.js`
+  - Verify: `test_server.py` passes (frontend-only change, no backend impact expected); manual, set filters/layers/sort, reload, confirm they persist
+- [ ] **T11 (P1, human: ~1-2h / CC: ~20min)** -- frontend/data -- Fix note flow: adding a new note reopens the previous note instead of a fresh composer. Add and edit must be distinct actions. A new note must be timestamped with its creation date. Investigate the note data model (single note per person per listing vs. a list) first, log the finding in `DECISIONS.md`.
+  - Files: `server.py`, `static/app.js`
+  - Verify: `test_server.py` passes; manual, add a note, add a second note, confirm both are distinct and timestamped
+- [ ] **T12 (P1, human: ~1h / CC: ~15min)** -- data -- Fix listing search: the filter panel's address/town/feature search returns no results against real listing data. Debug and fix the actual query path.
+  - Files: `static/app.js` (or `server.py` if the bug is server-side)
+  - Verify: `test_server.py` passes; manual, search a known real address substring, confirm it returns
+- [ ] **T13 (RESEARCH ONLY, no build) (P3, human: ~30min / CC: ~10min)** -- data -- Investigate whether the GTFS data already ingested for the GO Line layer includes trip-level schedules (express/local, per-leg timing, station-to-Union time) and whether a per-trip fare figure is available in the same data or needs a new source. Findings only, written to `DECISIONS.md`. Do not implement commute breakdown, fare display, or onboarding-destination features.
+  - Files: `DECISIONS.md` only
+  - Verify: n/a, research only
+- [ ] **T14 (P2, human: ~2-3h / CC: ~30min)** -- frontend/data -- Add support for a POI pin (school, hospital, workplace, place of worship, other) that a person can search for and drop on the map. Not wired into commute/distance calculations. A person can add more than one. Shared across the buyer group like listing feedback, not private.
+  - Files: `server.py`, `static/app.js`, `static/index.html`
+  - Verify: `test_server.py` passes (plus new tests for the POI endpoint); manual, add a POI pin, confirm it is visible to another actor
+- [ ] **T15 (P2, human: ~1h / CC: ~15min)** -- data -- Condo fees: check whether the existing data model has a condo fee field or property-type flag. Surface beside Monthly PIT on condo listings only if the field exists; otherwise add it to the schema as nullable, surface when present, hide when absent, and log that real data still needs to be populated.
+  - Files: `server.py`, `static/app.js`
+  - Verify: `test_server.py` passes; manual, confirm the line is hidden when the field is absent
+- [ ] **T16 (P2, human: ~1h / CC: ~15min)** -- frontend -- Live re-filter on rating change: if the active person's own rating on a listing changes to a value outside an active filter, the listing drops from list and map immediately without reapplying the filter. Investigate which filter this applies to (fit-score or personal-rating) first, log the finding.
+  - Files: `static/app.js`
+  - Verify: `test_server.py` passes; manual, filter to a rating range, change the active person's rating on a visible listing to fall outside it, confirm it disappears immediately
+- [ ] **T17 (P3, human: ~30min / CC: ~10min)** -- frontend -- Show the numeric star rating on map pins, sourced from the same feedback data already used for card ratings. No new data source.
+  - Files: `static/app.js`
+  - Verify: `test_server.py` passes; manual, rate a listing, confirm the pin shows the number
+- [ ] **T18 (P2, human: ~1h / CC: ~15min)** -- frontend -- Add a user-configurable single summary value on the card: Price, Cost to close, or PIT, exactly one choice. Global setting in the existing settings drawer alongside the other `cf-` toggles.
+  - Files: `static/app.js`, `static/index.html`
+  - Verify: `test_server.py` passes; manual, change the setting, confirm the card line updates
+- [ ] **T19 (P3, human: ~30min-1h / CC: ~10-15min)** -- map -- Pin clustering currently exists in the layers panel but may be scoped to only one data source. Investigate why, enable consistently for both if straightforward, otherwise log the blocker in `DECISIONS.md` instead of forcing it.
+  - Files: `static/app.js`, `server.py` if needed
+  - Verify: `test_server.py` passes; manual, enable clustering against both data sources
+
 ## What I noticed about how you think
 
 - You corrected two premises with specific, concrete reasoning (the demo
