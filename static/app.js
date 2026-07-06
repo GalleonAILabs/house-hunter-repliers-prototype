@@ -23,6 +23,7 @@ function cycleTheme() {
 
 const CARD_FIELDS = [
   { key: 'price',     label: 'Price',                     desc: 'Asking price',                      defaultOn: true  },
+  { key: 'groupSentiment', label: 'Group sentiment',      desc: 'Who has rated, said no, or requested research, at a glance', defaultOn: true },
   { key: 'commute',   label: 'GO commute',                desc: 'Station, drive time, total to Union', defaultOn: true,  pocOnly: true },
   { key: 'stats',     label: 'Beds / baths / sqft / lot', desc: 'Key property stats',                 defaultOn: true  },
   { key: 'financial', label: 'Monthly PIT + closing',     desc: 'Monthly payment and due at closing', defaultOn: true,  pocOnly: true },
@@ -732,6 +733,40 @@ function closeFilters() {
 // ─── Card builder ─────────────────────────────────────────────────────────────
 function tag(text, cls = '') { return `<span class="tag ${cls}">${esc(text)}</span>`; }
 
+// Group sentiment row (display only, not filtering). Read-only summary of
+// where the buyer group stands, built entirely from data already fetched
+// (state.people from GET /api/people, state.feedback from GET /api/feedback).
+// Role-driven, not name-driven -- works for 1, 2, or N people. This is NOT
+// the deferred consensus filtering in TODOS.md (which hides/shows listings);
+// this never changes what's visible, only how it reads at a glance.
+function groupSentimentChip(person, f) {
+  let stateClass = 'chip-none';
+  let label = esc(person.name);
+  if (f?.status === 'rejected') {
+    stateClass = 'chip-reject';
+    label = `🚫 ${esc(person.name)}`;
+  } else if (f?.rating != null) {
+    stateClass = 'chip-rated';
+    label = `${esc(person.name)} ★${f.rating}`;
+  } else if (f?.status === 'research_requested') {
+    stateClass = 'chip-research';
+    label = `🔍 ${esc(person.name)}`;
+  }
+  // Advisor input must never silently read as buyer sentiment (design-spec
+  // Section 6) -- a dashed border plus a hollow-diamond prefix mark every
+  // advisor chip, on top of the same reject/rated/research/none states.
+  const advisor = person.role === 'advisor';
+  const mark = advisor ? '<span class="chip-advisor-mark">◇</span>' : '';
+  return `<span class="chip group-chip ${stateClass}${advisor ? ' chip-advisor' : ''}" title="${esc(person.name)} (${esc(person.role)})">${mark}${label}</span>`;
+}
+
+// Buyer-only headline. Advisors show as chips above but never move this word.
+function buyerHeadline(buyerFeedback) {
+  if (buyerFeedback.some(f => f?.status === 'rejected')) return { word: 'Vetoed', cls: 'headline-vetoed' };
+  if (buyerFeedback.length && buyerFeedback.every(f => f?.rating != null)) return { word: 'Aligned', cls: 'headline-aligned' };
+  return { word: 'Split', cls: 'headline-split' };
+}
+
 function populateCard(node, item) {
   const poc = item.poc || null;
 
@@ -777,6 +812,26 @@ function populateCard(node, item) {
 
   // Price
   node.querySelector('.card-price').textContent = money(item.price);
+
+  // Group sentiment row (display only, see groupSentimentChip/buyerHeadline)
+  {
+    const groupEl = node.querySelector('.card-group');
+    if (groupEl) {
+      if (!state.people.length) {
+        groupEl.style.display = 'none';
+      } else {
+        groupEl.style.display = '';
+        const feedbackList = state.feedback[item.mls] || [];
+        const feedbackByPerson = new Map(feedbackList.map(f => [f.person_id, f]));
+        const chips = state.people.map(p => groupSentimentChip(p, feedbackByPerson.get(p.id) || null));
+        const buyerFeedback = state.people
+          .filter(p => p.role === 'buyer')
+          .map(p => feedbackByPerson.get(p.id) || null);
+        const headline = buyerHeadline(buyerFeedback);
+        groupEl.innerHTML = `<span class="group-headline ${headline.cls}">${esc(headline.word)}</span>` + chips.join('');
+      }
+    }
+  }
 
   // Commute
   if (poc) {

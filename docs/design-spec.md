@@ -119,10 +119,28 @@ Apple HIG and Android both converge near 44×44pt / 48×48dp. This app's floor:
 ## 6. Component patterns
 
 ### Card (`.card`)
-- Structure, top to bottom: photo (180px, `object-fit:cover`) → title row (address + meta, fit badge right-aligned) → price → commute box → stat tags → financial box → ratings (existing, per-person) → feature tags → comments → feedback actions (rate + note/reject/research) → action buttons (View listing / Research doc / Map).
+- Structure, top to bottom: photo (180px, `object-fit:cover`) → title row (address + meta, fit badge right-aligned) → price → group sentiment row → commute box → stat tags → financial box → ratings (existing, per-person) → feature tags → comments → feedback actions (rate + note/reject/research) → action buttons (View listing / Research doc / Map).
 - **Hierarchy rule:** price and fit badge are the only two elements allowed to be visually louder than body text (22px/900 and colored badge respectively). Every other section uses the same 12-13px scale — if a new section needs to stand out, it competes with price and fit for attention, which means it probably shouldn't exist as a new visually-loud element.
 - Boxed sections (`.card-commute`, `.card-financial`) share `background:var(--bg); border-radius:10px; padding`. Any new "boxed" info group must reuse this exact treatment — don't invent a new box style.
 - Comments use a left-border accent (`border-left:3px solid var(--blue)`) to separate free text from structured data. Research-originated comments must carry a distinct visual tag (not just an inline "(research)" suffix) — e.g. a small pill or icon prefix — so they scan differently from a plain note at a glance.
+
+### Group sentiment row (`.card-group`)
+- Display only, never filtering. This is not the deferred consensus filtering in TODOS.md (which hides and shows listings) -- it never changes what's visible, only how a listing reads at a glance. It is the visible foundation that filtering builds on later.
+- Placement: directly under `.card-price`, above the commute box and the existing per-person ratings detail, so it reads before any other detail on the card.
+- Computed entirely client-side from data already fetched (`GET /api/people` for the roster and role, `GET /api/feedback` for each person's latest feedback per listing). No server or endpoint change, no write-path change.
+- One chip per person, built dynamically from the roster, never a hardcoded name or count. Chip states, in priority order (a person can have a rating and a rejected status at once; reject wins):
+  - Rejected: `.chip-reject`, red (`--red` family, same as `.tag.bad`), prefixed with the reject icon already used elsewhere in the card (matches the Reject button).
+  - Has a rating and not rejected: `.chip-rated`, green (`--green` family, same as `.tag.good`), shows the star count as a number (e.g. "Mark ★5").
+  - Research requested, not rejected: `.chip-research`, blue (`--blue` family, same as `.fit-blue`), prefixed with the research icon already used elsewhere in the card.
+  - No input yet: the base `.chip` treatment, unmodified, neutral gray. This is the correct "empty" state, not a missing feature.
+- Advisor input must never silently read as buyer sentiment. Every advisor chip (`people[].role === "advisor"`) carries a `.chip-advisor` dashed border plus a hollow-diamond icon prefix, independent of its reject/rated/research/none state colour, so advisor and buyer chips are never visually confusable even at a glance.
+- A single derived headline word, computed from buyers only (`role === "buyer"`; advisors excluded from the computation, though advisors still render as chips):
+  - "Vetoed" if any buyer's latest status is rejected.
+  - "Aligned" if every buyer has a rating and none rejected.
+  - "Split" otherwise, including the zero-buyers edge case (never default to "Aligned" with no buyer data behind it -- that would imply a consensus that does not exist).
+- Type stays at the 12px floor, reusing the existing `.chip` pill family exactly (`.group-chip` only overrides `font-size` and `cursor`, since these chips are display, not controls, so the 44px tap-target rule does not apply -- but they never render shorter than the existing chip height). Colour is the only thing that carries meaning; nothing here is allowed to compete with price or the fit badge (Section 6 hierarchy rule above).
+- Toggleable in the card settings drawer like every other card section, key `groupSentiment`, `cf-groupSentiment` class, default on.
+- Section 7 checklist for this element: fits the 2px spacing scale and 12px type floor (yes, `.group-chip` is 12px); hits its tap-target minimum for its risk level (n/a, display only, not a control); no overflow/clipping/hidden-without-affordance at 412px (verified, wraps via `flex-wrap` like the checkbox row); reuses an existing pattern rather than a near-miss (yes, the exact `.chip` pill family plus the exact red/green/blue tag colour families already in use); screenshotted at 412×915 before merge (done, both list card and map popup, plus a ≥700px desktop check).
 
 ### Filter row (`.controls > label`)
 - One field = one `<label>` containing a caption (12px/700/`--muted`) above the control (`display:grid; gap:2px`).
