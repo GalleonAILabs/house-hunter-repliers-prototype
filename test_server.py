@@ -262,6 +262,22 @@ class FeedbackReadTests(ServerTestCase):
         self.assertEqual(mark["research_note"], "What's the zoning history here?")
         self.assertEqual(mark["status"], "research_requested")
 
+    def test_note_history_keeps_every_note_newest_first(self) -> None:
+        # T11: the write path has always been append-only; the read side
+        # must surface the full history, not just the latest note.
+        self.request(
+            "POST", "/api/feedback", token=self.TOKEN,
+            body={"person_id": 1, "listing_id": "POC-2", "action_type": "note", "note": "Second note"},
+        )
+        _, data = self.request("GET", "/api/feedback?listing_ids=POC-2", token=self.TOKEN)
+        mark = next(p for p in data["feedback"]["POC-2"] if p["person_name"] == "Mark")
+        self.assertEqual(mark["note"], "Second note")
+        self.assertIsNotNone(mark["note_created_at"])
+        history = mark["note_history"]
+        self.assertEqual(len(history), 2)
+        self.assertEqual(history[0]["note"], "Second note")
+        self.assertEqual(history[1]["note"], "Nice place")
+
     def test_two_people_rate_independently(self) -> None:
         self.request(
             "POST", "/api/feedback", token=self.TOKEN,

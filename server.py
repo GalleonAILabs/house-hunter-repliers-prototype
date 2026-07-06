@@ -252,6 +252,8 @@ def latest_feedback_for_listings(
                 "rating": None,
                 "status": None,
                 "note": None,
+                "note_created_at": None,
+                "note_history": [],
                 "reason": None,
                 "research_note": None,
                 "updated_at": None,
@@ -281,6 +283,7 @@ def latest_feedback_for_listings(
             entry["rating"] = row["rating"]
         elif row["action_type"] == "note":
             entry["note"] = row["note"]
+            entry["note_created_at"] = row["created_at"]
         elif row["action_type"] == "reject":
             entry["status"] = row["status"]
             entry["reason"] = row["reason"]
@@ -289,6 +292,25 @@ def latest_feedback_for_listings(
             entry["research_note"] = row["note"]
         if entry["updated_at"] is None or row["created_at"] > entry["updated_at"]:
             entry["updated_at"] = row["created_at"]
+
+    # T11: full note history, not just the latest -- the write path has
+    # always been append-only (every "note" action_type row is a distinct
+    # entry, never an update), so a real history was there for free the
+    # moment more than one note per person per listing existed. Newest
+    # first, since that's what a reader wants to see.
+    note_rows = conn.execute(
+        f"""
+        SELECT person_id, listing_id, note, created_at
+        FROM listing_feedback
+        WHERE action_type = 'note' AND listing_id IN ({placeholders})
+        ORDER BY id DESC
+        """,
+        listing_ids,
+    ).fetchall()
+    for row in note_rows:
+        entry = entries.get((row["listing_id"], row["person_id"]))
+        if entry is not None:
+            entry["note_history"].append({"note": row["note"], "created_at": row["created_at"]})
 
     result: dict[str, list[dict[str, Any]]] = {listing_id: [] for listing_id in listing_ids}
     for (listing_id, _person_id), entry in entries.items():

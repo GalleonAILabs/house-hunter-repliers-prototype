@@ -397,16 +397,29 @@ function buildFeedbackActions(node, item) {
     starsRow.appendChild(star);
   }
 
-  const noteToggle = document.createElement('button');
-  noteToggle.type = 'button';
-  noteToggle.className = 'secondary fb-btn';
-  noteToggle.textContent = '📝 Note';
+  // T11: Add and Edit are distinct actions, not one toggle that always
+  // reopens the previous note. Add always starts a blank composer; Edit
+  // (only shown once a note exists) pre-fills with the current latest
+  // note. Both call the same submitFeedback('note', ...) -- the write
+  // path is already append-only, so "edit" appends a new row that becomes
+  // the new latest rather than updating in place, which is enough to make
+  // the two actions behave distinctly from the user's point of view.
+  const noteAddBtn = document.createElement('button');
+  noteAddBtn.type = 'button';
+  noteAddBtn.className = 'secondary fb-btn';
+  noteAddBtn.textContent = '📝 Add note';
+
+  const noteEditBtn = document.createElement('button');
+  noteEditBtn.type = 'button';
+  noteEditBtn.className = 'secondary fb-btn';
+  noteEditBtn.textContent = '✏️ Edit note';
+  noteEditBtn.hidden = !mine.note;
+
   const noteBox = document.createElement('div');
   noteBox.className = 'feedback-compose';
   noteBox.hidden = true;
   const noteInput = document.createElement('textarea');
   noteInput.placeholder = 'Add a note…';
-  noteInput.value = mine.note || '';
   const noteSave = document.createElement('button');
   noteSave.type = 'button';
   noteSave.textContent = 'Save note';
@@ -416,7 +429,13 @@ function buildFeedbackActions(node, item) {
     submitFeedback(item, 'note', { note }, statusEl);
   });
   noteBox.append(noteInput, noteSave);
-  noteToggle.addEventListener('click', () => { noteBox.hidden = !noteBox.hidden; });
+
+  function toggleComposer(prefill) {
+    if (noteBox.hidden) { noteInput.value = prefill; noteBox.hidden = false; }
+    else { noteBox.hidden = true; }
+  }
+  noteAddBtn.addEventListener('click', () => toggleComposer(''));
+  noteEditBtn.addEventListener('click', () => toggleComposer(mine.note || ''));
 
   const rejectToggle = document.createElement('button');
   rejectToggle.type = 'button';
@@ -453,7 +472,7 @@ function buildFeedbackActions(node, item) {
 
   const btnRow = document.createElement('div');
   btnRow.className = 'feedback-btn-row';
-  btnRow.append(noteToggle, rejectToggle, researchBtn);
+  btnRow.append(noteAddBtn, noteEditBtn, rejectToggle, researchBtn);
 
   container.append(starsLabel, starsRow, btnRow, noteBox, rejectBox, statusEl);
 }
@@ -841,11 +860,13 @@ function populateCard(node, item) {
   }
 
   // Comments — dynamic per person (D9), replaces hardcoded Mark/Katie/Anees
+  // T11: full note history per person (newest first), each dated by its own
+  // created_at, not just the single latest note collapsed into one line.
   {
     const feedbackList = state.feedback[item.mls] || [];
     const rows = [
-      ...feedbackList.filter(f => f.note).map(f =>
-        `<div class="comment-line"><span class="comment-who">${esc(f.person_name)}</span>${esc(f.note)}</div>`),
+      ...feedbackList.flatMap(f => (f.note_history || []).map(h =>
+        `<div class="comment-line"><span class="comment-who">${esc(f.person_name)}</span><span class="comment-date">${esc((h.created_at || '').slice(0, 10))}</span>${esc(h.note)}</div>`)),
       ...feedbackList.filter(f => f.research_note).map(f =>
         `<div class="comment-line"><span class="comment-who">${esc(f.person_name)} (research)</span>${esc(f.research_note)}</div>`),
     ];
