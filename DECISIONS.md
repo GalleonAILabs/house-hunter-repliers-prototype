@@ -296,3 +296,58 @@ one single value, or shows it for a Repliers listing that has no
 Monthly PIT concept at all (a Repliers listing choosing "Cost to close"
 or "PIT" correctly shows nothing, same hide-when-absent rule as T15,
 since it hides via CSS `:empty` when `summaryValueFor()` returns null).
+
+## T19: pin clustering scoped to one data source (blocker logged, not forced)
+
+**Investigation finding, as required before deciding:** clustering is
+scoped to Repliers-source listings not by an arbitrary code restriction
+but because the two data sources implement "clustering" via two
+completely different mechanisms, and only one of them has anything to
+draw on for POC data.
+
+- **Repliers side:** `fetch_repliers()` passes `cluster=true` straight
+  through to the Repliers vendor API, which does the actual spatial
+  clustering itself, server-side, and returns pre-computed cluster
+  centers/counts/bounds in `aggregates.map.clusters`. `server.py`'s
+  `/api/listings` reshapes that vendor output into a `clusters` array;
+  the frontend's `clusters`/`clusters-circles`/`clusters-labels` source
+  and layer render exactly what the vendor already computed, including
+  click-to-zoom using the vendor-supplied bounds.
+- **POC side:** `fetch_poc()` reads a local static JSON file (105
+  listings) and has no external vendor to delegate clustering
+  computation to; it returns no `clusters` key at all today, and
+  `state.clusters` correctly defaults to `[]` for POC.
+
+**Why this is a real blocker, not a small enable-it fix:** the "enable
+consistently for both" default only makes sense if the same clustering
+mechanism can serve both sources. It can't, as built: the current
+mechanism *is* the Repliers vendor's own clustering API. Getting POC
+pins to cluster would mean either (a) writing a real spatial clustering
+algorithm ourselves (grid or greedy clustering, zoom-aware radius,
+synthesizing the same count/bounds shape the frontend already expects),
+or (b) replacing the current vendor-cluster-based mechanism entirely
+with Mapbox GL JS's own native, client-side `cluster: true` GeoJSON
+source option (which would work identically for either data source
+since it operates on already-normalized point features already in
+browser memory, not on the raw vendor response) -- but that would mean
+rewriting the whole feature (new source/layer wiring, re-deriving the
+existing click-to-zoom-to-bounds behavior from Mapbox's own cluster
+expansion API instead of vendor-supplied bounds), not a small addition.
+Either path is real, standalone engineering work, not a "make the same
+checkbox work for a second data source" fix, so per the instructions
+this is logged as a blocker rather than forced through in this batch.
+
+**No code changed for T19.** Clustering remains scoped to Repliers
+sample data only, exactly as it was before this investigation.
+
+**Rough scope estimate for a future item:** rebuilding on Mapbox's
+native `cluster: true` (option (b) above, the more maintainable path
+since it would also stop depending on the Repliers-specific vendor
+response shape) is roughly a half-day: swap the `listings` source to a
+clustering GeoJSON source, add `cluster: true`/`clusterRadius` config,
+replace the vendor-bounds click handler with Mapbox's
+`getClusterExpansionZoom()`, and drop the now-unused server-side
+`clusters` reshaping in `/api/listings`. Also worth noting: with only
+105 static POC listings, the practical benefit of clustering there is
+much smaller than for the Repliers feed's much larger result sets, so
+this is a real gap but a low-urgency one.
