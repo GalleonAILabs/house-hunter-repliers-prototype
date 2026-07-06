@@ -64,6 +64,23 @@ FIXTURE_POC = {
             "rejBy": "",
             "rejReason": "",
         },
+        {
+            # T15 fixture: a condo row with the fee fields real POC rows
+            # don't have today. Proves condoFeeNum/isCondo surface when
+            # present, distinct from the rows above where they're absent.
+            "row": 5,
+            "address": "4 Test St",
+            "beds": 2,
+            "bedsNum": 2,
+            "isCondo": True,
+            "condoFeeNum": 350,
+            "markRank": "",
+            "katieRank": "",
+            "markComments": "",
+            "katieComments": "",
+            "rejBy": "",
+            "rejReason": "",
+        },
     ],
 }
 
@@ -398,6 +415,47 @@ class PocListingsFilterTests(ServerTestCase):
         addresses = {item["address"] for item in data["listings"]}
         self.assertNotIn("3 Test St", addresses)  # beds="3+1", bedsNum=3
         self.assertIn("2 Test St", addresses)  # beds=5
+
+
+class CondoFeeTests(ServerTestCase):
+    """T15: condoFeeNum/isCondo are nullable fields the POC sheet doesn't
+    populate yet -- must surface when present, stay null/false otherwise."""
+
+    def test_condo_row_surfaces_fee_and_flag(self) -> None:
+        status, data = self.request("GET", "/api/poc-listings")
+        self.assertEqual(status, 200)
+        by_address = {item["address"]: item for item in data["listings"]}
+        condo = by_address["4 Test St"]
+        self.assertTrue(condo["isCondo"])
+        self.assertEqual(condo["condoFeeNum"], 350)
+
+    def test_non_condo_rows_have_no_fee(self) -> None:
+        status, data = self.request("GET", "/api/poc-listings")
+        self.assertEqual(status, 200)
+        by_address = {item["address"]: item for item in data["listings"]}
+        for address in ("1 Test St", "2 Test St", "3 Test St"):
+            self.assertFalse(by_address[address]["isCondo"])
+            self.assertIsNone(by_address[address]["condoFeeNum"])
+
+    def test_repliers_normalize_detects_condo_style_and_hoa_fee(self) -> None:
+        listing = {
+            "mlsNumber": "TEST1",
+            "listPrice": 400000,
+            "details": {"propertyType": "Residential", "style": "Condominium", "HOAFee": "310"},
+        }
+        item = server.normalize(listing)
+        self.assertTrue(item["isCondo"])
+        self.assertEqual(item["condoFeeNum"], 310)
+
+    def test_repliers_normalize_non_condo_has_no_fee_flag(self) -> None:
+        listing = {
+            "mlsNumber": "TEST2",
+            "listPrice": 400000,
+            "details": {"propertyType": "Residential", "style": "Single Family Residence"},
+        }
+        item = server.normalize(listing)
+        self.assertFalse(item["isCondo"])
+        self.assertIsNone(item["condoFeeNum"])
 
 
 class PoiEndpointTests(ServerTestCase):

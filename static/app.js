@@ -955,8 +955,10 @@ function populateCard(node, item) {
   if (poc) {
     const pitVal = item.pitNum ? money(item.pitNum) : (item.pit || '');
     const dueVal = item.dueClosing || '';
+    const condoFeeVal = item.isCondo && item.condoFeeNum ? money(item.condoFeeNum) + '/mo' : '';
     node.querySelector('.card-financial').innerHTML = [
       pitVal  && `<div class="fin-row"><span class="fin-label">Monthly PIT</span><span class="fin-value">${esc(pitVal)}</span></div>`,
+      condoFeeVal && `<div class="fin-row"><span class="fin-label">Condo fee</span><span class="fin-value">${esc(condoFeeVal)}</span></div>`,
       dueVal  && `<div class="fin-row"><span class="fin-label">Due at closing</span><span class="fin-value">${esc(dueVal)}</span></div>`,
     ].filter(Boolean).join('');
   }

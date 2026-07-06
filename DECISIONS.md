@@ -169,3 +169,46 @@ my own:
   413), toggled from the same layer panel. Chosen for consistency with the
   existing pattern rather than making this one layer behave differently
   from the others with no stated reason to.
+
+## T15: condo fee data model investigation
+
+**Investigation finding, as required before deciding the fix:** the two
+data sources have opposite states.
+
+- **POC data (the family's real spreadsheet, `data/poc_listings.json`):**
+  no condo fee field and no property-type/condo flag exist at all. Every
+  field on a POC row was inspected; there is nothing to surface, this is a
+  true gap, not a naming mismatch.
+- **Repliers sample data (US sample, live API):** both pieces already
+  exist. `details.HOAFee` (also `HOAFee2`/`HOAFee3`, unused) is a real,
+  populated monthly fee field (41 of 100 sampled listings have a nonzero
+  value), and `details.style` includes a real `"Condominium"` value
+  alongside `"Single Family Residence"`, `"Townhouse"`, etc. No new source
+  needed for the Repliers side.
+
+**Default chosen:** added two new nullable fields to both `normalize()`
+(Repliers) and `normalize_poc()` (POC): `isCondo` (bool) and `condoFeeNum`
+(number or null). For Repliers, `isCondo` is true when `propertyType` or
+`style` contains "condo" (a small new `is_condo_type()` helper, reused by
+both normalizers), and `condoFeeNum` reads `HOAFee`. For POC, both fields
+read from the same-named POC columns (`isCondo`, `condoFeeNum`), which do
+not exist in the real sheet today, so they evaluate to `False`/`None` for
+every real row, exactly matching "hide when absent." The UI shows a
+"Condo fee" line beside "Monthly PIT" only when `isCondo` and
+`condoFeeNum` are both present.
+
+**Why not build a full property-type system:** T15 asks only for the fee
+to surface beside Monthly PIT on condo listings, not a general
+property-type taxonomy. "Monthly PIT" itself is a POC-only concept (the
+family's own mortgage/tax/insurance math, not a Repliers field), so the
+new condo fee line was added inside that same existing POC-only financial
+card section rather than inventing a second display location for the
+Repliers side, which has no Monthly PIT line to sit beside in the first
+place.
+
+**Real data still needs populating:** the POC spreadsheet needs an
+`isCondo` (or equivalent) column and a `condoFeeNum` column added by the
+family for any of their real listings that are condos, the same way
+`markRank`/`katieComments` etc. are populated today. Until then this
+feature is silently inert for POC data (correct per the "hide when
+absent" instruction), not broken.

@@ -508,6 +508,14 @@ def fit_score(listing: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def is_condo_type(*values: Any) -> bool:
+    """True if any of propertyType/style names the listing a condo unit."""
+    for value in values:
+        if value and "condo" in str(value).lower():
+            return True
+    return False
+
+
 def normalize(listing: dict[str, Any]) -> dict[str, Any]:
     details = listing.get("details") or {}
     lot = listing.get("lot") or {}
@@ -536,6 +544,8 @@ def normalize(listing: dict[str, Any]) -> dict[str, Any]:
         "lotSqft": intish(lot.get("squareFeet")),
         "propertyType": details.get("propertyType"),
         "style": details.get("style"),
+        "isCondo": is_condo_type(details.get("propertyType"), details.get("style")),
+        "condoFeeNum": number(details.get("HOAFee")),
         "heating": details.get("heating"),
         "parking": intish(details.get("numParkingSpaces")),
         "garage": intish(details.get("numGarageSpaces")),
@@ -665,6 +675,12 @@ def normalize_poc(p: dict[str, Any]) -> dict[str, Any]:
         "depthNum": number(p.get("depthNum")),
         "tier": p.get("tier") or "",
         "propertyType": "House Hunter POC",
+        # The POC sheet has no property-type/condo column today. These stay
+        # None/False for every real row until the family's data adds one;
+        # kept as real (nullable) fields, not hardcoded, so a future column
+        # named exactly this way surfaces with no further code change.
+        "isCondo": is_condo_type(p.get("propertyType")) or bool(p.get("isCondo")),
+        "condoFeeNum": number(p.get("condoFeeNum")),
         "heating": "",
         "parking": None,
         "garage": None,
