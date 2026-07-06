@@ -260,7 +260,21 @@ function applyCardVisibility() {
   });
 }
 
-function openSettings() { buildSettingsPanel(); $('settingsDrawer').hidden = false; $('settingsOverlay').hidden = false; }
+// Settings main list -> sub-page drill-down. Generic by design: a new
+// section needs one .settings-nav-row (data-target/data-title) in
+// #settingsPageMain plus one #settingsPage-<target> block, nothing here
+// changes. Always reopens to the main list, not the last-viewed page.
+function showSettingsMain() {
+  document.querySelectorAll('.settings-page').forEach(p => { p.hidden = p.id !== 'settingsPageMain'; });
+  $('settingsTitle').textContent = 'Settings';
+  $('settingsBack').hidden = true;
+}
+function showSettingsPage(target, title) {
+  document.querySelectorAll('.settings-page').forEach(p => { p.hidden = p.id !== `settingsPage-${target}`; });
+  $('settingsTitle').textContent = title;
+  $('settingsBack').hidden = false;
+}
+function openSettings() { buildSettingsPanel(); showSettingsMain(); $('settingsDrawer').hidden = false; $('settingsOverlay').hidden = false; }
 function closeSettings() { $('settingsDrawer').hidden = true; $('settingsOverlay').hidden = true; }
 
 // ─── People / "I am" actor selector ────────────────────────────────────────────
@@ -1827,6 +1841,10 @@ window.addEventListener('DOMContentLoaded', () => {
   $('settingsBtn').addEventListener('click', openSettings);
   $('settingsClose').addEventListener('click', closeSettings);
   $('settingsOverlay').addEventListener('click', closeSettings);
+  $('settingsBack').addEventListener('click', showSettingsMain);
+  document.querySelectorAll('.settings-nav-row').forEach(row => {
+    row.addEventListener('click', () => showSettingsPage(row.dataset.target, row.dataset.title));
+  });
   $('mapCardClose').addEventListener('click', closeMapCard);
   document.addEventListener('click', e => closeOutsidePanels(e.target));
   $('settingsSelectAll').addEventListener('click', () => { CARD_FIELDS.forEach(f => cardSettings[f.key] = true); saveSettings(); buildSettingsPanel(); applyCardVisibility(); });

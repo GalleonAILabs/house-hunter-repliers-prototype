@@ -180,90 +180,135 @@
     <div id="cards" class="cards"></div>
   </div>
 
-  <!-- SETTINGS PANEL -->
+  <!-- SETTINGS PANEL: a main list of sections, each opening its own
+       sub-page (Back returns to the list), the same drill-down pattern
+       as a typical mobile Settings app. Adding a future section means
+       adding one nav row here plus one .settings-page block below, no
+       navigation code changes; adding a setting to an existing section
+       means adding a row inside that section's existing .settings-page. -->
   <div class="settings-overlay" id="settingsOverlay" hidden></div>
   <aside class="settings-drawer" id="settingsDrawer" hidden>
     <div class="settings-header">
-      <span class="settings-title">Card settings</span>
-      <button class="close-btn" id="settingsClose">✕</button>
+      <button class="close-btn" id="settingsBack" title="Back" hidden>‹</button>
+      <span class="settings-title" id="settingsTitle">Settings</span>
+      <button class="close-btn" id="settingsClose" title="Close">✕</button>
     </div>
-    <div class="settings-row settings-theme-row">
-      <button class="theme-toggle-btn" id="themeBtn" title="Theme">🌓</button>
-      <div>
-        <div>Theme</div>
-        <div class="field-desc">Follows system by default, tap to cycle auto / light / dark</div>
+
+    <div class="settings-page" id="settingsPageMain">
+      <div class="settings-page-body">
+        <button type="button" class="settings-row settings-nav-row" data-target="appearance" data-title="Appearance">
+          <div>
+            <div>Appearance</div>
+            <div class="field-desc">Theme</div>
+          </div>
+          <span class="settings-nav-chevron">›</span>
+        </button>
+        <button type="button" class="settings-row settings-nav-row" data-target="financial" data-title="Financial assumptions">
+          <div>
+            <div>Financial assumptions</div>
+            <div class="field-desc">First-time buyer status, mortgage estimate settings</div>
+          </div>
+          <span class="settings-nav-chevron">›</span>
+        </button>
+        <button type="button" class="settings-row settings-nav-row" data-target="cardSections" data-title="Card sections">
+          <div>
+            <div>Card sections</div>
+            <div class="field-desc">Choose which sections appear on a listing card</div>
+          </div>
+          <span class="settings-nav-chevron">›</span>
+        </button>
       </div>
     </div>
-    <label class="settings-row">
-      <input type="checkbox" id="firstTimeBuyerToggle" />
-      <div>
-        <div>First-time buyer (household)</div>
-        <div class="field-desc">Whole-household status, both buyers, not per person. Used for the Ontario and Toronto land transfer tax rebates in the potential purchase price estimate.</div>
+
+    <div class="settings-page" id="settingsPage-appearance" hidden>
+      <div class="settings-page-body">
+        <div class="settings-row settings-theme-row">
+          <button class="theme-toggle-btn" id="themeBtn" title="Theme">🌓</button>
+          <div>
+            <div>Theme</div>
+            <div class="field-desc">Follows system by default, tap to cycle auto / light / dark</div>
+          </div>
+        </div>
       </div>
-    </label>
-    <p class="settings-desc">Estimates used for the potential purchase price mortgage breakdown on a listing card. Edit these to match your own numbers, they are starting assumptions, not real quotes.</p>
-    <div class="settings-row settings-number-row">
-      <div>
-        <div>Down payment</div>
-        <div class="field-desc">Percent of price you plan to put down</div>
-      </div>
-      <input type="number" id="downPaymentPctSetting" min="0" max="100" step="0.5" class="settings-number-input" />
     </div>
-    <div class="settings-row settings-number-row">
-      <div>
-        <div>Interest rate</div>
-        <div class="field-desc">Estimate, edit with your own quoted or pre-approval rate</div>
+
+    <div class="settings-page" id="settingsPage-financial" hidden>
+      <div class="settings-page-body">
+        <label class="settings-row">
+          <input type="checkbox" id="firstTimeBuyerToggle" />
+          <div>
+            <div>First-time buyer (household)</div>
+            <div class="field-desc">Whole-household status, both buyers, not per person. Used for the Ontario and Toronto land transfer tax rebates in the potential purchase price estimate.</div>
+          </div>
+        </label>
+        <p class="settings-desc">Estimates used for the potential purchase price mortgage breakdown on a listing card. Edit these to match your own numbers, they are starting assumptions, not real quotes.</p>
+        <div class="settings-row settings-number-row">
+          <div>
+            <div>Down payment</div>
+            <div class="field-desc">Percent of price you plan to put down</div>
+          </div>
+          <input type="number" id="downPaymentPctSetting" min="0" max="100" step="0.5" class="settings-number-input" />
+        </div>
+        <div class="settings-row settings-number-row">
+          <div>
+            <div>Interest rate</div>
+            <div class="field-desc">Estimate, edit with your own quoted or pre-approval rate</div>
+          </div>
+          <input type="number" id="interestRatePctSetting" min="0" max="25" step="0.05" class="settings-number-input" />
+        </div>
+        <div class="settings-row settings-number-row">
+          <div>
+            <div>Amortization</div>
+            <div class="field-desc">Years</div>
+          </div>
+          <input type="number" id="amortizationYearsSetting" min="5" max="30" step="1" class="settings-number-input" />
+        </div>
+        <div class="settings-row settings-number-row">
+          <div>
+            <div>Property tax</div>
+            <div class="field-desc">Estimate, percent of price per year, edit with your own tax bill</div>
+          </div>
+          <input type="number" id="propertyTaxPctSetting" min="0" max="5" step="0.05" class="settings-number-input" />
+        </div>
+        <div class="settings-row settings-number-row">
+          <div>
+            <div>Legal fees</div>
+            <div class="field-desc">Flat estimate, not based on price</div>
+          </div>
+          <input type="number" id="legalFeesFlatSetting" min="0" step="50" class="settings-number-input" />
+        </div>
+        <div class="settings-row settings-number-row">
+          <div>
+            <div>Home inspection</div>
+            <div class="field-desc">Flat estimate, not based on price</div>
+          </div>
+          <input type="number" id="homeInspectionFlatSetting" min="0" step="50" class="settings-number-input" />
+        </div>
+        <div class="settings-row settings-number-row">
+          <div>
+            <div>Appraisal</div>
+            <div class="field-desc">Flat estimate, not based on price</div>
+          </div>
+          <input type="number" id="appraisalFlatSetting" min="0" step="50" class="settings-number-input" />
+        </div>
+        <div class="settings-row settings-number-row">
+          <div>
+            <div>Title insurance</div>
+            <div class="field-desc">Flat estimate, not based on price</div>
+          </div>
+          <input type="number" id="titleInsuranceFlatSetting" min="0" step="50" class="settings-number-input" />
+        </div>
       </div>
-      <input type="number" id="interestRatePctSetting" min="0" max="25" step="0.05" class="settings-number-input" />
     </div>
-    <div class="settings-row settings-number-row">
-      <div>
-        <div>Amortization</div>
-        <div class="field-desc">Years</div>
+
+    <div class="settings-page" id="settingsPage-cardSections" hidden>
+      <p class="settings-desc">Choose which sections appear on each listing card.</p>
+      <div class="settings-fields settings-page-body" id="settingsFields"></div>
+      <div class="settings-footer">
+        <button id="settingsSelectAll" class="secondary">All on</button>
+        <button id="settingsSelectNone" class="secondary">All off</button>
+        <button id="settingsReset">Defaults</button>
       </div>
-      <input type="number" id="amortizationYearsSetting" min="5" max="30" step="1" class="settings-number-input" />
-    </div>
-    <div class="settings-row settings-number-row">
-      <div>
-        <div>Property tax</div>
-        <div class="field-desc">Estimate, percent of price per year, edit with your own tax bill</div>
-      </div>
-      <input type="number" id="propertyTaxPctSetting" min="0" max="5" step="0.05" class="settings-number-input" />
-    </div>
-    <div class="settings-row settings-number-row">
-      <div>
-        <div>Legal fees</div>
-        <div class="field-desc">Flat estimate, not based on price</div>
-      </div>
-      <input type="number" id="legalFeesFlatSetting" min="0" step="50" class="settings-number-input" />
-    </div>
-    <div class="settings-row settings-number-row">
-      <div>
-        <div>Home inspection</div>
-        <div class="field-desc">Flat estimate, not based on price</div>
-      </div>
-      <input type="number" id="homeInspectionFlatSetting" min="0" step="50" class="settings-number-input" />
-    </div>
-    <div class="settings-row settings-number-row">
-      <div>
-        <div>Appraisal</div>
-        <div class="field-desc">Flat estimate, not based on price</div>
-      </div>
-      <input type="number" id="appraisalFlatSetting" min="0" step="50" class="settings-number-input" />
-    </div>
-    <div class="settings-row settings-number-row">
-      <div>
-        <div>Title insurance</div>
-        <div class="field-desc">Flat estimate, not based on price</div>
-      </div>
-      <input type="number" id="titleInsuranceFlatSetting" min="0" step="50" class="settings-number-input" />
-    </div>
-    <p class="settings-desc">Choose which sections appear on each listing card.</p>
-    <div class="settings-fields" id="settingsFields"></div>
-    <div class="settings-footer">
-      <button id="settingsSelectAll" class="secondary">All on</button>
-      <button id="settingsSelectNone" class="secondary">All off</button>
-      <button id="settingsReset">Defaults</button>
     </div>
   </aside>
 
