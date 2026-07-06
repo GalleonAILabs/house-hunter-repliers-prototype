@@ -32,6 +32,13 @@
       <label>Search
         <input id="q" placeholder="address, town, features…" />
       </label>
+      <label>Status
+        <select id="filterStatus">
+          <option value="">All</option>
+          <option value="active">Active only</option>
+          <option value="rejected">Rejected</option>
+        </select>
+      </label>
       <label>Price
         <div class="range-pair">
           <input id="minPrice" type="text" inputmode="numeric" placeholder="Min" />
@@ -89,13 +96,6 @@
           <option value="6">6+</option>
           <option value="7">7+</option>
           <option value="8">8/8</option>
-        </select>
-      </label>
-      <label>Status
-        <select id="filterStatus">
-          <option value="">All</option>
-          <option value="active">Active only</option>
-          <option value="rejected">Rejected</option>
         </select>
       </label>
       <label>Page size
