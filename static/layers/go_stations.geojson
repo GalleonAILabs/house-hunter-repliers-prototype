@@ -1315,23 +1315,6 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -79.5431,
-          43.5534
-        ]
-      },
-      "properties": {
-        "name": "Lakeview",
-        "status": "Planned: Lakeshore East extension",
-        "lines": "Lakeshore West",
-        "municipality": "Mississauga",
-        "statusColor": "#e8b400"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
           -78.6831,
           43.9134
         ]

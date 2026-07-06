@@ -152,6 +152,48 @@ and queried those directly for the real design geometry.
 **Depends on:** Sourcing the MTO Environmental Assessment GeoJSON (or an
 equivalent authoritative corridor file).
 
+## Planned/Proposed GO station coordinates are unverified, not just approximate
+
+**What:** `static/layers/go_stations.geojson`'s 67 currently-operating
+stations use real Metrolinx GTFS `stop_lat`/`stop_lon` values (see the
+commit that replaced synthetic coordinates with GTFS data). The 12
+Planned/Proposed stations do not: GTFS only reflects currently-operating
+service, so there is no real coordinate to fetch for a station that
+does not exist yet, and these 12 were carried over unchanged from an
+earlier, unsourced dataset. One of them, Lakeview, was removed rather
+than corrected: its coordinate sat in Lake Ontario, its own `status`
+field said "Lakeshore East extension" while its own `lines` field said
+"Lakeshore West" (Lakeview is a real Mississauga redevelopment site on
+the Lakeshore West corridor, not Lakeshore East, which runs the opposite
+direction toward Oshawa), and its longitude was an exact digit-for-digit
+match with Innisfil, an unrelated station roughly 60km away on a
+different line. That is corrupted data, not just an approximation, so no
+replacement coordinate was guessed.
+
+**Why:** The remaining 12 did not show that same internal
+self-contradiction or an implausible shared coordinate with an unrelated,
+distant station, so they were left in place rather than removed. But
+"did not show a red flag on inspection" is not the same as "verified
+against a real source." No authoritative source (a Metrolinx GO
+Expansion planning document, an environmental assessment, a municipal
+official plan) has been checked against any of them.
+
+**Pros:** Removing Lakeview fixes the one demonstrably wrong, reported
+pin without inventing a new guess in its place.
+
+**Cons:** The map now shows 12 Planned/Proposed stations, not 13, and
+Lakeview (a real, publicly discussed proposal) is simply absent until a
+real coordinate is sourced, rather than shown in an approximately-right
+place.
+
+**Context:** Reported as a pin sitting in Lake Ontario, found via a user
+screenshot.
+
+**Depends on:** Sourcing each Planned/Proposed station's real proposed
+location from Metrolinx's GO Expansion program materials or an
+equivalent authoritative planning document, the same kind of source
+the Highway 413 entry above depends on for its own remaining gaps.
+
 ## GO Station popup hover needs richer information
 
 **What:** The GO station hover popup (`app.js`, `go-station-tooltip`)
