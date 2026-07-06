@@ -75,42 +75,49 @@ function savePriceMode(value) { localStorage.setItem(PRICE_MODE_KEY, value); }
 // called when item.mortgageBreakdown exists, which the server only
 // attaches when a potential purchase price was entered and it differs
 // from list price (see enrich_with_potential_prices in server.py).
+// Split into `totals` (always shown on the card) and `itemized` (the
+// components behind those totals, collapsed by default behind a
+// <details> disclosure) so the card stays scannable without hiding the
+// numbers that led to each total.
 function mortgageBreakdownRows(breakdown) {
-  const rows = [];
+  const itemized = [];
   const dp = breakdown.downPayment;
   const dpLabel = dp.toppedUp
     ? `Down payment (topped up to the required minimum, ${dp.enteredPct}% entered was too low for this price)`
     : `Down payment (${dp.enteredPct}%)`;
-  rows.push([dpLabel, money(dp.amount)]);
+  itemized.push([dpLabel, money(dp.amount)]);
 
   if (breakdown.cmhc.applies) {
-    rows.push([`CMHC premium (${breakdown.cmhc.premiumRatePct}% of insured loan)`, money(breakdown.cmhc.premium)]);
-    rows.push(['CMHC premium Ontario PST (8%)', money(breakdown.cmhc.pst)]);
+    itemized.push([`CMHC premium (${breakdown.cmhc.premiumRatePct}% of insured loan)`, money(breakdown.cmhc.premium)]);
+    itemized.push(['CMHC premium Ontario PST (8%)', money(breakdown.cmhc.pst)]);
   }
 
   const ont = breakdown.ontarioLtt;
-  rows.push([
+  itemized.push([
     ont.rebate > 0 ? `Ontario land transfer tax (after $${num(ont.rebate)} first-time buyer rebate)` : 'Ontario land transfer tax',
     money(ont.afterRebate),
   ]);
 
   if (breakdown.torontoLtt.applies) {
     const tor = breakdown.torontoLtt;
-    rows.push([
+    itemized.push([
       tor.rebate > 0 ? `Toronto municipal land transfer tax (after $${num(tor.rebate)} first-time buyer rebate)` : 'Toronto municipal land transfer tax',
       money(tor.afterRebate),
     ]);
   }
 
-  rows.push(['Legal fees (estimate)', money(breakdown.fixedCosts.legalFees)]);
-  rows.push(['Home inspection (estimate)', money(breakdown.fixedCosts.homeInspection)]);
-  rows.push(['Appraisal (estimate)', money(breakdown.fixedCosts.appraisal)]);
-  rows.push(['Title insurance (estimate)', money(breakdown.fixedCosts.titleInsurance)]);
-  rows.push(['Total cost to close (estimate)', money(breakdown.costToClose)]);
-  rows.push(['Monthly principal and interest', money(breakdown.monthlyPrincipalInterest)]);
-  rows.push(['Monthly property tax (estimate)', money(breakdown.monthlyPropertyTax)]);
-  rows.push(['Monthly PIT, recomputed (estimate)', money(breakdown.monthlyPit)]);
-  return rows;
+  itemized.push(['Legal fees (estimate)', money(breakdown.fixedCosts.legalFees)]);
+  itemized.push(['Home inspection (estimate)', money(breakdown.fixedCosts.homeInspection)]);
+  itemized.push(['Appraisal (estimate)', money(breakdown.fixedCosts.appraisal)]);
+  itemized.push(['Title insurance (estimate)', money(breakdown.fixedCosts.titleInsurance)]);
+  itemized.push(['Monthly principal and interest', money(breakdown.monthlyPrincipalInterest)]);
+  itemized.push(['Monthly property tax (estimate)', money(breakdown.monthlyPropertyTax)]);
+
+  const totals = [
+    ['Total cost to close (estimate)', money(breakdown.costToClose)],
+    ['Monthly PIT, recomputed (estimate)', money(breakdown.monthlyPit)],
+  ];
+  return { itemized, totals };
 }
 
 function effectivePrice(item) {
@@ -1413,10 +1420,12 @@ function populateCard(node, item) {
     const condoFeeVal = item.isCondo && item.condoFeeNum ? money(item.condoFeeNum) + '/mo' : '';
     const financialEl = node.querySelector('.card-financial');
     if (item.mortgageBreakdown) {
-      const rows = mortgageBreakdownRows(item.mortgageBreakdown)
-        .map(([label, value]) => `<div class="fin-row"><span class="fin-label">${esc(label)}</span><span class="fin-value">${esc(value)}</span></div>`);
-      if (condoFeeVal) rows.push(`<div class="fin-row"><span class="fin-label">Condo fee</span><span class="fin-value">${esc(condoFeeVal)}</span></div>`);
-      financialEl.innerHTML = rows.join('')
+      const finRow = ([label, value]) => `<div class="fin-row"><span class="fin-label">${esc(label)}</span><span class="fin-value">${esc(value)}</span></div>`;
+      const { itemized, totals } = mortgageBreakdownRows(item.mortgageBreakdown);
+      const condoRow = condoFeeVal ? finRow(['Condo fee', condoFeeVal]) : '';
+      financialEl.innerHTML = totals.map(finRow).join('')
+        + `<details class="fin-details"><summary>Itemized breakdown</summary>${itemized.map(finRow).join('')}</details>`
+        + condoRow
         + '<div class="fin-disclaimer">Estimates only. Confirm real figures with a mortgage professional and lawyer before closing, since rates, lender rules, and individual circumstances can change the actual numbers.</div>';
     } else {
       const pitVal = item.pitNum ? money(item.pitNum) : (item.pit || '');
