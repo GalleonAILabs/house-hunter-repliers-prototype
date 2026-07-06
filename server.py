@@ -582,6 +582,28 @@ def handle_potential_price_post(body: dict[str, Any]) -> tuple[dict[str, Any], i
         conn.close()
 
 
+def handle_potential_price_delete(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """Clears a listing's potential purchase price back to unset by
+    deleting its row entirely, not by writing zero or an empty string.
+    "Never entered" and "entered as zero" must stay distinguishable (see
+    potential_prices_for_listings), and a zero/empty price must never
+    reach compute_mortgage_breakdown, so removing the row is the only
+    correct representation of "cleared"."""
+    listing_id = body.get("listing_id")
+    if not isinstance(listing_id, str) or not listing_id:
+        return {"error": "invalid_request", "detail": "listing_id is required"}, 400
+
+    conn = get_db()
+    try:
+        if not validate_listing_id(listing_id):
+            return {"error": "unknown_listing", "detail": f"listing_id {listing_id!r} not found"}, 400
+        conn.execute("DELETE FROM potential_purchase_prices WHERE listing_id = ?", (listing_id,))
+        conn.commit()
+        return {"ok": True, "listing_id": listing_id}, 200
+    finally:
+        conn.close()
+
+
 def number(value: Any) -> float | None:
     if value is None or value == "":
         return None
@@ -1427,6 +1449,30 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
                     return
                 data, status = handle_household_settings_post(body)
+                self.send_json(data, status)
+                return
+            self.send_json({"error": "not_found"}, 404)
+        except Exception as exc:  # pragma: no cover, surfaced in browser for prototype speed
+            self.send_json({"error": type(exc).__name__, "detail": str(exc)}, 500)
+
+    def do_DELETE(self) -> None:
+        parsed = urllib.parse.urlparse(self.path)
+        try:
+            if parsed.path == "/api/potential-purchase-prices":
+                if not require_auth(self):
+                    self.send_json({"error": "unauthorized"}, 401)
+                    return
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                raw_body = self.rfile.read(length) if length else b""
+                try:
+                    body = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    self.send_json({"error": "invalid_request", "detail": "malformed JSON body"}, 400)
+                    return
+                if not isinstance(body, dict):
+                    self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
+                    return
+                data, status = handle_potential_price_delete(body)
                 self.send_json(data, status)
                 return
             self.send_json({"error": "not_found"}, 404)

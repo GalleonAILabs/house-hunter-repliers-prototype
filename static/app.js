@@ -535,6 +535,21 @@ async function reloadListingsPreservingMapView() {
 // an-input affordance as the note Add/Edit buttons, but a single Add-or-
 // Edit control, not a split pair, since there is one current value here,
 // not a history list.
+// Shared by Save and Clear below: reloads listings so every card (and
+// the currently-open map card, if it's this listing) reflects the
+// fresh potentialPurchasePrice/mortgageBreakdown state.
+async function reloadAfterPotentialPriceChange(item) {
+  const openMlsBeforeReload = state.openMapItem?.mls;
+  await reloadListingsPreservingMapView();
+  // Only re-show if the map card that was open is the one just edited,
+  // by mls, since reload replaces every item with a fresh object; a
+  // different open card must be left alone, not replaced.
+  if (openMlsBeforeReload === item.mls) {
+    const refreshed = findListing(item.mls);
+    if (refreshed) showMapCard(refreshed);
+  }
+}
+
 function buildPotentialPriceEditor(node, item) {
   const container = node.querySelector('.card-potential-price');
   if (!container) return;
@@ -549,10 +564,14 @@ function buildPotentialPriceEditor(node, item) {
     ? `Potential purchase price: ${money(entry.price)} (${entry.updatedByName})`
     : 'No potential purchase price entered yet';
 
+  const btnRow = document.createElement('div');
+  btnRow.className = 'feedback-btn-row';
+
   const editBtn = document.createElement('button');
   editBtn.type = 'button';
   editBtn.className = 'secondary fb-btn';
   editBtn.textContent = entry ? '✏️ Edit potential price' : '➕ Add potential price';
+  btnRow.append(editBtn);
 
   const box = document.createElement('div');
   box.className = 'feedback-compose';
@@ -580,15 +599,7 @@ function buildPotentialPriceEditor(node, item) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || data.error || 'Save failed');
-      const openMlsBeforeReload = state.openMapItem?.mls;
-      await reloadListingsPreservingMapView();
-      // Only re-show if the map card that was open is the one just
-      // edited, by mls, since reload replaces every item with a fresh
-      // object; a different open card must be left alone, not replaced.
-      if (openMlsBeforeReload === item.mls) {
-        const refreshed = findListing(item.mls);
-        if (refreshed) showMapCard(refreshed);
-      }
+      await reloadAfterPotentialPriceChange(item);
     } catch (err) {
       showFeedbackStatus(statusEl, err.message, true);
     }
@@ -600,7 +611,34 @@ function buildPotentialPriceEditor(node, item) {
     else { box.hidden = true; }
   });
 
-  container.append(display, editBtn, box);
+  // Clear reverts the listing fully to the never-entered state: no
+  // attribution, breakdown recomputed off list price (see server's
+  // DELETE handler, which removes the row rather than writing zero or
+  // an empty string -- zero is never a valid potential price). Only
+  // offered once something has actually been entered.
+  if (entry) {
+    const clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.className = 'secondary fb-btn fb-btn-reject';
+    clearBtn.textContent = '🗑️ Clear';
+    clearBtn.addEventListener('click', async () => {
+      try {
+        const res = await fetch('/api/potential-purchase-prices', {
+          method: 'DELETE',
+          headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ listing_id: item.mls }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || data.error || 'Clear failed');
+        await reloadAfterPotentialPriceChange(item);
+      } catch (err) {
+        showFeedbackStatus(statusEl, err.message, true);
+      }
+    });
+    btnRow.append(clearBtn);
+  }
+
+  container.append(display, btnRow, box);
 }
 
 function showFeedbackStatus(el, text, isError) {

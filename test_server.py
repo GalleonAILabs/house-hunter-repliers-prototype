@@ -784,6 +784,68 @@ class PotentialPurchasePriceTests(ServerTestCase):
         self.assertEqual(item["pitNum"], 2200)
         self.assertEqual(item["dueNum"], 30000)
 
+    def test_delete_without_token_401(self) -> None:
+        status, _ = self.request(
+            "DELETE", "/api/potential-purchase-prices", body={"listing_id": "POC-2"},
+        )
+        self.assertEqual(status, 401)
+
+    def test_delete_requires_known_listing(self) -> None:
+        status, data = self.request(
+            "DELETE", "/api/potential-purchase-prices", token=self.TOKEN,
+            body={"listing_id": "POC-999999"},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(data["error"], "unknown_listing")
+
+    def test_delete_when_never_entered_is_a_no_op(self) -> None:
+        status, data = self.request(
+            "DELETE", "/api/potential-purchase-prices", token=self.TOKEN,
+            body={"listing_id": "POC-2"},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(data["ok"])
+
+    def test_delete_clears_price_back_to_unset_not_zero(self) -> None:
+        self.request(
+            "POST", "/api/potential-purchase-prices", token=self.TOKEN,
+            body={"person_id": 1, "listing_id": "POC-2", "price": 450000},
+        )
+        status, data = self.request(
+            "GET", "/api/potential-purchase-prices?listing_ids=POC-2", token=self.TOKEN,
+        )
+        self.assertIn("POC-2", data["potential_purchase_prices"])
+
+        status, data = self.request(
+            "DELETE", "/api/potential-purchase-prices", token=self.TOKEN,
+            body={"listing_id": "POC-2"},
+        )
+        self.assertEqual(status, 200)
+
+        # Cleared means the row is gone entirely, the same "absent, not
+        # present with a null/zero price" state as never having entered
+        # one at all (see potential_prices_for_listings).
+        status, data = self.request(
+            "GET", "/api/potential-purchase-prices?listing_ids=POC-2", token=self.TOKEN,
+        )
+        self.assertNotIn("POC-2", data["potential_purchase_prices"])
+
+        conn = server.get_db()
+        try:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM potential_purchase_prices WHERE listing_id = 'POC-2'"
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(count, 0)
+
+        # The card-facing view reverts fully: no attribution, breakdown
+        # recomputed off list price (or absent if there is none), same as
+        # a listing that never had an override.
+        status, data = self.request("GET", "/api/poc-listings")
+        item = next(l for l in data["listings"] if l["mls"] == "POC-2")
+        self.assertNotIn("potentialPurchasePrice", item)
+
 
 DEFAULT_MORTGAGE_SETTINGS = {
     "first_time_buyer": "true",
