@@ -2,7 +2,12 @@
 :root {
   --bg:#f5f3ec; --panel:#fff; --ink:#18211f; --muted:#68726f; --line:#d9d5c8;
   --green:#16803a; --blue:#2b67d6; --red:#b3261e; --gold:#c58900;
-  --header:#14221f; --hdr-h:52px; --shadow:0 4px 20px rgba(0,0,0,.14);
+  --header:#14221f; --hdr-h:52px;
+  /* Bottom-bar sibling of --hdr-h. Holds the rendered height of the fixed
+     .status-bar pill (16px padding + 30px control + 2px border) so any
+     scroll container sitting beneath it can reserve exactly that much space. */
+  --bottom-bar-height:48px;
+  --shadow:0 4px 20px rgba(0,0,0,.14);
 }
 @media (prefers-color-scheme: dark) {
   html[data-theme="auto"] { --bg:#141918; --panel:#1e2523; --ink:#e2ecea; --muted:#8ca19d; --line:#2c3432; --header:#0c1210; }
@@ -81,9 +86,18 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .map-card-close { position:absolute; top:14px; right:14px; z-index:2; background:var(--bg); border:1px solid var(--line); border-radius:999px; width:30px; height:30px; min-height:0; padding:0; font-size:13px; color:var(--ink); display:flex; align-items:center; justify-content:center; }
 .map-card-inner .card { border:none; border-radius:0; box-shadow:none; }
 .map-card-inner .photo { border-radius:0; height:200px; }
+/* Clears the fixed .status-bar, same pattern as .cards. Raising z-index
+   will not work here: #viewMap has position:fixed with z-index:0, which
+   traps .map-card inside that stacking context, so the popup can never
+   paint above the body-level .status-bar (z-index:500) no matter its own
+   z-index. Reserving space is the only fix. */
+.map-card-inner { padding-bottom: calc(var(--bottom-bar-height) + 24px); }
 @media (min-width:700px){ .map-card{bottom:20px; left:auto; right:20px; width:380px; border-radius:18px; max-height:80vh;} .map-card::before{display:none;} }
 
-.cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:14px; padding:12px 12px 48px; }
+/* Bottom padding clears the fixed .status-bar: its own 12px bottom offset
+   plus a 12px clearance gap, both on the 2px spacing scale, on top of
+   --bottom-bar-height so the last card's action row is never hidden behind it. */
+.cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:14px; padding:12px 12px calc(var(--bottom-bar-height) + 24px); }
 .card { border:1px solid var(--line); border-radius:16px; overflow:hidden; background:var(--panel); display:flex; flex-direction:column; }
 .card-photo-wrap { position:relative; flex-shrink:0; }
 .photo { width:100%; height:180px; object-fit:cover; display:block; background:var(--line); }

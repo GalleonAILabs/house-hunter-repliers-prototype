@@ -105,6 +105,17 @@ Apple HIG and Android both converge near 44×44pt / 48×48dp. This app's floor:
 
 7. **Test viewport: 412×915** (a stand-in for common Android widths, ~390-430px). Every new component ships with a screenshot at this width before merge.
 
+8. **Any fixed bar pinned to the bottom must reserve its space in the scroll container beneath it.** Use `--bottom-bar-height`, composed as `calc(var(--bottom-bar-height) + 24px)`, the same pattern `--hdr-h` already uses at the top (`calc(var(--hdr-h) + 10px)` for the filter panel). A flat guessed padding number drifts out of sync with the bar's real rendered height the moment the bar's content changes; a token composed from the bar's actual height cannot drift.
+
+### Layout dimension tokens
+
+| Token | Value | Holds | Composed as |
+|---|---|---|---|
+| `--hdr-h` | 52px | Rendered height of the fixed `.topbar` header. | `calc(var(--hdr-h) + 10px)` for anything that must clear the header (e.g. the filter panel's `top`). |
+| `--bottom-bar-height` | 48px | Rendered height of the fixed `.status-bar` pill (16px padding + 30px control + 2px border). | `calc(var(--bottom-bar-height) + 24px)` for anything that must clear the bottom bar (its own 12px bottom offset plus a 12px clearance gap, both on the 2px spacing scale). Used by `.cards` and `.map-card-inner`. |
+
+**Rule:** any new fixed top or bottom bar gets its own `--*-h`/`--*-height` token sized to its real rendered height, not a flat guessed padding number on whatever sits beneath or above it.
+
 ## 6. Component patterns
 
 ### Card (`.card`)
@@ -140,6 +151,7 @@ Apple HIG and Android both converge near 44×44pt / 48×48dp. This app's floor:
 - Close button (`.map-card-close`) sits top-right over the photo — **bump from 30×30 to 44×44px** (tap target rule 5).
 - Reuses the exact same card body/inner markup as the list view card (`populateCard()`), so anything fixed in the card component (star labeling, reject button color, box styling) is automatically fixed here too. Keep it that way — never fork popup markup from card markup.
 - On ≥700px, detaches into a floating panel bottom-right instead of a full-width bottom sheet (`static/styles.css:65`) — preserve this breakpoint for any new bottom-sheet-style component.
+- The popup content (`.map-card-inner`) reserves `calc(var(--bottom-bar-height) + 24px)` of bottom padding so its last row clears the fixed status bar. This is required, not optional: `#viewMap` has `position:fixed` with `z-index:0`, which traps `.map-card` inside that stacking context, so the popup can never paint above the status bar by raising its own `z-index`. Reserving space is the only fix.
 
 ## 7. What a new UI element must answer before it ships
 
