@@ -119,10 +119,19 @@ Apple HIG and Android both converge near 44×44pt / 48×48dp. This app's floor:
 ## 6. Component patterns
 
 ### Card (`.card`)
-- Structure, top to bottom: photo (180px, `object-fit:cover`) → title row (address + meta, fit badge right-aligned) → price → group sentiment row → commute box → stat tags → financial box → ratings (existing, per-person) → feature tags → comments → feedback actions (rate + note/reject/research) → action buttons (View listing / Research doc / Map).
+- Structure, top to bottom: photo (180px, `object-fit:cover`) → title row (address + meta, fit badge right-aligned) → summary value → price → group sentiment row → commute box → stat tags → financial box → ratings (existing, per-person) → feature tags → comments → feedback actions (rate + note/reject/research) → action buttons (View listing / Research doc / Map).
 - **Hierarchy rule:** price and fit badge are the only two elements allowed to be visually louder than body text (22px/900 and colored badge respectively). Every other section uses the same 12-13px scale. If a new section needs to stand out, it competes with price and fit for attention, which means it probably shouldn't exist as a new visually-loud element.
 - Boxed sections (`.card-commute`, `.card-financial`) share `background:var(--bg); border-radius:10px; padding`. Any new "boxed" info group must reuse this exact treatment, don't invent a new box style.
 - Comments use a left-border accent (`border-left:3px solid var(--blue)`) to separate free text from structured data. Research-originated comments must carry a distinct visual tag (not just an inline "(research)" suffix), e.g. a small pill or icon prefix, so they scan differently from a plain note at a glance.
+
+### Card summary value (`.card-summary-value`)
+- Display only, a single compact line, one user-chosen value: Price, Cost to close, or Monthly PIT, never all three at once.
+- Placement: directly above `.card-price`, the first stat line under the title row, since it is the at-a-glance headline number for whichever field the buyer group cares about most, separate from the always-shown Price line below it.
+- The 3-way choice lives in a `<select>` in the settings drawer (`#summaryValueChoice`), not a checkbox like every other `cf-` field, since it is one-of-three, not a boolean. Persisted to `localStorage` (`hh_summary_value_choice_v1`), default Price.
+- Whether the row shows at all is still a normal boolean toggle (`cf-summaryValue` in `CARD_FIELDS`, default on), consistent with every other card section; the 3-way select only matters once that toggle is on.
+- Hides itself via CSS `:empty` (`.card-summary-value:empty{display:none}`) when the chosen field has no data for a listing (e.g. Cost to close/PIT on a Repliers listing, which has no Monthly PIT concept). No JS visibility logic needed for the missing-data case, only for the on/off card-settings toggle.
+- Reuses the exact `.fin-row`/`.fin-label`/`.fin-value` classes already used inside `.card-financial`, rather than inventing new typography for "a labeled value pair."
+- Section 7 checklist: fits the 12px type floor (yes, reuses `.fin-row` at 13px, consistent with the existing financial box); hits its tap-target minimum (n/a, display only, not a control); no overflow/clipping at 412px (verified: single line, hides entirely via `:empty` when there is nothing to show, never renders an empty label with no value); reuses an existing pattern rather than inventing one (yes, `.fin-row` family verbatim); not re-screenshotted visually this session (no browser tool available), verified instead via direct API calls confirming the underlying field is present or absent correctly per listing.
 
 ### Group sentiment row (`.card-group`)
 - Display only, never filtering. This is not the deferred consensus filtering in TODOS.md (which hides and shows listings): it never changes what's visible, only how a listing reads at a glance. It is the visible foundation that filtering builds on later.
@@ -148,12 +157,19 @@ Apple HIG and Android both converge near 44×44pt / 48×48dp. This app's floor:
 - One field = one `<label>` containing a caption (12px/700/`--muted`) above the control (`display:grid; gap:2px`).
 - Range fields (min/max) use `.range-pair`: `display:flex; gap:4px`, two inputs each `flex:1; min-width:0`.
 - On mobile, one filter row per grid row (rule 1 above). On desktop (≥600px), `repeat(auto-fill, minmax(110px,1fr))` is fine since there's room.
+- **Live re-filtering on feedback change:** filtering is not limited to the Apply button. Any feedback change for the active person (rating, reject, note, research) re-runs every active filter immediately via the same `applyFiltersAndRender()` Apply/Reset already call, so a rating change that now falls outside an active per-person rating filter (or the reject-derived status filter) drops that listing from both the list and the map without a separate manual reapply step. This applies to the per-person rating checkboxes and the status filter, not the unrelated computed fit-score filter, which is a listing property, not a person's feedback. Section 7 checklist: n/a visual element (behavior only); verified by tracing the exact data flow from a feedback POST through `applyFiltersAndRender()` to the map/list refresh, not screenshotted since nothing new renders, only when it renders.
 
 ### Checkbox row (`.person-filter-block` / `.chip`)
 - One row per person: name label (min-width 46px) + wrapped row of chips.
 - Chip = pill-shaped label wrapping its own checkbox: `display:inline-flex; border-radius:999px; padding:3px 8px`. The whole chip is the tap target, not just the 13×13 checkbox square.
 - Must carry `min-width:0` on the row container (rule 2) so `flex-wrap:wrap` actually engages instead of forcing the parent grid wider.
 - If a person-row would need to wrap to 2+ lines regularly (7 options today), that's expected and fine. Do not try to fit it on one line by shrinking chips below 40px tall.
+
+### State persistence (filters, map layers, sort)
+- Every filter field value, every map-layer-panel checkbox, and the active sort order persist across reloads via `localStorage` (`hh_filter_state_v1`), the same mechanism dark mode and card settings already use. This is last-used-state persistence, not a second "restore to default" concept; the existing Reset button remains the only way to clear back to defaults.
+- Restoring saved state on load must not fight the existing Reset button: `reset()` explicitly clears the persisted filter-state key before reloading, so Reset always produces the same result whether or not anything was ever saved.
+- Dynamically-built controls (the per-person rating-filter checkboxes, one row per person) restore by id after `buildPersonFilters()` runs, since those DOM elements do not exist yet at the point dark-mode/card-settings state would normally restore.
+- Section 7 checklist: no new visual element (behavior only), so spacing/type/tap-target/overflow questions are n/a; reuses an existing pattern rather than inventing one (yes, verbatim reuse of the dark-mode/card-settings `localStorage` pattern, a new key rather than a new mechanism); not screenshotted since there is no new visual surface, verified instead by reading the exact save/restore/reset code paths and confirming `test_server.py` is unaffected (a frontend-only behavior).
 
 ### Button
 - Primary (`Apply`, dark fill): `background:var(--ink); color:var(--panel)`, min-height 44px for anything triggering a data reload or irreversible action; 32-38px acceptable for low-stakes toggles.
@@ -165,6 +181,13 @@ Apple HIG and Android both converge near 44×44pt / 48×48dp. This app's floor:
 - `min-height:32px` baseline; text/number/select all share the same border, radius (8px), and padding (`6px 8px`).
 - Comma-formatted numeric fields (price, PIT, dues) store raw digits in `dataset.raw` and format on blur. Reuse `wirePriceInput()` / `numericFieldValue()` for any new currency-style field rather than writing a new formatter.
 - Decimal-safe fields (beds, baths) read `.value.trim()` directly, never route these through the comma formatter, which strips decimal points.
+
+### Map pins (`.listings-circles`, `.listings-labels`, `.poi-pins-circles`)
+- Listing pins (`.listings-circles`): filled circle, colour by fit score, or gray if the active person rejected it (`markerColor()`; green/gold/orange/gray, same palette as the map legend), 10px radius, white stroke.
+- Numeric rating label (`.listings-labels`, a symbol layer stacked on `.listings-circles`): shows the active person's own star rating as a small white number with a dark halo, centered on the pin. Blank (no visible text) when no one is selected as "I am" or that person hasn't rated the listing, the same active-person-scoped pattern as the per-person rating filter and the "My rating" sort. Never shows another person's rating or an average; a pin has no room for more than one number.
+- POI pins (`.poi-pins-circles`, its own source/layer, off by default like every other optional map layer): a person can search for and drop a pin for a non-listing place. Each pin has a required type, one of school/hospital/work/worship/other, and an optional label. Type drives colour (blue/red/purple/gold/gray respectively) and its hover-popup label; no icon set beyond colour and label text, since there is no room for real iconography at this pin size.
+- POI pins are shared across the whole buyer group, the same visibility model as listing feedback, not private to the person who dropped them. There is deliberately no per-person filter or ownership indicator on a POI pin; every person sees every pin regardless of who added it.
+- Section 7 checklist: fits the 12px type floor (yes, the rating label is 11px, matching the existing `.clusters-labels` count-label precedent already in this file's layer stack); hits its tap-target minimum (n/a, pins are click targets on the map canvas, sized by Mapbox's own hit-testing, not a DOM tap target); no overflow/clipping at 412px (verified: labels use `text-allow-overlap`, so dense pin clusters never silently drop a rating label, they render on top of each other instead of disappearing); reuses an existing pattern rather than inventing one (yes, the rating-label layer copies the existing `.clusters-labels` symbol-layer pattern verbatim); not re-screenshotted visually this session (no browser tool available), verified instead via direct API round-trips (`POST /api/poi` then `GET /api/poi`) and DOM-presence checks for the new layer-panel controls.
 
 ### Popup / bottom sheet (`.map-card`)
 - Slides up from the bottom, `border-radius:20px 20px 0 0`, `max-height:72vh`, drag-handle bar (`::before`, 40×4px) at the top for affordance.
