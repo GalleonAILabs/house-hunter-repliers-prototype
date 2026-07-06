@@ -68,8 +68,7 @@ button.secondary { background:var(--bg); color:var(--ink); }
 
 .person-filter-block { grid-column:1/-1; min-width:0; display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:5px 0; border-top:1px dashed var(--line); }
 .person-filter-name { font-size:11px; font-weight:800; color:var(--ink); min-width:46px; }
-.person-filter-row { display:flex; flex-wrap:wrap; gap:6px; min-width:0; }
-.person-filter-row-break { flex-basis:100%; }
+.person-filter-row { display:flex; flex-wrap:wrap; gap:6px; min-width:0; flex:1 1 auto; }
 .chip { display:inline-flex; align-items:center; gap:3px; font-size:11px; font-weight:600; color:var(--ink); background:var(--bg); border:1px solid var(--line); border-radius:999px; padding:3px 8px; cursor:pointer; white-space:nowrap; max-width:100%; }
 .chip input[type=checkbox] { width:13px; height:13px; margin:0; accent-color:var(--green); cursor:pointer; }
 

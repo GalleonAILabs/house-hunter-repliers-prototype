@@ -208,9 +208,14 @@ const PERSON_FILTER_OPTIONS = [
   { value: 'not_rated', label: 'Not rated', title: 'Not rated yet' },
   { value: 'said_no', label: 'Said no', title: 'Said no' },
 ];
-// Two fixed rows per person, independent of viewport width: stars together,
-// not_rated/said_no together. See PERSON_FILTER_OPTIONS above for OR matching.
-const PERSON_FILTER_ROWS = [['1', '2', '3', '4', '5'], ['not_rated', 'said_no']];
+// One flat, order-preserving list, not fixed rows. A hardcoded row split
+// used to force "Not rated"/"Said no" onto their own line even when there
+// was room left over after the 5 star chips, wasting space on mobile and
+// never letting all 7 sit on one line on wider screens either. Flowing all
+// seven through a single flex-wrap row lets the browser wrap based on the
+// actual available width at any viewport size, mobile through desktop,
+// instead of a hand-picked breakpoint.
+const PERSON_FILTER_ORDER = ['1', '2', '3', '4', '5', 'not_rated', 'said_no'];
 
 function personFilterCbId(personId, value) { return `personFilter_${personId}_${value}`; }
 
@@ -230,11 +235,9 @@ function buildPersonFilters() {
   container.innerHTML = state.people.map(p => `
     <div class="person-filter-block">
       <div class="person-filter-name">${esc(p.name)}</div>
-      ${PERSON_FILTER_ROWS.map((row, i) => `
-        <div class="person-filter-row${i > 0 ? ' person-filter-row-break' : ''}">
-          ${row.map(v => personFilterChip(p.id, v)).join('')}
-        </div>
-      `).join('')}
+      <div class="person-filter-row">
+        ${PERSON_FILTER_ORDER.map(v => personFilterChip(p.id, v)).join('')}
+      </div>
     </div>
   `).join('');
   const savedPersonFilters = loadSavedFilterState()._personFilters || [];
