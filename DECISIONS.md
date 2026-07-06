@@ -427,3 +427,22 @@ replace the vendor-bounds click handler with Mapbox's
 105 static POC listings, the practical benefit of clustering there is
 much smaller than for the Repliers feed's much larger result sets, so
 this is a real gap but a low-urgency one.
+
+## Codex CLI: pause lifted (2026-07-06)
+
+Earlier sessions carried a standing instruction not to run the Codex
+CLI at all, pending Mark personally verifying the installed binary
+(running `codex --version` and confirming the npm package) after a
+macOS Gatekeeper flag on the binary. That verification was never
+completed as a discrete step; separate investigation into the
+Gatekeeper flag found it inconclusive rather than a confirmed malicious
+signature.
+
+Mark has decided to proceed using Codex without completing that
+personal check, accepting the residual risk. The "do not run Codex"
+instruction is no longer current policy. CLAUDE.md now carries a
+standing Codex review policy (periodic `/codex review` during a
+session, a full `/codex` audit at the end of any substantial session)
+in its place. A future session seeing old references to "do not run
+Codex" in prior conversation history should treat this entry as
+superseding them, not reopen the question from scratch.

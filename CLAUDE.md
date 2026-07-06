@@ -64,6 +64,17 @@ Phone test tunnel: https://house-hunter-repliers-mark.loca.lt
 - API key stays server-side only
 - data/ folder is gitignored, never commit poc_listings.json
 
+## Codex review policy
+
+Codex CLI is authorized for use in this project (see DECISIONS.md for why
+an earlier pause on running it no longer applies).
+
+- Periodically run gstack's /codex review on changes during a session, for
+  validation as work progresses.
+- At the end of any major or substantial session (a significant batch of
+  work, not every small fix), always run a full /codex audit of the code
+  before considering the session closed.
+
 ## Skill routing
 
 When the user's request matches an available skill, invoke it via the Skill tool. When in doubt, invoke the skill.
