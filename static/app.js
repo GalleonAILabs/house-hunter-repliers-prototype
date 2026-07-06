@@ -39,12 +39,12 @@ function saveSummaryValueChoice(value) { localStorage.setItem(SUMMARY_VALUE_KEY,
 function summaryValueFor(item) {
   const choice = loadSummaryValueChoice();
   if (choice === 'closing') {
-    const val = item.dueClosing || (item.dueNum != null ? money(item.dueNum) : '');
-    return val ? { label: 'Cost to close', value: val } : null;
+    const val = effectiveDueNum(item);
+    return val != null ? { label: 'Cost to close', value: money(val) } : null;
   }
   if (choice === 'pit') {
-    const val = item.pit || (item.pitNum != null ? money(item.pitNum) : '');
-    return val ? { label: 'Monthly PIT', value: val } : null;
+    const val = effectivePitNum(item);
+    return val != null ? { label: 'Monthly PIT', value: money(val) } : null;
   }
   const effective = effectivePrice(item);
   if (effective.value == null) return null;
@@ -70,15 +70,15 @@ function loadPriceMode() {
   return saved === 'potential' ? 'potential' : 'list';
 }
 function savePriceMode(value) { localStorage.setItem(PRICE_MODE_KEY, value); }
-// Itemized rows for the recomputed mortgage breakdown, not one opaque
-// total, so every input into the estimate is visible and checkable. Only
-// called when item.mortgageBreakdown exists, which the server only
-// attaches when a potential purchase price was entered and it differs
-// from list price (see enrich_with_potential_prices in server.py).
-// Split into `totals` (always shown on the card) and `itemized` (the
-// components behind those totals, collapsed by default behind a
-// <details> disclosure) so the card stays scannable without hiding the
-// numbers that led to each total.
+// Itemized rows for the mortgage breakdown, not one opaque total, so
+// every input into the estimate is visible and checkable. This is the
+// normal way every listing's Financial section works now (see
+// enrich_with_mortgage_breakdown in server.py): the potential purchase
+// price is the base when one is entered, list price otherwise, not a
+// special case for an override. Split into `totals` (always shown on
+// the card) and `itemized` (the components behind those totals,
+// collapsed by default behind a <details> disclosure) so the card
+// stays scannable without hiding the numbers that led to each total.
 function mortgageBreakdownRows(breakdown) {
   const itemized = [];
   const dp = breakdown.downPayment;
@@ -115,7 +115,7 @@ function mortgageBreakdownRows(breakdown) {
 
   const totals = [
     ['Total cost to close (estimate)', money(breakdown.costToClose)],
-    ['Monthly PIT, recomputed (estimate)', money(breakdown.monthlyPit)],
+    ['Monthly PIT (estimate)', money(breakdown.monthlyPit)],
   ];
   return { itemized, totals };
 }
@@ -129,18 +129,20 @@ function effectivePrice(item) {
   return { value: item.price, isFallback: mode === 'potential', mode };
 }
 
-// Same figure the Financial section on the card actually renders (see
-// renderCard's `if (item.mortgageBreakdown)` branch): the recomputed
-// value whenever a potential purchase price was entered and differs
-// from list price, regardless of the list/potential headline toggle
-// (that toggle only switches the card's headline price, not this
-// breakdown -- see docs/design-spec.md). Falls back to the flat
-// pre-entered figure exactly when the card does.
+// Same figure the Financial section on the card actually renders: the
+// computed mortgage breakdown, keyed off the potential purchase price
+// when one is entered, list price otherwise (see
+// enrich_with_mortgage_breakdown in server.py), independent of the
+// list/potential headline toggle (that toggle only switches the card's
+// headline price, not this breakdown -- see docs/design-spec.md). Never
+// falls back to the original flat pre-entered pitNum/dueNum figures --
+// those are no longer shown anywhere on the card. Returns null only for
+// the rare listing with no valid price to compute against at all.
 function effectivePitNum(item) {
-  return item.mortgageBreakdown ? item.mortgageBreakdown.monthlyPit : item.pitNum;
+  return item.mortgageBreakdown ? item.mortgageBreakdown.monthlyPit : null;
 }
 function effectiveDueNum(item) {
-  return item.mortgageBreakdown ? item.mortgageBreakdown.costToClose : item.dueNum;
+  return item.mortgageBreakdown ? item.mortgageBreakdown.costToClose : null;
 }
 
 const CARD_FIELDS = [
@@ -1474,31 +1476,32 @@ function populateCard(node, item) {
   ].filter(Boolean);
   node.querySelector('.card-stats').innerHTML = statTags.join('');
 
-  // Financial: cost to close, then PIT, then condo fee, price is the
-  // anchor value at the top of the card now. Condo fee is never part of
-  // the recomputed mortgage breakdown below, it is a flat figure, not
-  // price-dependent (confirmed: no percentage-of-price condo fee field
-  // exists anywhere in this data), so it always shows its own stored
-  // value regardless of which price is active.
+  // Financial: the computed cost-to-close/Monthly PIT breakdown is the
+  // default for every listing now, keyed off the potential purchase
+  // price when one is entered, list price otherwise (see
+  // enrich_with_mortgage_breakdown in server.py). The original flat
+  // pre-entered pitNum/dueClosing figures are never shown here; they
+  // stay in the underlying record only as a reference. Condo fee is
+  // never part of the breakdown, it is a flat figure, not price-
+  // dependent (confirmed: no percentage-of-price condo fee field exists
+  // anywhere in this data), so it always shows its own stored value
+  // regardless of which price is active.
   if (poc) {
     const condoFeeVal = item.isCondo && item.condoFeeNum ? money(item.condoFeeNum) + '/mo' : '';
     const financialEl = node.querySelector('.card-financial');
+    const finRow = ([label, value]) => `<div class="fin-row"><span class="fin-label">${esc(label)}</span><span class="fin-value">${esc(value)}</span></div>`;
+    const condoRow = condoFeeVal ? finRow(['Condo fee', condoFeeVal]) : '';
     if (item.mortgageBreakdown) {
-      const finRow = ([label, value]) => `<div class="fin-row"><span class="fin-label">${esc(label)}</span><span class="fin-value">${esc(value)}</span></div>`;
       const { itemized, totals } = mortgageBreakdownRows(item.mortgageBreakdown);
-      const condoRow = condoFeeVal ? finRow(['Condo fee', condoFeeVal]) : '';
       financialEl.innerHTML = totals.map(finRow).join('')
         + `<details class="fin-details"><summary>Itemized breakdown</summary>${itemized.map(finRow).join('')}</details>`
         + condoRow
         + '<div class="fin-disclaimer">Estimates only. Confirm real figures with a mortgage professional and lawyer before closing, since rates, lender rules, and individual circumstances can change the actual numbers.</div>';
     } else {
-      const pitVal = item.pitNum ? money(item.pitNum) : (item.pit || '');
-      const dueVal = item.dueClosing || '';
-      financialEl.innerHTML = [
-        dueVal  && `<div class="fin-row"><span class="fin-label">Due at closing</span><span class="fin-value">${esc(dueVal)}</span></div>`,
-        pitVal  && `<div class="fin-row"><span class="fin-label">Monthly PIT</span><span class="fin-value">${esc(pitVal)}</span></div>`,
-        condoFeeVal && `<div class="fin-row"><span class="fin-label">Condo fee</span><span class="fin-value">${esc(condoFeeVal)}</span></div>`,
-      ].filter(Boolean).join('');
+      // No valid price to compute against at all (no potential price
+      // entered and no list price either). Nothing computed to show;
+      // condo fee, if any, still stands on its own.
+      financialEl.innerHTML = condoRow;
     }
   }
 

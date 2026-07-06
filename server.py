@@ -1181,19 +1181,21 @@ def fetch_poc(params: dict[str, str]) -> dict[str, Any]:
     }
 
 
-def enrich_with_potential_prices(listings: list[dict[str, Any]], conn: sqlite3.Connection) -> None:
-    """Attaches potentialPurchasePrice (always, when entered) and
-    mortgageBreakdown (only when the entered price differs from list
-    price) to each listing. Mutates listings in place. Every listing with
-    no potential price entered, or where it equals list price exactly,
-    is left with pitNum/dueNum/condoFeeNum exactly as they already are;
-    nothing here ever touches those fields."""
+def enrich_with_mortgage_breakdown(listings: list[dict[str, Any]], conn: sqlite3.Connection) -> None:
+    """Attaches mortgageBreakdown to every listing that has a valid price
+    to compute against: the entered potential purchase price when one
+    exists, list price otherwise. This is the normal way every card's
+    Financial section works now, not a special case for listings with an
+    override. Also attaches potentialPurchasePrice whenever one was
+    entered, whether or not it differs from list price, so the edit UI
+    and its "(Name)" attribution can still show it. Mutates listings in
+    place. Never touches pitNum/dueNum/condoFeeNum -- the original
+    entered figures stay in the underlying record as a reference, they
+    are just no longer surfaced on the card."""
     listing_ids = [item["mls"] for item in listings if item.get("mls")]
     if not listing_ids:
         return
     potential_prices = potential_prices_for_listings(conn, listing_ids)
-    if not potential_prices:
-        return
 
     settings_rows = conn.execute("SELECT key, value FROM household_settings").fetchall()
     settings = dict(HOUSEHOLD_SETTING_DEFAULTS)
@@ -1201,19 +1203,22 @@ def enrich_with_potential_prices(listings: list[dict[str, Any]], conn: sqlite3.C
 
     for item in listings:
         entry = potential_prices.get(item["mls"])
-        if entry is None:
-            continue
-        potential_price = entry["price"]
-        item["potentialPurchasePrice"] = {
-            "price": potential_price,
-            "updatedBy": entry["updated_by"],
-            "updatedByName": entry["updated_by_name"],
-            "updatedAt": entry["updated_at"],
-        }
-        if potential_price == item.get("price"):
+        base_price = item.get("price")
+        if entry is not None:
+            base_price = entry["price"]
+            item["potentialPurchasePrice"] = {
+                "price": entry["price"],
+                "updatedBy": entry["updated_by"],
+                "updatedByName": entry["updated_by_name"],
+                "updatedAt": entry["updated_at"],
+            }
+        # No potential price and no list price either: nothing valid to
+        # compute against. Leave mortgageBreakdown absent rather than
+        # compute against a zero/missing base.
+        if base_price is None or base_price <= 0:
             continue
         is_toronto = is_toronto_address(item.get("address"))
-        item["mortgageBreakdown"] = compute_mortgage_breakdown(potential_price, settings, is_toronto)
+        item["mortgageBreakdown"] = compute_mortgage_breakdown(base_price, settings, is_toronto)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1270,7 +1275,7 @@ class Handler(BaseHTTPRequestHandler):
                 data = fetch_poc(params)
                 conn = get_db()
                 try:
-                    enrich_with_potential_prices(data["listings"], conn)
+                    enrich_with_mortgage_breakdown(data["listings"], conn)
                 finally:
                     conn.close()
                 self.send_json(data)

@@ -751,7 +751,7 @@ class PotentialPurchasePriceTests(ServerTestCase):
         self.assertIn("mortgageBreakdown", item)
         self.assertGreater(item["mortgageBreakdown"]["monthlyPit"], 0)
 
-    def test_poc_listings_no_breakdown_when_potential_price_equals_list_price(self) -> None:
+    def test_poc_listings_has_breakdown_even_when_potential_price_equals_list_price(self) -> None:
         fixture = json.loads(json.dumps(FIXTURE_POC))
         fixture["properties"][0]["priceNum"] = 450000
         self.poc_path.write_text(json.dumps(fixture))
@@ -764,12 +764,14 @@ class PotentialPurchasePriceTests(ServerTestCase):
         self.assertEqual(status, 200)
         item = next(l for l in data["listings"] if l["mls"] == "POC-2")
         self.assertEqual(item["price"], 450000)
-        # Still surfaced so the edit UI knows a value was entered, just no
-        # recomputed breakdown, since it matches list price exactly.
         self.assertEqual(item["potentialPurchasePrice"]["price"], 450000)
-        self.assertNotIn("mortgageBreakdown", item)
+        # The computed breakdown is the default for every listing now, not
+        # a special case that only appears when the override differs from
+        # list price.
+        self.assertIn("mortgageBreakdown", item)
+        self.assertEqual(item["mortgageBreakdown"]["price"], 450000)
 
-    def test_poc_listings_untouched_when_no_potential_price_entered(self) -> None:
+    def test_poc_listings_breakdown_uses_list_price_when_no_potential_price_entered(self) -> None:
         fixture = json.loads(json.dumps(FIXTURE_POC))
         fixture["properties"][0]["priceNum"] = 450000
         fixture["properties"][0]["pitNum"] = 2200
@@ -780,9 +782,24 @@ class PotentialPurchasePriceTests(ServerTestCase):
         self.assertEqual(status, 200)
         item = next(l for l in data["listings"] if l["mls"] == "POC-2")
         self.assertNotIn("potentialPurchasePrice", item)
-        self.assertNotIn("mortgageBreakdown", item)
+        # The original flat figures stay in the underlying record as a
+        # reference; they are just never touched by this enrichment step.
         self.assertEqual(item["pitNum"], 2200)
         self.assertEqual(item["dueNum"], 30000)
+        # List price is the base when no potential purchase price exists.
+        self.assertIn("mortgageBreakdown", item)
+        self.assertEqual(item["mortgageBreakdown"]["price"], 450000)
+
+    def test_poc_listings_no_breakdown_when_no_price_at_all(self) -> None:
+        # POC-2 has no priceNum in the base fixture and no potential price
+        # is entered here either: nothing valid to compute a breakdown
+        # against, so it must stay absent rather than compute off zero.
+        status, data = self.request("GET", "/api/poc-listings")
+        self.assertEqual(status, 200)
+        item = next(l for l in data["listings"] if l["mls"] == "POC-2")
+        self.assertIsNone(item.get("price"))
+        self.assertNotIn("potentialPurchasePrice", item)
+        self.assertNotIn("mortgageBreakdown", item)
 
     def test_delete_without_token_401(self) -> None:
         status, _ = self.request(
