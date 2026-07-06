@@ -71,3 +71,60 @@ latest, not a true in-place update. This satisfies the requirement (add
 and edit are distinct actions; new notes are timestamped) without adding
 UPDATE/DELETE support to `listing_feedback`, which is a write-path change
 the batch's global constraints say to avoid unless explicitly required.
+
+## T13: GO Train commute timing and fare data (research only, not built)
+
+Re-fetched the same official Metrolinx GTFS feed already used to build the
+GO Line map layer (`GO-GTFS.zip`, `assets.metrolinx.com`) and inspected the
+files that were not used the first time: `stop_times.txt`, `fare_attributes.txt`,
+`fare_rules.txt`, and the `zone_id` column in `stops.txt`.
+
+**Trip-level schedules: already available locally, no new source needed.**
+`stop_times.txt` gives an exact `arrival_time`/`departure_time` per stop
+per trip, in sequence. A per-leg time to Union is a direct subtraction
+between two rows of the same `trip_id`, and the feed already computes this
+for humans in `stop_headsign` (e.g. a real row reads "Kipling GO 08:43 -
+Union Station GO 09:03"). This is enough to build "X minutes to Union" for
+any station, for any specific trip, or averaged across a set of trips
+(e.g. AM peak).
+
+**Express vs local: derivable, not a clean flag, and only for rail.**
+`trips.txt` has a `route_variant` column that looked blank at first (my
+initial scan only sampled rail trips). A full scan across the file shows
+`route_variant` is populated with real values, but only for the numbered
+GO bus routes (short names like "18F", "33A", "94"), not the 7 rail lines,
+which all show a blank `route_variant`. For rail, "express" is not a flag
+in this data; it would have to be inferred by comparing which stops each
+trip's `stop_times` rows actually include (a trip skipping more local
+stops reads as more express-like). That inference is straightforward but
+is real logic to write, not a lookup.
+
+**Fare data: already available in the same feed, no new source needed.**
+`fare_attributes.txt` (8,282 rows, one price per `fare_id`, e.g. "$4.40
+CAD") and `fare_rules.txt` (8,282 rows, `origin_id`/`destination_id` zone
+pair per `fare_id`) are both present. GO uses zone-based fares: `stops.txt`
+has a real, populated `zone_id` per station (confirmed: Union GO = zone 02,
+Milton GO = zone 24, Kitchener GO = zone 27, Allandale Waterfront GO =
+zone 69). A fare between any two real stations is a direct join: station
+to zone (`stops.txt`), zone pair to `fare_id` (`fare_rules.txt`), `fare_id`
+to price (`fare_attributes.txt`). No separate fare source is needed.
+
+**Rough scope estimate for building this as a future item:**
+- Commute timing (station to Union, by line): a small offline ETL script
+  (same shape as the one already used to build `go_lines.geojson`),
+  computing a representative time-to-Union per existing station and baking
+  it into `go_stations.geojson` as a new property. Estimate: half a day,
+  mostly picking a defensible "representative trip" (e.g. a specific AM
+  peak departure) per station rather than an average across a whole day's
+  service, which would blur peak vs off-peak times together.
+- Fare lookup: a similar small ETL step joining the three files above into
+  a zone-to-zone fare table, either baked into the same GeoJSON per
+  station-to-Union, or as a small separate static JSON keyed by zone pair.
+  Estimate: half a day.
+- Both together, plus the actual UI to show them (a commute/fare line on
+  the station hover popup, or a per-listing "X min / $Y to Union" figure if
+  ever tied to a specific home address, which is a materially bigger step
+  requiring geocoding a home address to its nearest station, not covered
+  by this estimate) is a separate, later item. This batch item is research
+  only, per the instructions; no commute breakdown, fare display, or
+  onboarding-destination feature was implemented.
