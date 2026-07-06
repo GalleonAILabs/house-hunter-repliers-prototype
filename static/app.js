@@ -363,8 +363,15 @@ async function submitFeedback(item, actionType, extra, statusEl) {
     await postFeedback({ person_id: state.activePerson, listing_id: item.mls, action_type: actionType, ...extra });
     const fresh = await fetchFeedback([item.mls]);
     Object.assign(state.feedback, fresh);
-    renderCards(state.listings);
-    if (state.openMapItem === item) showMapCard(item);
+    // T16: re-run the active filters (not just re-render the same list) so a
+    // rating/reject change that now falls outside an active person-rating
+    // or status filter drops the listing from both list and map right away,
+    // with no separate "Apply" click needed.
+    applyFiltersAndRender();
+    if (state.openMapItem === item) {
+      if (state.listings.includes(item)) showMapCard(item);
+      else closeMapCard();
+    }
   } catch (err) {
     showFeedbackStatus(statusEl, err.message, true);
   }

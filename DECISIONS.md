@@ -212,3 +212,35 @@ family for any of their real listings that are condos, the same way
 `markRank`/`katieComments` etc. are populated today. Until then this
 feature is silently inert for POC data (correct per the "hide when
 absent" instruction), not broken.
+
+## T16: which filter applies to "live re-filter on rating change"
+
+**Investigation finding, as required before implementing:** there are two
+filters in the app that could plausibly be called a "rating" filter, and
+they are not the same thing. `minFit` is the computed fit score (hard
+criteria like beds/price/lot size the listing itself meets or fails,
+`server.py`'s `fit_score()`/`poc_fit()`), not a person's opinion. The
+per-person checkboxes built in `buildPersonFilters()` (not_rated, 1-5
+stars, said_no) are the actual personal-rating filter: they read a
+specific person's own `rating`/`status` on a listing
+(`matchesPersonCheckValue()`). T16's wording ("the active person's own
+rating changes to a value outside the filter") describes this
+per-person filter, not `minFit`, which this batch item applies to.
+
+**Root cause, not just a missing feature:** `submitFeedback()` (used by
+every rating/note/reject/research action) already re-fetched the fresh
+feedback into `state.feedback` after a successful save, but only called
+`renderCards(state.listings)`, which re-renders the *same, already
+filtered* array in place, and never touched the map. So a rating change
+that should have dropped a listing out of an active person-rating filter
+(or `filterStatus`, which reads status the same way) left it visible on
+both the list and the map until the user manually re-opened Filters and
+clicked Apply, which recomputes `state.listings` from scratch.
+
+**Default chosen:** `submitFeedback()` now calls the existing
+`applyFiltersAndRender()` (the same function Apply/Reset already use)
+instead of `renderCards()` directly, so every feedback action
+re-evaluates all active filters against the fresh data with no new
+filter logic needed. If the listing whose map card is open no longer
+passes the filter, the card now closes instead of showing a card for a
+pin that just disappeared.
