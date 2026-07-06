@@ -73,7 +73,7 @@ function lotDimsLabel(item) {
 }
 
 // ─── Actor identity (D3/D11 auth, "I am" selector) ─────────────────────────────
-// Shared-secret deterrent, not real security — visible in browser JS by
+// Shared-secret deterrent, not real security, visible in browser JS by
 // design; see tasks/plan.md D3/D11 for the accepted tradeoff. Fetched from
 // GET /api/config on startup (that one endpoint is deliberately unprotected
 // so the frontend can bootstrap it) rather than hardcoded, so app.js and
@@ -305,7 +305,7 @@ function matchesKeyword(item, keyword) {
   return words.every(word => hay.includes(word));
 }
 
-// ─── Numeric range helpers (PIT / due-at-closing, client-side only — POC-only fields) ──
+// ─── Numeric range helpers (PIT / due-at-closing, client-side only, POC-only fields) ──
 function matchesRange(value, minId, maxId) {
   const min = numericFieldValue(minId);
   const max = numericFieldValue(maxId);
@@ -317,7 +317,7 @@ function matchesRange(value, minId, maxId) {
 }
 
 // Same as matchesRange() but reads the raw input value directly instead of
-// through numericFieldValue()'s digit-stripping — sqft/acres/commute can be
+// through numericFieldValue()'s digit-stripping. sqft/acres/commute can be
 // decimals (e.g. 0.567 acres), which numericFieldValue would corrupt.
 function matchesRangeDirect(value, minId, maxId) {
   const minRaw = ($(minId)?.value || '').trim();
@@ -329,7 +329,7 @@ function matchesRangeDirect(value, minId, maxId) {
   return true;
 }
 
-// Keyword-in-features checkboxes — text match only, not a confirmed feature.
+// Keyword-in-features checkboxes: text match only, not a confirmed feature.
 function matchesFeatureKeywords(item) {
   const text = (item.features || '').toLowerCase();
   if ($('featGarage')?.checked && !text.includes('garage')) return false;
@@ -518,7 +518,7 @@ function buildFeedbackActions(node, item) {
   if (alreadyRequested) researchBtn.classList.add('fb-btn-requested');
   researchBtn.textContent = alreadyRequested ? '✅ Requested' : '🔍 Research';
   researchBtn.addEventListener('click', () => {
-    // Placeholder until the real research agent is wired in — the note
+    // Placeholder until the real research agent is wired in. The note
     // captures the actual question so it's not lost once that lands.
     const question = prompt('What should the research agent look into for this property?');
     if (!question || !question.trim()) return;
@@ -929,7 +929,7 @@ function showMapCard(item) {
   const tpl = $('cardTemplate');
   const node = tpl.content.cloneNode(true);
   populateCard(node, item);
-  // In map card, "show on map" button not useful — remove it
+  // In map card, "show on map" button not useful, remove it
   node.querySelector('.show-map')?.remove();
   inner.appendChild(node);
   applyCardVisibility();
@@ -992,7 +992,7 @@ function populateCard(node, item) {
   img.alt = item.address;
   if (!item.image) node.querySelector('.card-photo-wrap').style.display = 'none';
 
-  // Status badge — POC's raw "status" is a static historical snapshot from
+  // Status badge: POC's raw "status" is a static historical snapshot from
   // before the multi-actor model (can say "Rejected" for a listing the
   // active actor never rejected), so POC badges use the actor's live
   // feedback instead. Repliers listings have no such history; their status
@@ -1017,7 +1017,7 @@ function populateCard(node, item) {
   node.querySelector('.address').textContent = item.address;
   node.querySelector('.meta').textContent = [item.beds && item.beds + ' beds', item.propertyType !== 'House Hunter POC' && item.propertyType].filter(Boolean).join(' · ');
 
-  // Tier badge — subtle, text-only; hidden automatically via :empty when unknown
+  // Tier badge: subtle, text-only; hidden automatically via :empty when unknown
   node.querySelector('.tier-badge').textContent = TIER_LABELS[(item.tier || '').toLowerCase()] || '';
 
   // Fit badge
@@ -1095,7 +1095,7 @@ function populateCard(node, item) {
     ].filter(Boolean).join('');
   }
 
-  // Ratings — dynamic per person (D9), replaces hardcoded Mark/Katie
+  // Ratings: dynamic per person (D9), replaces hardcoded Mark/Katie
   {
     const feedbackList = state.feedback[item.mls] || [];
     const rows = feedbackList
@@ -1117,7 +1117,7 @@ function populateCard(node, item) {
     node.querySelector('.card-features').innerHTML = item.features.split(',').map(f => tag(f.trim())).join('');
   }
 
-  // Comments — dynamic per person (D9), replaces hardcoded Mark/Katie/Anees
+  // Comments: dynamic per person (D9), replaces hardcoded Mark/Katie/Anees
   // T11: full note history per person (newest first), each dated by its own
   // created_at, not just the single latest note collapsed into one line.
   {
@@ -1133,7 +1133,7 @@ function populateCard(node, item) {
     else el.style.display = 'none';
   }
 
-  // Feedback actions (D7/D12) — shared control set for List cards and Map popups
+  // Feedback actions (D7/D12): shared control set for List cards and Map popups
   buildFeedbackActions(node, item);
 
   // Actions
@@ -1144,12 +1144,12 @@ function populateCard(node, item) {
     docBtn.href = poc.doc;
     docBtn.textContent = 'Research doc';
   } else {
-    // Repliers listings have no research doc yet — fall back to a Drive search.
+    // Repliers listings have no research doc yet, fall back to a Drive search.
     docBtn.href = 'https://drive.google.com/drive/search?q=' + encodeURIComponent(item.address || '');
     docBtn.textContent = 'Search Drive';
   }
 
-  // Show on map (list view only — switches to map view and shows card)
+  // Show on map (list view only, switches to map view and shows card)
   const showMapBtn = node.querySelector('.show-map');
   if (showMapBtn) {
     showMapBtn.addEventListener('click', () => {
@@ -1226,7 +1226,7 @@ function numericFieldValue(id) {
 // ─── Load ─────────────────────────────────────────────────────────────────────
 function filterParams() {
   const p = new URLSearchParams();
-  // Note: minBaths/maxBaths can be decimal (step=0.5) — read directly, not
+  // Note: minBaths/maxBaths can be decimal (step=0.5), read directly, not
   // through numericFieldValue() which strips non-digits for whole-dollar
   // comma-formatted fields and would corrupt "2.5" into "25".
   ['minBeds','maxBeds','minBaths','maxBaths','minFit','resultsPerPage'].forEach(id => {

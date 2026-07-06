@@ -97,10 +97,10 @@ But the phone screenshot still showed broken tiles.
 
 ```text
 86c92d0 fix: copy working POC Leaflet pattern, full-screen map with floating controls
-59bb958 fix: JS setLayout() positions all elements + map like working POC — no CSS flex
+59bb958 fix: JS setLayout() positions all elements + map like working POC, no CSS flex
 94ffe36 fix: explicit JS pixel height before Leaflet init, remove broken Opus fragments
 cf372aa fix: double rAF defers Leaflet init until after browser layout and paint
-92968f4 fix: ResizeObserver on map container — eliminates tile split on mobile
+92968f4 fix: ResizeObserver on map container, eliminates tile split on mobile
 ```
 
 ## Claude Code / model note

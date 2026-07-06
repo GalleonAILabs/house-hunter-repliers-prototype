@@ -1,6 +1,6 @@
 # House Hunter Design Spec
 
-Reference for every UI addition to this app. If you're adding a new element and don't know how it should look or behave, find the matching pattern below and copy it. Do not invent new spacing, colors, or component shapes — extend this document instead.
+Reference for every UI addition to this app. If you're adding a new element and don't know how it should look or behave, find the matching pattern below and copy it. Do not invent new spacing, colors, or component shapes, extend this document instead.
 
 Source of truth: `static/styles.css`. This spec describes what's there today plus the fixes queued in the mobile filter panel review (2026-07-04). Where the current CSS diverges from a rule below, the rule wins going forward.
 
@@ -27,14 +27,14 @@ Defined as CSS custom properties in `:root` (`static/styles.css:2-11`). Light is
 |---|---|---|
 | `--ink` on `--panel` | 16.46:1 | Pass (AAA) |
 | `--muted` on `--panel` | 4.97:1 | Pass (AA normal text) |
-| `--muted` on `--bg` | 4.48:1 | **Fail** — just under 4.5:1. Used for `.fin-label`, `.commute-detail`, which sit on `--bg` boxes. |
-| `--gold` on `--panel` | 3.02:1 | Pass for graphical objects only (3:1) — stars are iconography, not text. Do not set text in `--gold`. |
+| `--muted` on `--bg` | 4.48:1 | **Fail**, just under 4.5:1. Used for `.fin-label`, `.commute-detail`, which sit on `--bg` boxes. |
+| `--gold` on `--panel` | 3.02:1 | Pass for graphical objects only (3:1); stars are iconography, not text. Do not set text in `--gold`. |
 | `--green` on `--panel` | 5.02:1 | Pass |
 | `--red` on `--panel` | 6.54:1 | Pass |
 | white on `--header` | 16.43:1 | Pass |
 | `--muted` (dark) on `--panel` (dark) | 5.73:1 | Pass |
 
-**Action item:** darken `--muted` from `#68726f` to approximately `#5c665f` to clear 4.5:1 against `--bg` with margin. Do this globally, not just for the failing cases — one token, one value.
+**Action item:** darken `--muted` from `#68726f` to approximately `#5c665f` to clear 4.5:1 against `--bg` with margin. Do this globally, not just for the failing cases: one token, one value.
 
 **Rule:** never set body text in `--gold`. It's reserved for star glyphs, which are graphical, not textual.
 
@@ -53,7 +53,7 @@ Font stack: `Inter, ui-sans-serif, system-ui, -apple-system, sans-serif`.
 | Button text | 13-14px | 800 | varies | Apply, Note, Reject |
 | Fit badge number | 18px | 700 | contextual | "8/8" |
 
-**Rule:** 11px is the floor that currently exists on filter labels (`static/styles.css:42`) — raise it to 12px. Nothing in this app should render text below 12px; anything smaller reads as a caption, not a control label, and fails the "don't make me think" scan test on a phone held at arm's length.
+**Rule:** 11px is the floor that currently exists on filter labels (`static/styles.css:42`). Raise it to 12px. Nothing in this app should render text below 12px; anything smaller reads as a caption, not a control label, and fails the "don't make me think" scan test on a phone held at arm's length.
 
 ## 3. Spacing scale
 
@@ -80,9 +80,9 @@ Apple HIG and Android both converge near 44×44pt / 48×48dp. This app's floor:
 
 | Element | Minimum | Current | Status |
 |---|---|---|---|
-| Any standalone icon button (theme, settings, close) | 44×44px | 39×37px (`.icon-btn`), 30×30px (`.map-card-close`) | **Below minimum** — bump both |
+| Any standalone icon button (theme, settings, close) | 44×44px | 39×37px (`.icon-btn`), 30×30px (`.map-card-close`) | **Below minimum**, bump both |
 | Chip (checkbox + label, whole thing clickable) | 44px tall preferred, 40px acceptable | 86×40px | Acceptable |
-| Rate star button | 44×44px preferred | 23×22px | **Below minimum** — five of these sit in a row; a mis-tap changes someone's saved rating, which is a bigger cost than a mis-tap on a filter chip |
+| Rate star button | 44×44px preferred | 23×22px | **Below minimum**: five of these sit in a row; a mis-tap changes someone's saved rating, which is a bigger cost than a mis-tap on a filter chip |
 | Primary action button (Apply, Save note) | 44px tall | 32px (`#load`) | **Below minimum** |
 | Secondary/inline button (fb-btn: Note/Reject/Research) | 40px tall acceptable given they're grouped and forgiving to retry | 34px | Marginal, acceptable |
 | View toggle (Map/List) | 44×44px | 42×41px | Acceptable |
@@ -93,13 +93,13 @@ Apple HIG and Android both converge near 44×44pt / 48×48dp. This app's floor:
 
 1. **Single-column by default below 600px.** Any grid (`.controls`, `.cards`) must resolve to `grid-template-columns: 1fr` under `@media (max-width:600px)`. Multi-column layouts on mobile are the exception, justified only when both columns are genuinely short, standalone fields (e.g. a Min/Max pair inside one label, using `.range-pair` flex, not the outer grid).
 
-2. **Never let a full-span grid item force a column wider than the viewport.** Any element using `grid-column: 1/-1` inside a `.controls`-style grid must also declare `min-width: 0`. Without it, a flex-wrap child's unwrapped max-content width becomes the grid's forced minimum column size — this is what caused the person-filter rows to blow the panel out to 748px inside a 390px viewport (see review below). This is a standing rule for every future full-width row added to the filter panel, not a one-off patch.
+2. **Never let a full-span grid item force a column wider than the viewport.** Any element using `grid-column: 1/-1` inside a `.controls`-style grid must also declare `min-width: 0`. Without it, a flex-wrap child's unwrapped max-content width becomes the grid's forced minimum column size. This is what caused the person-filter rows to blow the panel out to 748px inside a 390px viewport (see review below). This is a standing rule for every future full-width row added to the filter panel, not a one-off patch.
 
-3. **Every fixed-position bar (topbar, status bar, filter panel) must fit its content within the viewport width with zero horizontal overflow.** Test at 412px explicitly before shipping. If a bar's content doesn't fit, remove or collapse an element — do not let it silently clip off-screen. A clipped, unreachable control is worse than a missing one because nothing tells the user it exists.
+3. **Every fixed-position bar (topbar, status bar, filter panel) must fit its content within the viewport width with zero horizontal overflow.** Test at 412px explicitly before shipping. If a bar's content doesn't fit, remove or collapse an element; do not let it silently clip off-screen. A clipped, unreachable control is worse than a missing one because nothing tells the user it exists.
 
 4. **No feature may be reachable only via undiscoverable horizontal scroll.** If a container needs `overflow-x`, it must carry a visible affordance (partial-next-item peeking, a scroll shadow, or dots) or it must not overflow at all. Prefer not overflowing.
 
-5. **Interactive elements that look alike must behave alike, and elements that behave differently must look different.** Two star rows on one card — one a static rating display, one a live input — need distinct labels or distinct visual treatment. Never rely on position alone to convey a different function.
+5. **Interactive elements that look alike must behave alike, and elements that behave differently must look different.** Two star rows on one card, one a static rating display, one a live input, need distinct labels or distinct visual treatment. Never rely on position alone to convey a different function.
 
 6. **Bottom sheets (map-card pattern) cap at `max-height:72vh`** so the persistent status bar stays visible underneath as an implicit "there's more below" cue. Keep this ratio for any future bottom-sheet component.
 
@@ -120,12 +120,12 @@ Apple HIG and Android both converge near 44×44pt / 48×48dp. This app's floor:
 
 ### Card (`.card`)
 - Structure, top to bottom: photo (180px, `object-fit:cover`) → title row (address + meta, fit badge right-aligned) → price → group sentiment row → commute box → stat tags → financial box → ratings (existing, per-person) → feature tags → comments → feedback actions (rate + note/reject/research) → action buttons (View listing / Research doc / Map).
-- **Hierarchy rule:** price and fit badge are the only two elements allowed to be visually louder than body text (22px/900 and colored badge respectively). Every other section uses the same 12-13px scale — if a new section needs to stand out, it competes with price and fit for attention, which means it probably shouldn't exist as a new visually-loud element.
-- Boxed sections (`.card-commute`, `.card-financial`) share `background:var(--bg); border-radius:10px; padding`. Any new "boxed" info group must reuse this exact treatment — don't invent a new box style.
-- Comments use a left-border accent (`border-left:3px solid var(--blue)`) to separate free text from structured data. Research-originated comments must carry a distinct visual tag (not just an inline "(research)" suffix) — e.g. a small pill or icon prefix — so they scan differently from a plain note at a glance.
+- **Hierarchy rule:** price and fit badge are the only two elements allowed to be visually louder than body text (22px/900 and colored badge respectively). Every other section uses the same 12-13px scale. If a new section needs to stand out, it competes with price and fit for attention, which means it probably shouldn't exist as a new visually-loud element.
+- Boxed sections (`.card-commute`, `.card-financial`) share `background:var(--bg); border-radius:10px; padding`. Any new "boxed" info group must reuse this exact treatment, don't invent a new box style.
+- Comments use a left-border accent (`border-left:3px solid var(--blue)`) to separate free text from structured data. Research-originated comments must carry a distinct visual tag (not just an inline "(research)" suffix), e.g. a small pill or icon prefix, so they scan differently from a plain note at a glance.
 
 ### Group sentiment row (`.card-group`)
-- Display only, never filtering. This is not the deferred consensus filtering in TODOS.md (which hides and shows listings) -- it never changes what's visible, only how a listing reads at a glance. It is the visible foundation that filtering builds on later.
+- Display only, never filtering. This is not the deferred consensus filtering in TODOS.md (which hides and shows listings): it never changes what's visible, only how a listing reads at a glance. It is the visible foundation that filtering builds on later.
 - Placement: directly under `.card-price`, above the commute box and the existing per-person ratings detail, so it reads before any other detail on the card.
 - Computed entirely client-side from data already fetched (`GET /api/people` for the roster and role, `GET /api/feedback` for each person's latest feedback per listing). No server or endpoint change, no write-path change.
 - One chip per person, built dynamically from the roster, never a hardcoded name or count. Chip states, in priority order (a person can have a rating and a rejected status at once; reject wins):
@@ -137,8 +137,8 @@ Apple HIG and Android both converge near 44×44pt / 48×48dp. This app's floor:
 - A single derived headline word, computed from buyers only (`role === "buyer"`; advisors excluded from the computation, though advisors still render as chips):
   - "Vetoed" if any buyer's latest status is rejected.
   - "Aligned" if every buyer has a rating and none rejected.
-  - "Split" otherwise, including the zero-buyers edge case (never default to "Aligned" with no buyer data behind it -- that would imply a consensus that does not exist).
-- Type stays at the 12px floor, reusing the existing `.chip` pill family exactly (`.group-chip` only overrides `font-size` and `cursor`, since these chips are display, not controls, so the 44px tap-target rule does not apply -- but they never render shorter than the existing chip height). Colour is the only thing that carries meaning; nothing here is allowed to compete with price or the fit badge (Section 6 hierarchy rule above).
+  - "Split" otherwise, including the zero-buyers edge case (never default to "Aligned" with no buyer data behind it: that would imply a consensus that does not exist).
+- Type stays at the 12px floor, reusing the existing `.chip` pill family exactly (`.group-chip` only overrides `font-size` and `cursor`, since these chips are display, not controls, so the 44px tap-target rule does not apply, but they never render shorter than the existing chip height). Colour is the only thing that carries meaning; nothing here is allowed to compete with price or the fit badge (Section 6 hierarchy rule above).
 - Toggleable in the card settings drawer like every other card section, key `groupSentiment`, `cf-groupSentiment` class, default on.
 - Section 7 checklist for this element: fits the 2px spacing scale and 12px type floor (yes, `.group-chip` is 12px); hits its tap-target minimum for its risk level (n/a, display only, not a control); no overflow/clipping/hidden-without-affordance at 412px (verified, wraps via `flex-wrap` like the checkbox row); reuses an existing pattern rather than a near-miss (yes, the exact `.chip` pill family plus the exact red/green/blue tag colour families already in use); screenshotted at 412×915 before merge (done, both list card and map popup, plus a ≥700px desktop check).
 
@@ -151,24 +151,24 @@ Apple HIG and Android both converge near 44×44pt / 48×48dp. This app's floor:
 - One row per person: name label (min-width 46px) + wrapped row of chips.
 - Chip = pill-shaped label wrapping its own checkbox: `display:inline-flex; border-radius:999px; padding:3px 8px`. The whole chip is the tap target, not just the 13×13 checkbox square.
 - Must carry `min-width:0` on the row container (rule 2) so `flex-wrap:wrap` actually engages instead of forcing the parent grid wider.
-- If a person-row would need to wrap to 2+ lines regularly (7 options today), that's expected and fine — do not try to fit it on one line by shrinking chips below 40px tall.
+- If a person-row would need to wrap to 2+ lines regularly (7 options today), that's expected and fine. Do not try to fit it on one line by shrinking chips below 40px tall.
 
 ### Button
 - Primary (`Apply`, dark fill): `background:var(--ink); color:var(--panel)`, min-height 44px for anything triggering a data reload or irreversible action; 32-38px acceptable for low-stakes toggles.
 - Secondary (`Reset`, outline-ish): `background:var(--bg); color:var(--ink)`, same sizing rules as primary.
-- Inline feedback buttons (`fb-btn`: Note / Reject / Research) share one visual family (`secondary fb-btn`) today — **add a `fb-btn-reject` variant** with a red-tinted border/text (using `--red`, which has 6.54:1 contrast headroom) so a meaningfully negative action doesn't look identical to a neutral one (Note) or a positive one (Research).
-- Confirmed/active state (`fb-btn-requested`): filled `--green`, white text — reuse this pattern for any other "you already did this" button state.
+- Inline feedback buttons (`fb-btn`: Note / Reject / Research) share one visual family (`secondary fb-btn`) today. **Add a `fb-btn-reject` variant** with a red-tinted border/text (using `--red`, which has 6.54:1 contrast headroom) so a meaningfully negative action doesn't look identical to a neutral one (Note) or a positive one (Research).
+- Confirmed/active state (`fb-btn-requested`): filled `--green`, white text. Reuse this pattern for any other "you already did this" button state.
 
 ### Input
 - `min-height:32px` baseline; text/number/select all share the same border, radius (8px), and padding (`6px 8px`).
-- Comma-formatted numeric fields (price, PIT, dues) store raw digits in `dataset.raw` and format on blur — reuse `wirePriceInput()` / `numericFieldValue()` for any new currency-style field rather than writing a new formatter.
-- Decimal-safe fields (beds, baths) read `.value.trim()` directly — never route these through the comma formatter, which strips decimal points.
+- Comma-formatted numeric fields (price, PIT, dues) store raw digits in `dataset.raw` and format on blur. Reuse `wirePriceInput()` / `numericFieldValue()` for any new currency-style field rather than writing a new formatter.
+- Decimal-safe fields (beds, baths) read `.value.trim()` directly, never route these through the comma formatter, which strips decimal points.
 
 ### Popup / bottom sheet (`.map-card`)
 - Slides up from the bottom, `border-radius:20px 20px 0 0`, `max-height:72vh`, drag-handle bar (`::before`, 40×4px) at the top for affordance.
-- Close button (`.map-card-close`) sits top-right over the photo — **bump from 30×30 to 44×44px** (tap target rule 5).
-- Reuses the exact same card body/inner markup as the list view card (`populateCard()`), so anything fixed in the card component (star labeling, reject button color, box styling) is automatically fixed here too. Keep it that way — never fork popup markup from card markup.
-- On ≥700px, detaches into a floating panel bottom-right instead of a full-width bottom sheet (`static/styles.css:65`) — preserve this breakpoint for any new bottom-sheet-style component.
+- Close button (`.map-card-close`) sits top-right over the photo. **Bump from 30×30 to 44×44px** (tap target rule 5).
+- Reuses the exact same card body/inner markup as the list view card (`populateCard()`), so anything fixed in the card component (star labeling, reject button color, box styling) is automatically fixed here too. Keep it that way, never fork popup markup from card markup.
+- On ≥700px, detaches into a floating panel bottom-right instead of a full-width bottom sheet (`static/styles.css:65`). Preserve this breakpoint for any new bottom-sheet-style component.
 - The popup content (`.map-card-inner`) reserves `calc(var(--bottom-bar-height) + 24px)` of bottom padding so its last row clears the fixed status bar. This is required, not optional: `#viewMap` has `position:fixed` with `z-index:0`, which traps `.map-card` inside that stacking context, so the popup can never paint above the status bar by raising its own `z-index`. Reserving space is the only fix.
 
 ## 7. What a new UI element must answer before it ships

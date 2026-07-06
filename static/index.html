@@ -9,7 +9,7 @@
 </head>
 <body>
 
-  <!-- 1. HEADER — flex: 0 0 52px -->
+  <!-- 1. HEADER, flex: 0 0 52px -->
   <header class="topbar">
     <div class="topbar-left">
       <h1>House Hunter</h1>
@@ -20,12 +20,12 @@
         <button class="view-btn active" id="btnMap">🗺 Map</button>
         <button class="view-btn" id="btnList">☰ List</button>
       </div>
-      <select class="who-am-i" id="whoAmI" title="Who you are — every rating, note, reject, and research request is recorded as this person"></select>
+      <select class="who-am-i" id="whoAmI" title="Who you are: every rating, note, reject, and research request is recorded as this person"></select>
       <button class="icon-btn" id="settingsBtn" title="Settings">⚙</button>
     </div>
   </header>
 
-  <!-- 2. FILTERS — flex: 0 0 auto, always in flow -->
+  <!-- 2. FILTERS, flex: 0 0 auto, always in flow -->
   <details class="filterbox" id="filterbox">
     <summary>Filters</summary>
     <section class="controls">
@@ -126,7 +126,7 @@
     </section>
   </details>
 
-  <!-- 3. STATUS BAR — flex: 0 0 auto, always in flow -->
+  <!-- 3. STATUS BAR, flex: 0 0 auto, always in flow -->
   <div class="status-bar">
     <span id="summary">Loading…</span>
     <label class="sort-inline">Sort
@@ -142,7 +142,7 @@
     </label>
   </div>
 
-  <!-- 4. MAP VIEW — flex: 1 1 0, min-height: 0 (takes all remaining space) -->
+  <!-- 4. MAP VIEW, flex: 1 1 0, min-height: 0 (takes all remaining space) -->
   <div id="viewMap" class="view-section">
     <div id="map"></div>
     <details class="map-layers-panel" id="mapLayersPanel">
@@ -172,7 +172,7 @@
     </div>
   </div>
 
-  <!-- 5. LIST VIEW — flex: 1 1 0, scrollable -->
+  <!-- 5. LIST VIEW, flex: 1 1 0, scrollable -->
   <div id="viewList" class="view-section" hidden>
     <div id="cards" class="cards"></div>
   </div>
@@ -188,7 +188,7 @@
       <button class="theme-toggle-btn" id="themeBtn" title="Theme">🌓</button>
       <div>
         <div>Theme</div>
-        <div class="field-desc">Follows system by default — tap to cycle auto / light / dark</div>
+        <div class="field-desc">Follows system by default, tap to cycle auto / light / dark</div>
       </div>
     </div>
     <p class="settings-desc">Choose which sections appear on each listing card.</p>

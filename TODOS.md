@@ -34,7 +34,7 @@ per-buyer-group access), replacing the shared-secret header token added in
 this plan (D3/D11).
 
 **Why:** The current token is an explicitly-documented deterrent against a
-random person finding the public tunnel URL, not real security — anyone
+random person finding the public tunnel URL, not real security. Anyone
 who has the token can read every private note and reject-reason. That's an
 acceptable tradeoff for one in-person 4-person demo. It stops being
 acceptable the moment a second real workspace (a second realtor team or
@@ -45,7 +45,7 @@ same token and the same visibility into each other's data.
 commercial direction (per `PROJECT_BRIEF.md`'s realtor-team-workspace
 model).
 
-**Cons:** Meaningful infrastructure work — account model, session handling,
+**Cons:** Meaningful infrastructure work: account model, session handling,
 per-workspace data isolation. Not justified by a single demo.
 
 **Context:** Revisit when a second real workspace (beyond Mark/Katie/Anees)
@@ -59,7 +59,7 @@ future workstream.
 **What:** `latest_feedback_for_listings()` in `server.py` merges each
 person's latest `reject` and `research_request` rows into a single `status`
 field (`entry["status"] = entry["status"] or "research_requested"`). Split
-this into two independent fields so both can be true at once — e.g.
+this into two independent fields so both can be true at once, e.g.
 `status` (rejected/shortlisted/etc.) and a separate `research_requested`
 boolean with its own timestamp.
 
@@ -70,7 +70,7 @@ correctly to `listing_feedback`, but the merged read shows `status:
 claimed the shared field. The write isn't lost, just not visible in
 `GET /api/feedback`.
 
-**Pros:** Small, isolated change — only touches the merge logic in
+**Pros:** Small, isolated change, only touches the merge logic in
 `latest_feedback_for_listings()`, no schema change needed (the
 `listing_feedback` rows already record both action types independently).
 
@@ -79,7 +79,7 @@ and the ratings-row renderer currently assume one `status` value per
 person).
 
 **Context:** Realistic scenario: "I don't love it, but let's find out more
-before fully deciding" — reject and research-request on the same listing by
+before fully deciding." Reject and research-request on the same listing by
 the same person isn't an edge case that should be impossible, just one that
 isn't rendered correctly today. Not required for the Anees demo.
 
@@ -88,14 +88,14 @@ isn't rendered correctly today. Not required for the Anees demo.
 ## Wire the Chicago-metro query into fetch_repliers()
 
 **What:** `fetch_repliers()` in `server.py` currently sends only `pageNum`
-and `resultsPerPage` to the Repliers API — no location filter at all, so
+and `resultsPerPage` to the Repliers API, no location filter at all, so
 `/api/listings` returns whatever the API's default global sample order is.
 Add the verified 50-mile-radius query (`lat=41.8781&long=-87.6298&radius=50`)
 so the Repliers data source actually returns the Chicago-metro sample
 (197 listings) the demo is meant to prove the pipeline against.
 
 **Why:** T8 confirmed the API supports real server-side location filtering
-(`city=`, `lat`/`long`/`radius`) — contrary to the earlier assumption that
+(`city=`, `lat`/`long`/`radius`), contrary to the earlier assumption that
 only local substring filtering was possible. `fetch_repliers()` was written
 before this was verified and never used it.
 
@@ -103,11 +103,11 @@ before this was verified and never used it.
 makes the Repliers data source demo-realistic instead of an arbitrary
 global sample.
 
-**Cons:** None significant — it's a strict improvement over the current
+**Cons:** None significant. It's a strict improvement over the current
 unfiltered query.
 
 **Context:** T8 also found the original "~300 listings" target was an
-unverified estimate — the free tier plateaus around 250 total in the whole
+unverified estimate. The free tier plateaus around 250 total in the whole
 Chicago region even at a 200-mile radius, so 197 (50mi, genuinely
 metro-scoped) is the realistic number. `PROJECT_BRIEF.md`/the design doc's
 "~300 listings" language should be corrected to "~200" alongside this fix.

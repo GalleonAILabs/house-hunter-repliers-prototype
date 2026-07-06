@@ -1,4 +1,4 @@
-# House Hunter Repliers Prototype — Claude Code Context
+# House Hunter Repliers Prototype: Claude Code Context
 
 ## What this is
 A mobile-first home search prototype for a family buyer group.

@@ -50,7 +50,7 @@ ALLOWED_POI_TYPES = {"school", "hospital", "work", "worship", "other"}
 
 # D10: known POC listing ids, loaded once at startup (see load_poc_listing_ids).
 # Repliers-sourced ids are format-checked only, not existence-checked against
-# this set — see validate_listing_id.
+# this set. See validate_listing_id.
 POC_LISTING_IDS: set[str] = set()
 
 # Demo participants (buyer_group_id stub column stays null until a real
@@ -212,7 +212,7 @@ def require_auth(handler: BaseHTTPRequestHandler) -> bool:
     """D3/D11: shared-secret deterrent on person-data endpoints.
 
     Not real access control. The token must live in browser JS to be sent,
-    so it is visible in dev tools — this only deters a random person who
+    so it is visible in dev tools. This only deters a random person who
     finds the public tunnel URL from casually reading or writing feedback
     data. Fails closed: an unset APP_AUTH_TOKEN rejects every request
     rather than silently allowing everything through.
@@ -244,7 +244,7 @@ def latest_feedback_for_listings(
     """Latest-state feedback per person per listing (D2).
 
     Every known person gets an entry per requested listing, with nulls if
-    they have no feedback yet (D6's batch shape) — the frontend gets an
+    they have no feedback yet (D6's batch shape), so the frontend gets an
     explicit "no rating yet" state without a separate lookup against
     GET /api/people. rating/note/reject are each independently the latest
     by action_type; updated_at is the max created_at across all of them
@@ -660,7 +660,7 @@ def normalize_poc(p: dict[str, Any]) -> dict[str, Any]:
         "originalPrice": None,
         "soldPrice": None,
         # "beds" stays the raw display value ("3+1" means 3 main + 1
-        # basement bedroom, meaningful to a buyer) — "bedsNum" is the
+        # basement bedroom, meaningful to a buyer). "bedsNum" is the
         # always-numeric field range filters compare against, since
         # "beds" isn't reliably numeric (49 of 105 rows are composite
         # strings like "3+1", not plain integers).

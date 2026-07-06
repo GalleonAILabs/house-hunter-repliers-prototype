@@ -1,4 +1,4 @@
-# House Hunter Repliers Prototype — Project Brief
+# House Hunter Repliers Prototype: Project Brief
 
 Saved: 2026-07-03
 
@@ -147,8 +147,8 @@ The core product flow, in order:
 
 ## Reference docs
 
-- `HANDOFF.md` — most recent session handoff, map blocker detail
-- `DATA_MODEL_NOTES.md` — full buyer/realtor data model, actor rules,
+- `HANDOFF.md`: most recent session handoff, map blocker detail
+- `DATA_MODEL_NOTES.md`: full buyer/realtor data model, actor rules,
   consensus filtering, feedback event schema
-- `README.md` — setup and file overview
-- `CLAUDE.md` — Claude Code operating context for this repo
+- `README.md`: setup and file overview
+- `CLAUDE.md`: Claude Code operating context for this repo
