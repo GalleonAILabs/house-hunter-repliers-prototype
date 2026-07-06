@@ -585,6 +585,28 @@ class HouseholdSettingsTests(ServerTestCase):
         self.assertEqual(status, 200)
         self.assertEqual(data["settings"]["first_time_buyer"], "true")
 
+    def test_default_mortgage_assumption_settings(self) -> None:
+        status, data = self.request("GET", "/api/household-settings", token=self.TOKEN)
+        self.assertEqual(status, 200)
+        settings = data["settings"]
+        self.assertEqual(settings["down_payment_pct"], "10")
+        self.assertEqual(settings["interest_rate_pct"], "5.0")
+        self.assertEqual(settings["amortization_years"], "30")
+        self.assertEqual(settings["property_tax_pct"], "1.0")
+        self.assertEqual(settings["legal_fees_flat"], "1500")
+        self.assertEqual(settings["home_inspection_flat"], "500")
+        self.assertEqual(settings["appraisal_flat"], "350")
+        self.assertEqual(settings["title_insurance_flat"], "300")
+
+    def test_mortgage_assumption_setting_is_editable(self) -> None:
+        status, data = self.request(
+            "POST", "/api/household-settings", token=self.TOKEN,
+            body={"person_id": 1, "key": "interest_rate_pct", "value": "6.25"},
+        )
+        self.assertEqual(status, 200)
+        status, data = self.request("GET", "/api/household-settings", token=self.TOKEN)
+        self.assertEqual(data["settings"]["interest_rate_pct"], "6.25")
+
     def test_post_requires_known_key(self) -> None:
         status, data = self.request(
             "POST", "/api/household-settings", token=self.TOKEN,

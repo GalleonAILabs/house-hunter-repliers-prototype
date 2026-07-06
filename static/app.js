@@ -825,6 +825,20 @@ async function loadPoi() {
 // Household-level settings: one shared value per key across the whole
 // buyer group, not per person, unlike everything else that's "I am"
 // scoped. Not used in any calculation yet.
+// Maps each mortgage-assumption settings-drawer input to its
+// household_settings key, so load/save can loop over one list instead of
+// repeating the same fetch/parse logic eight times.
+const HOUSEHOLD_NUMBER_SETTINGS = [
+  { id: 'downPaymentPctSetting', key: 'down_payment_pct' },
+  { id: 'interestRatePctSetting', key: 'interest_rate_pct' },
+  { id: 'amortizationYearsSetting', key: 'amortization_years' },
+  { id: 'propertyTaxPctSetting', key: 'property_tax_pct' },
+  { id: 'legalFeesFlatSetting', key: 'legal_fees_flat' },
+  { id: 'homeInspectionFlatSetting', key: 'home_inspection_flat' },
+  { id: 'appraisalFlatSetting', key: 'appraisal_flat' },
+  { id: 'titleInsuranceFlatSetting', key: 'title_insurance_flat' },
+];
+
 async function loadHouseholdSettings() {
   try {
     const res = await fetch('/api/household-settings', { headers: authHeaders() });
@@ -837,6 +851,10 @@ async function loadHouseholdSettings() {
   }
   const cb = $('firstTimeBuyerToggle');
   if (cb) cb.checked = state.householdSettings.first_time_buyer === 'true';
+  HOUSEHOLD_NUMBER_SETTINGS.forEach(({ id, key }) => {
+    const input = $(id);
+    if (input && state.householdSettings[key] != null) input.value = state.householdSettings[key];
+  });
 }
 
 function bindHouseholdToggle(id, key) {
@@ -860,6 +878,37 @@ function bindHouseholdToggle(id, key) {
     } catch (err) {
       console.error(err);
       cb.checked = !cb.checked;
+      alert('Could not save the setting. Try again.');
+    }
+  });
+}
+
+function bindHouseholdNumberInput(id, key) {
+  const input = $(id);
+  if (!input) return;
+  input.addEventListener('change', async () => {
+    const previous = state.householdSettings[key];
+    if (!state.activePerson) {
+      input.value = previous;
+      alert('Select who you are (top right) first.');
+      return;
+    }
+    const raw = input.value.trim();
+    if (raw === '' || Number.isNaN(Number(raw))) {
+      input.value = previous;
+      return;
+    }
+    try {
+      const res = await fetch('/api/household-settings', {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ person_id: state.activePerson, key, value: raw }),
+      });
+      if (!res.ok) throw new Error('save failed');
+      state.householdSettings[key] = raw;
+    } catch (err) {
+      console.error(err);
+      input.value = previous;
       alert('Could not save the setting. Try again.');
     }
   });
@@ -1458,6 +1507,7 @@ window.addEventListener('DOMContentLoaded', () => {
     })
     .catch(showError);
   bindHouseholdToggle('firstTimeBuyerToggle', 'first_time_buyer');
+  HOUSEHOLD_NUMBER_SETTINGS.forEach(({ id, key }) => bindHouseholdNumberInput(id, key));
   $('addPoiBtn')?.addEventListener('click', () => addPoiPin().catch(err => console.error(err)));
   $('layerPoiPins')?.addEventListener('change', e => {
     if (!state.mapReady) return;

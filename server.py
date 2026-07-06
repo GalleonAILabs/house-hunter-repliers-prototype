@@ -53,10 +53,27 @@ ALLOWED_POI_TYPES = {"school", "hospital", "work", "worship", "other"}
 # when a key has never been set; they are not hardcoded in the sense of
 # being unchangeable, they are just the starting value before anyone edits
 # it, same as any other settings default. first_time_buyer defaults true:
-# both Mark and Katie are first-time buyers today. Not used in any
-# calculation yet.
+# both Mark and Katie are first-time buyers today.
+#
+# down_payment_pct/interest_rate_pct/amortization_years/property_tax_pct
+# and the four fixed closing-cost figures feed the potential-purchase-price
+# mortgage estimate (see compute_mortgage_breakdown). interest_rate_pct and
+# property_tax_pct are deliberately round, clearly-labeled illustrative
+# figures, not scraped from a live rate source, since real rates vary by
+# lender, municipality, and day; both must be editable so a household can
+# swap in their own quoted rate or actual tax bill. The fixed closing items
+# (legal, inspection, appraisal, title insurance) are flat estimates, not
+# computed from price, same reasoning.
 HOUSEHOLD_SETTING_DEFAULTS: dict[str, str] = {
     "first_time_buyer": "true",
+    "down_payment_pct": "10",
+    "interest_rate_pct": "5.0",
+    "amortization_years": "30",
+    "property_tax_pct": "1.0",
+    "legal_fees_flat": "1500",
+    "home_inspection_flat": "500",
+    "appraisal_flat": "350",
+    "title_insurance_flat": "300",
 }
 
 # D10: known POC listing ids, loaded once at startup (see load_poc_listing_ids).
