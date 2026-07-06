@@ -1306,8 +1306,15 @@ function showError(err) { console.error(err); $('summary').textContent = 'Error:
 // stays the only way to clear filters back to their defaults; it also
 // clears this saved state so a reload after Reset doesn't resurrect it.
 const FILTER_STATE_KEY = 'hh_filter_state_v1';
+// 'q' (the search box) is deliberately excluded from persistence. A typed
+// search term that returns zero results (e.g. a non-listing address typed
+// here instead of into "Add place") used to silently survive across
+// reloads with no visible explanation, making the whole app look broken
+// (0 of 105 listings) until someone opened Filters and noticed leftover
+// text in the search box. Every other field here is a real, reusable
+// preference; a one-off search term is not, so it always starts empty.
 const PERSISTED_FIELD_IDS = [
-  'q', 'minPrice', 'maxPrice', 'minBeds', 'maxBeds', 'minBaths', 'maxBaths',
+  'minPrice', 'maxPrice', 'minBeds', 'maxBeds', 'minBaths', 'maxBaths',
   'minSqft', 'maxSqft', 'minAcres', 'maxAcres', 'maxCommute',
   'minPit', 'maxPit', 'minDue', 'maxDue', 'minFit', 'filterStatus',
   'resultsPerPage', 'source', 'sort',

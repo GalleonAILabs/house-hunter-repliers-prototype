@@ -460,6 +460,18 @@ class PocListingsFilterTests(ServerTestCase):
         self.assertNotIn("3 Test St", addresses)  # beds="3+1", bedsNum=3
         self.assertIn("2 Test St", addresses)  # beds=5
 
+    def test_no_filter_params_returns_every_listing(self) -> None:
+        # Regression guard for the "0 of 105 listings shown" incident: a
+        # request with no filter params at all (the server-side equivalent
+        # of every filter field being empty/default) must return every
+        # listing, never an empty result. The incident's real cause was a
+        # stale search term persisted client-side, not a server-side
+        # filtering bug, but this locks down the server's half of that
+        # guarantee regardless.
+        status, data = self.request("GET", "/api/poc-listings")
+        self.assertEqual(status, 200)
+        self.assertEqual(len(data["listings"]), len(FIXTURE_POC["properties"]))
+
 
 class CondoFeeTests(ServerTestCase):
     """T15: condoFeeNum/isCondo are nullable fields the POC sheet doesn't
