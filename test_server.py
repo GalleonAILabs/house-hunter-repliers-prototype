@@ -64,6 +64,23 @@ FIXTURE_POC = {
             "rejBy": "",
             "rejReason": "",
         },
+        {
+            # T15 fixture: a condo row with the fee fields real POC rows
+            # don't have today. Proves condoFeeNum/isCondo surface when
+            # present, distinct from the rows above where they're absent.
+            "row": 5,
+            "address": "4 Test St",
+            "beds": 2,
+            "bedsNum": 2,
+            "isCondo": True,
+            "condoFeeNum": 350,
+            "markRank": "",
+            "katieRank": "",
+            "markComments": "",
+            "katieComments": "",
+            "rejBy": "",
+            "rejReason": "",
+        },
     ],
 }
 
@@ -262,6 +279,22 @@ class FeedbackReadTests(ServerTestCase):
         self.assertEqual(mark["research_note"], "What's the zoning history here?")
         self.assertEqual(mark["status"], "research_requested")
 
+    def test_note_history_keeps_every_note_newest_first(self) -> None:
+        # T11: the write path has always been append-only; the read side
+        # must surface the full history, not just the latest note.
+        self.request(
+            "POST", "/api/feedback", token=self.TOKEN,
+            body={"person_id": 1, "listing_id": "POC-2", "action_type": "note", "note": "Second note"},
+        )
+        _, data = self.request("GET", "/api/feedback?listing_ids=POC-2", token=self.TOKEN)
+        mark = next(p for p in data["feedback"]["POC-2"] if p["person_name"] == "Mark")
+        self.assertEqual(mark["note"], "Second note")
+        self.assertIsNotNone(mark["note_created_at"])
+        history = mark["note_history"]
+        self.assertEqual(len(history), 2)
+        self.assertEqual(history[0]["note"], "Second note")
+        self.assertEqual(history[1]["note"], "Nice place")
+
     def test_two_people_rate_independently(self) -> None:
         self.request(
             "POST", "/api/feedback", token=self.TOKEN,
@@ -382,6 +415,102 @@ class PocListingsFilterTests(ServerTestCase):
         addresses = {item["address"] for item in data["listings"]}
         self.assertNotIn("3 Test St", addresses)  # beds="3+1", bedsNum=3
         self.assertIn("2 Test St", addresses)  # beds=5
+
+
+class CondoFeeTests(ServerTestCase):
+    """T15: condoFeeNum/isCondo are nullable fields the POC sheet doesn't
+    populate yet -- must surface when present, stay null/false otherwise."""
+
+    def test_condo_row_surfaces_fee_and_flag(self) -> None:
+        status, data = self.request("GET", "/api/poc-listings")
+        self.assertEqual(status, 200)
+        by_address = {item["address"]: item for item in data["listings"]}
+        condo = by_address["4 Test St"]
+        self.assertTrue(condo["isCondo"])
+        self.assertEqual(condo["condoFeeNum"], 350)
+
+    def test_non_condo_rows_have_no_fee(self) -> None:
+        status, data = self.request("GET", "/api/poc-listings")
+        self.assertEqual(status, 200)
+        by_address = {item["address"]: item for item in data["listings"]}
+        for address in ("1 Test St", "2 Test St", "3 Test St"):
+            self.assertFalse(by_address[address]["isCondo"])
+            self.assertIsNone(by_address[address]["condoFeeNum"])
+
+    def test_repliers_normalize_detects_condo_style_and_hoa_fee(self) -> None:
+        listing = {
+            "mlsNumber": "TEST1",
+            "listPrice": 400000,
+            "details": {"propertyType": "Residential", "style": "Condominium", "HOAFee": "310"},
+        }
+        item = server.normalize(listing)
+        self.assertTrue(item["isCondo"])
+        self.assertEqual(item["condoFeeNum"], 310)
+
+    def test_repliers_normalize_non_condo_has_no_fee_flag(self) -> None:
+        listing = {
+            "mlsNumber": "TEST2",
+            "listPrice": 400000,
+            "details": {"propertyType": "Residential", "style": "Single Family Residence"},
+        }
+        item = server.normalize(listing)
+        self.assertFalse(item["isCondo"])
+        self.assertIsNone(item["condoFeeNum"])
+
+
+class PoiEndpointTests(ServerTestCase):
+    """T14: POI pins are shared across the whole buyer group, like listing
+    feedback -- not a per-person concept, no listing_id involved."""
+
+    def test_get_poi_without_token_401(self) -> None:
+        status, _ = self.request("GET", "/api/poi")
+        self.assertEqual(status, 401)
+
+    def test_get_poi_empty_list_by_default(self) -> None:
+        status, data = self.request("GET", "/api/poi", token=self.TOKEN)
+        self.assertEqual(status, 200)
+        self.assertEqual(data["poi"], [])
+
+    def test_post_poi_requires_valid_type(self) -> None:
+        status, data = self.request(
+            "POST", "/api/poi", token=self.TOKEN,
+            body={"person_id": 1, "type": "not-a-real-type", "lat": 43.6, "lng": -79.4},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(data["error"], "invalid_request")
+
+    def test_post_poi_requires_known_person(self) -> None:
+        status, data = self.request(
+            "POST", "/api/poi", token=self.TOKEN,
+            body={"person_id": 999, "type": "school", "lat": 43.6, "lng": -79.4},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(data["error"], "unknown_person")
+
+    def test_post_poi_then_visible_to_everyone(self) -> None:
+        status, data = self.request(
+            "POST", "/api/poi", token=self.TOKEN,
+            body={"person_id": 1, "type": "school", "label": "Local elementary", "lat": 43.6, "lng": -79.4},
+        )
+        self.assertEqual(status, 200)
+        self.assertIn("id", data)
+
+        status, data = self.request("GET", "/api/poi", token=self.TOKEN)
+        self.assertEqual(status, 200)
+        self.assertEqual(len(data["poi"]), 1)
+        poi = data["poi"][0]
+        self.assertEqual(poi["type"], "school")
+        self.assertEqual(poi["label"], "Local elementary")
+        self.assertEqual(poi["created_by_name"], "Mark")
+
+        # A second person adding a pin does not overwrite or hide the first
+        # (shared, not per-person).
+        self.request(
+            "POST", "/api/poi", token=self.TOKEN,
+            body={"person_id": 2, "type": "hospital", "lat": 43.7, "lng": -79.5},
+        )
+        status, data = self.request("GET", "/api/poi", token=self.TOKEN)
+        self.assertEqual(len(data["poi"]), 2)
 
 
 if __name__ == "__main__":

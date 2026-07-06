@@ -21,7 +21,36 @@ function cycleTheme() {
 }
 
 
+// T18: a single, user-chosen headline value (Price / Cost to close / PIT),
+// distinct from the always-detailed "Monthly PIT + closing" block below.
+// One choice, one compact line -- the choice itself lives in localStorage,
+// not in CARD_FIELDS, since it's a single select, not a per-field toggle.
+const SUMMARY_VALUE_KEY = 'hh_summary_value_choice_v1';
+const SUMMARY_VALUE_OPTIONS = [
+  { value: 'price',   label: 'Price' },
+  { value: 'closing', label: 'Cost to close' },
+  { value: 'pit',     label: 'Monthly PIT' },
+];
+function loadSummaryValueChoice() {
+  const saved = localStorage.getItem(SUMMARY_VALUE_KEY);
+  return SUMMARY_VALUE_OPTIONS.some(o => o.value === saved) ? saved : 'price';
+}
+function saveSummaryValueChoice(value) { localStorage.setItem(SUMMARY_VALUE_KEY, value); }
+function summaryValueFor(item) {
+  const choice = loadSummaryValueChoice();
+  if (choice === 'closing') {
+    const val = item.dueClosing || (item.dueNum != null ? money(item.dueNum) : '');
+    return val ? { label: 'Cost to close', value: val } : null;
+  }
+  if (choice === 'pit') {
+    const val = item.pit || (item.pitNum != null ? money(item.pitNum) : '');
+    return val ? { label: 'Monthly PIT', value: val } : null;
+  }
+  return item.price != null ? { label: 'Price', value: money(item.price) } : null;
+}
+
 const CARD_FIELDS = [
+  { key: 'summaryValue', label: 'Card summary value',      desc: 'One headline number: Price, Cost to close, or PIT', defaultOn: true },
   { key: 'price',     label: 'Price',                     desc: 'Asking price',                      defaultOn: true  },
   { key: 'groupSentiment', label: 'Group sentiment',      desc: 'Who has rated, said no, or requested research, at a glance', defaultOn: true },
   { key: 'commute',   label: 'GO commute',                desc: 'Station, drive time, total to Union', defaultOn: true,  pocOnly: true },
@@ -62,7 +91,7 @@ async function loadConfig() {
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────
-const state = { map: null, mapReady: false, rawListings: [], listings: [], activeView: 'map', people: [], activePerson: null, feedback: {}, openMapItem: null, source: 'poc', sourceCount: 0, clusters: [] };
+const state = { map: null, mapReady: false, rawListings: [], listings: [], activeView: 'map', people: [], activePerson: null, feedback: {}, openMapItem: null, source: 'poc', sourceCount: 0, clusters: [], poi: [] };
 let cardSettings = loadSettings();
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -102,6 +131,17 @@ function buildSettingsPanel() {
     text.innerHTML = `<div>${esc(f.label)}</div><div class="field-desc">${esc(f.desc)}</div>`;
     label.append(cb, text);
     container.appendChild(label);
+    if (f.key === 'summaryValue') {
+      const choiceRow = document.createElement('div');
+      choiceRow.className = 'settings-row settings-subrow';
+      const select = document.createElement('select');
+      select.id = 'summaryValueChoice';
+      select.innerHTML = SUMMARY_VALUE_OPTIONS.map(o => `<option value="${o.value}">${esc(o.label)}</option>`).join('');
+      select.value = loadSummaryValueChoice();
+      select.addEventListener('change', () => { saveSummaryValueChoice(select.value); applyCardVisibility(); renderCards(state.listings); });
+      choiceRow.appendChild(select);
+      container.appendChild(choiceRow);
+    }
   });
 }
 
@@ -197,7 +237,9 @@ function buildPersonFilters() {
       `).join('')}
     </div>
   `).join('');
+  const savedPersonFilters = loadSavedFilterState()._personFilters || [];
   container.querySelectorAll('input[type=checkbox]').forEach(cb => {
+    cb.checked = savedPersonFilters.includes(cb.id);
     cb.addEventListener('change', applyFiltersAndRender);
   });
 }
@@ -245,15 +287,22 @@ function matchesStatusFilter(listingId, value) {
 }
 
 // ─── Keyword search (live, client-side, no Apply needed) ─────────────────────
+// T12: match each whitespace-separated word independently (AND across
+// words), not the whole typed phrase as one exact substring. The haystack
+// is separate fields joined with a single space, so a query typed the
+// natural way (e.g. "mill st essa" for "18 Mill St, Essa") previously
+// failed outright because the real string has a comma the query does not:
+// "18 mill st, essa" does not contain the literal substring "mill st essa".
 function matchesKeyword(item, keyword) {
   if (!keyword) return true;
+  const words = keyword.split(/\s+/).filter(Boolean);
   const feedbackList = state.feedback[item.mls] || [];
   const hay = [
     item.address, item.city, item.state, item.propertyType, item.style,
     item.brokerage, item.goStation, item.features,
     ...feedbackList.map(f => f.note), ...feedbackList.map(f => f.research_note),
   ].filter(Boolean).join(' ').toLowerCase();
-  return hay.includes(keyword);
+  return words.every(word => hay.includes(word));
 }
 
 // ─── Numeric range helpers (PIT / due-at-closing, client-side only — POC-only fields) ──
@@ -355,8 +404,15 @@ async function submitFeedback(item, actionType, extra, statusEl) {
     await postFeedback({ person_id: state.activePerson, listing_id: item.mls, action_type: actionType, ...extra });
     const fresh = await fetchFeedback([item.mls]);
     Object.assign(state.feedback, fresh);
-    renderCards(state.listings);
-    if (state.openMapItem === item) showMapCard(item);
+    // T16: re-run the active filters (not just re-render the same list) so a
+    // rating/reject change that now falls outside an active person-rating
+    // or status filter drops the listing from both list and map right away,
+    // with no separate "Apply" click needed.
+    applyFiltersAndRender();
+    if (state.openMapItem === item) {
+      if (state.listings.includes(item)) showMapCard(item);
+      else closeMapCard();
+    }
   } catch (err) {
     showFeedbackStatus(statusEl, err.message, true);
   }
@@ -396,16 +452,29 @@ function buildFeedbackActions(node, item) {
     starsRow.appendChild(star);
   }
 
-  const noteToggle = document.createElement('button');
-  noteToggle.type = 'button';
-  noteToggle.className = 'secondary fb-btn';
-  noteToggle.textContent = '📝 Note';
+  // T11: Add and Edit are distinct actions, not one toggle that always
+  // reopens the previous note. Add always starts a blank composer; Edit
+  // (only shown once a note exists) pre-fills with the current latest
+  // note. Both call the same submitFeedback('note', ...) -- the write
+  // path is already append-only, so "edit" appends a new row that becomes
+  // the new latest rather than updating in place, which is enough to make
+  // the two actions behave distinctly from the user's point of view.
+  const noteAddBtn = document.createElement('button');
+  noteAddBtn.type = 'button';
+  noteAddBtn.className = 'secondary fb-btn';
+  noteAddBtn.textContent = '📝 Add note';
+
+  const noteEditBtn = document.createElement('button');
+  noteEditBtn.type = 'button';
+  noteEditBtn.className = 'secondary fb-btn';
+  noteEditBtn.textContent = '✏️ Edit note';
+  noteEditBtn.hidden = !mine.note;
+
   const noteBox = document.createElement('div');
   noteBox.className = 'feedback-compose';
   noteBox.hidden = true;
   const noteInput = document.createElement('textarea');
   noteInput.placeholder = 'Add a note…';
-  noteInput.value = mine.note || '';
   const noteSave = document.createElement('button');
   noteSave.type = 'button';
   noteSave.textContent = 'Save note';
@@ -415,7 +484,13 @@ function buildFeedbackActions(node, item) {
     submitFeedback(item, 'note', { note }, statusEl);
   });
   noteBox.append(noteInput, noteSave);
-  noteToggle.addEventListener('click', () => { noteBox.hidden = !noteBox.hidden; });
+
+  function toggleComposer(prefill) {
+    if (noteBox.hidden) { noteInput.value = prefill; noteBox.hidden = false; }
+    else { noteBox.hidden = true; }
+  }
+  noteAddBtn.addEventListener('click', () => toggleComposer(''));
+  noteEditBtn.addEventListener('click', () => toggleComposer(mine.note || ''));
 
   const rejectToggle = document.createElement('button');
   rejectToggle.type = 'button';
@@ -452,7 +527,7 @@ function buildFeedbackActions(node, item) {
 
   const btnRow = document.createElement('div');
   btnRow.className = 'feedback-btn-row';
-  btnRow.append(noteToggle, rejectToggle, researchBtn);
+  btnRow.append(noteAddBtn, noteEditBtn, rejectToggle, researchBtn);
 
   container.append(starsLabel, starsRow, btnRow, noteBox, rejectBox, statusEl);
 }
@@ -468,7 +543,7 @@ function switchView(view) {
 }
 
 // ─── Map (Mapbox GL JS) ────────────────────────────────────────────────────────
-const MAP_LAYER_IDS = ['listings-circles', 'clusters-circles', 'clusters-labels', 'go-stations-existing-circles', 'go-stations-planned-circles', 'go-lines-layer', 'hwy413-line'];
+const MAP_LAYER_IDS = ['listings-circles', 'clusters-circles', 'clusters-labels', 'go-stations-existing-circles', 'go-stations-planned-circles', 'go-lines-layer', 'hwy413-line', 'poi-pins-circles'];
 
 function findListing(mls) {
   return state.listings.find(x => x.mls === mls) || null;
@@ -500,6 +575,9 @@ function initMap() {
   state.map.on('load', () => {
     setupMapSources();
     state.mapReady = true;
+    // Layer checkboxes may already be checked from restored state (T10) --
+    // apply their visibility now that the layers actually exist.
+    applyPersistedLayerVisibility();
     // Data may have already loaded while the map style was still loading.
     if (state.rawListings.length) applyFiltersAndRender();
   });
@@ -530,6 +608,26 @@ function setupMapSources() {
       'circle-opacity': 0.92,
       'circle-stroke-width': 2,
       'circle-stroke-color': '#fff',
+    },
+  });
+  // T17: the active person's own star rating, shown on their pin. Empty
+  // string renders nothing, so unrated listings and "no one selected yet"
+  // both stay a plain color-only pin.
+  map.addLayer({
+    id: 'listings-labels',
+    type: 'symbol',
+    source: 'listings',
+    layout: {
+      'text-field': ['get', 'ratingLabel'],
+      'text-size': 11,
+      'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
+      'text-allow-overlap': true,
+      'text-ignore-placement': true,
+    },
+    paint: {
+      'text-color': '#fff',
+      'text-halo-color': 'rgba(0,0,0,0.45)',
+      'text-halo-width': 1,
     },
   });
   map.on('click', 'listings-circles', e => {
@@ -640,6 +738,123 @@ function setupMapSources() {
     layout: { visibility: 'none' },
     paint: { 'line-color': '#b3261e', 'line-opacity': 0.55, 'line-width': 4 },
   });
+
+  // T14: POI pins. Own source (server data, not a static file), off by
+  // default like every other optional layer above.
+  map.addSource('poi-pins', { type: 'geojson', data: emptyFC() });
+  map.addLayer({
+    id: 'poi-pins-circles',
+    type: 'circle',
+    source: 'poi-pins',
+    layout: { visibility: 'none' },
+    paint: {
+      'circle-radius': 7,
+      'circle-color': ['get', 'color'],
+      'circle-stroke-width': 2,
+      'circle-stroke-color': '#fff',
+    },
+  });
+  let poiPopup = null;
+  map.on('mouseenter', 'poi-pins-circles', e => {
+    map.getCanvas().style.cursor = 'pointer';
+    const p = e.features[0].properties;
+    const typeLabel = (POI_TYPE_META[p.type] || POI_TYPE_META.other).label;
+    poiPopup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false, className: 'go-station-tooltip', offset: 10 })
+      .setLngLat(e.features[0].geometry.coordinates)
+      .setHTML(`<strong>${esc(p.label || typeLabel)}</strong><br>${esc(typeLabel)}${p.created_by_name ? ' &middot; added by ' + esc(p.created_by_name) : ''}`)
+      .addTo(map);
+  });
+  map.on('mouseleave', 'poi-pins-circles', () => {
+    map.getCanvas().style.cursor = '';
+    poiPopup?.remove();
+    poiPopup = null;
+  });
+  refreshPoiLayer();
+}
+
+// ─── POI pins (T14) ─────────────────────────────────────────────────────────
+// Visual/map-only for now, not wired into any commute or distance
+// calculation. Shared across the whole buyer group the same way listing
+// feedback is shared -- created_by just records who added it.
+const POI_TYPE_META = {
+  school: { label: 'School', color: '#2b67d6' },
+  hospital: { label: 'Hospital', color: '#b3261e' },
+  work: { label: 'Workplace', color: '#8e44ad' },
+  worship: { label: 'Place of worship', color: '#e8b400' },
+  other: { label: 'Other', color: '#68726f' },
+};
+
+function refreshPoiLayer() {
+  if (!state.mapReady) return;
+  const fc = {
+    type: 'FeatureCollection',
+    features: state.poi.map(p => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+      properties: {
+        type: p.type,
+        label: p.label || '',
+        color: (POI_TYPE_META[p.type] || POI_TYPE_META.other).color,
+        created_by_name: p.created_by_name,
+      },
+    })),
+  };
+  state.map.getSource('poi-pins').setData(fc);
+}
+
+async function loadPoi() {
+  try {
+    const res = await fetch('/api/poi', { headers: authHeaders() });
+    if (res.ok) {
+      const data = await res.json();
+      state.poi = data.poi || [];
+    }
+  } catch (err) {
+    console.error(err);
+  }
+  refreshPoiLayer();
+}
+
+// Search-then-drop, using Mapbox's Geocoding API (same token as the map
+// tiles, see DECISIONS.md T14 for why this is a new external call and why
+// it was judged low-risk enough to add directly rather than stopping to ask).
+async function addPoiPin() {
+  if (!state.activePerson) { alert('Select who you are (top right) first.'); return; }
+  const query = (prompt('Search for a place (school, hospital, workplace, place of worship, etc.):') || '').trim();
+  if (!query) return;
+
+  let feature = null;
+  try {
+    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json`
+      + `?access_token=${encodeURIComponent(MAPBOX_TOKEN)}&proximity=-79.5,44.0&limit=1`;
+    const res = await fetch(url);
+    if (res.ok) {
+      const data = await res.json();
+      feature = (data.features || [])[0] || null;
+    }
+  } catch (err) {
+    console.error(err);
+  }
+  if (!feature) { alert(`No place found for "${query}". Try a different search.`); return; }
+
+  const typeChoices = Object.keys(POI_TYPE_META).join(', ');
+  const typedType = (prompt(`Type (${typeChoices}):`, 'other') || 'other').trim().toLowerCase();
+  const type = POI_TYPE_META[typedType] ? typedType : 'other';
+  const label = (prompt('Label (optional):', feature.place_name) || feature.place_name || '').trim();
+  const [lng, lat] = feature.center;
+
+  try {
+    const res = await fetch('/api/poi', {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ person_id: state.activePerson, type, label, lat, lng }),
+    });
+    if (!res.ok) throw new Error('save failed');
+    await loadPoi();
+  } catch (err) {
+    console.error(err);
+    alert('Could not save the place. Try again.');
+  }
 }
 
 // Rejected status must come from the ACTIVE actor's live feedback
@@ -690,10 +905,11 @@ function refreshMap(list) {
   } else {
     list.forEach(item => {
       if (item.lat == null || item.lng == null) return;
+      const myRating = personFeedbackFor(item.mls, state.activePerson)?.rating;
       listingsFC.features.push({
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [item.lng, item.lat] },
-        properties: { mls: item.mls, color: markerColor(item) },
+        properties: { mls: item.mls, color: markerColor(item), ratingLabel: myRating != null ? String(myRating) : '' },
       });
       bounds.push([item.lng, item.lat]);
     });
@@ -810,6 +1026,15 @@ function populateCard(node, item) {
   fb.innerHTML = `<strong>${esc(fit.label)}</strong><span>fit</span>`;
   fb.className = 'fit-badge ' + (fit.met >= 7 ? 'fit-green' : fit.met >= 5 ? 'fit-blue' : fit.met >= 4 ? 'fit-amber' : 'fit-red');
 
+  // Summary value (T18), single user-chosen headline number, hidden when
+  // the chosen field has no data for this listing (e.g. Repliers listings
+  // have no Cost to close / PIT).
+  const summaryEl = node.querySelector('.card-summary-value');
+  const summary = summaryValueFor(item);
+  summaryEl.innerHTML = summary
+    ? `<span class="fin-label">${esc(summary.label)}</span><span class="fin-value">${esc(summary.value)}</span>`
+    : '';
+
   // Price
   node.querySelector('.card-price').textContent = money(item.price);
 
@@ -862,8 +1087,10 @@ function populateCard(node, item) {
   if (poc) {
     const pitVal = item.pitNum ? money(item.pitNum) : (item.pit || '');
     const dueVal = item.dueClosing || '';
+    const condoFeeVal = item.isCondo && item.condoFeeNum ? money(item.condoFeeNum) + '/mo' : '';
     node.querySelector('.card-financial').innerHTML = [
       pitVal  && `<div class="fin-row"><span class="fin-label">Monthly PIT</span><span class="fin-value">${esc(pitVal)}</span></div>`,
+      condoFeeVal && `<div class="fin-row"><span class="fin-label">Condo fee</span><span class="fin-value">${esc(condoFeeVal)}</span></div>`,
       dueVal  && `<div class="fin-row"><span class="fin-label">Due at closing</span><span class="fin-value">${esc(dueVal)}</span></div>`,
     ].filter(Boolean).join('');
   }
@@ -891,11 +1118,13 @@ function populateCard(node, item) {
   }
 
   // Comments — dynamic per person (D9), replaces hardcoded Mark/Katie/Anees
+  // T11: full note history per person (newest first), each dated by its own
+  // created_at, not just the single latest note collapsed into one line.
   {
     const feedbackList = state.feedback[item.mls] || [];
     const rows = [
-      ...feedbackList.filter(f => f.note).map(f =>
-        `<div class="comment-line"><span class="comment-who">${esc(f.person_name)}</span>${esc(f.note)}</div>`),
+      ...feedbackList.flatMap(f => (f.note_history || []).map(h =>
+        `<div class="comment-line"><span class="comment-who">${esc(f.person_name)}</span><span class="comment-date">${esc((h.created_at || '').slice(0, 10))}</span>${esc(h.note)}</div>`)),
       ...feedbackList.filter(f => f.research_note).map(f =>
         `<div class="comment-line"><span class="comment-who">${esc(f.person_name)} (research)</span>${esc(f.research_note)}</div>`),
     ];
@@ -1043,9 +1272,67 @@ function reset() {
   state.people.forEach(p => {
     PERSON_FILTER_OPTIONS.forEach(o => { const cb = $(personFilterCbId(p.id, o.value)); if (cb) cb.checked = false; });
   });
+  // Reset stays the only reset concept (T10) -- also clears the persisted
+  // last-used-state copy so a reload right after Reset doesn't bring it back.
+  localStorage.removeItem(FILTER_STATE_KEY);
   load().catch(showError);
 }
 function showError(err) { console.error(err); $('summary').textContent = 'Error: ' + err.message; }
+
+// ─── Filter/layer/sort state persistence (T10) ─────────────────────────────────
+// Last-used-state persistence, same mechanism as THEME_KEY/SETTINGS_KEY --
+// not a second "restore to default" concept. The existing Reset button
+// stays the only way to clear filters back to their defaults; it also
+// clears this saved state so a reload after Reset doesn't resurrect it.
+const FILTER_STATE_KEY = 'hh_filter_state_v1';
+const PERSISTED_FIELD_IDS = [
+  'q', 'minPrice', 'maxPrice', 'minBeds', 'maxBeds', 'minBaths', 'maxBaths',
+  'minSqft', 'maxSqft', 'minAcres', 'maxAcres', 'maxCommute',
+  'minPit', 'maxPit', 'minDue', 'maxDue', 'minFit', 'filterStatus',
+  'resultsPerPage', 'source', 'sort',
+];
+const PERSISTED_CHECKBOX_IDS = [
+  'featGarage', 'featPool', 'featBasement', 'clusterToggle',
+  'layerGoStations', 'layerGoStationsPlanned', 'layerGoLines', 'layerHwy413', 'layerPoiPins',
+];
+
+function saveFilterState() {
+  const saved = {};
+  PERSISTED_FIELD_IDS.forEach(id => { const el = $(id); if (el) saved[id] = el.value; });
+  PERSISTED_CHECKBOX_IDS.forEach(id => { const el = $(id); if (el) saved[id] = el.checked; });
+  saved._personFilters = Array.from(document.querySelectorAll('#personFilters input[type=checkbox]:checked')).map(cb => cb.id);
+  localStorage.setItem(FILTER_STATE_KEY, JSON.stringify(saved));
+}
+
+function loadSavedFilterState() {
+  try { return JSON.parse(localStorage.getItem(FILTER_STATE_KEY) || '{}'); } catch { return {}; }
+}
+
+// Restores plain field/select values and static checkboxes. Person-filter
+// checkboxes are built dynamically after loadPeople() resolves, so they are
+// restored separately in buildPersonFilters(); map layer visibility is
+// applied separately once the map finishes loading (see initMap()).
+function restoreFilterState() {
+  const saved = loadSavedFilterState();
+  PERSISTED_FIELD_IDS.forEach(id => { const el = $(id); if (el && id in saved) el.value = saved[id]; });
+  PERSISTED_CHECKBOX_IDS.forEach(id => { const el = $(id); if (el && id in saved) el.checked = saved[id]; });
+  if (saved.sort) syncSort(saved.sort);
+}
+
+function applyPersistedLayerVisibility() {
+  if (!state.mapReady) return;
+  const layerFor = {
+    layerGoStations: 'go-stations-existing-circles',
+    layerGoStationsPlanned: 'go-stations-planned-circles',
+    layerGoLines: 'go-lines-layer',
+    layerHwy413: 'hwy413-line',
+    layerPoiPins: 'poi-pins-circles',
+  };
+  Object.entries(layerFor).forEach(([checkboxId, layerId]) => {
+    const cb = $(checkboxId);
+    if (cb) state.map.setLayoutProperty(layerId, 'visibility', cb.checked ? 'visible' : 'none');
+  });
+}
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 function debounce(fn, ms) {
@@ -1056,6 +1343,13 @@ function debounce(fn, ms) {
 window.addEventListener('DOMContentLoaded', () => {
   loadTheme();
   ['minPrice', 'maxPrice', 'minPit', 'maxPit', 'minDue', 'maxDue'].forEach(wirePriceInput);
+  // Restore last-used filter/layer/sort state (T10) before the initial load
+  // so filterParams()/currentSource()/currentSort() all read restored values.
+  restoreFilterState();
+  document.querySelector('.controls')?.addEventListener('change', saveFilterState);
+  document.querySelector('.controls')?.addEventListener('input', debounce(saveFilterState, 300));
+  document.querySelector('.map-layers-body')?.addEventListener('change', saveFilterState);
+  $('sort')?.addEventListener('change', saveFilterState);
   loadConfig()
     .then(() => {
       // A Mapbox init failure (WebGL disabled, blocked CDN, bad token) must
@@ -1063,9 +1357,15 @@ window.addEventListener('DOMContentLoaded', () => {
       // with the map and should keep working regardless.
       try { initMap(); } catch (err) { console.error('Map init failed:', err); }
       loadPeople().then(applyFiltersAndRender);
+      loadPoi();
       return load();
     })
     .catch(showError);
+  $('addPoiBtn')?.addEventListener('click', () => addPoiPin().catch(err => console.error(err)));
+  $('layerPoiPins')?.addEventListener('change', e => {
+    if (!state.mapReady) return;
+    state.map.setLayoutProperty('poi-pins-circles', 'visibility', e.target.checked ? 'visible' : 'none');
+  });
   $('layerGoStations')?.addEventListener('change', e => {
     if (!state.mapReady) return;
     state.map.setLayoutProperty('go-stations-existing-circles', 'visibility', e.target.checked ? 'visible' : 'none');

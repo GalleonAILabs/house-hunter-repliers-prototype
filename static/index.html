@@ -152,6 +152,8 @@
         <label class="chip"><input type="checkbox" id="layerGoStationsPlanned" /> GO Stations (planned/proposed)</label>
         <label class="chip"><input type="checkbox" id="layerGoLines" /> GO Lines</label>
         <label class="chip"><input type="checkbox" id="layerHwy413" /> Highway 413</label>
+        <label class="chip"><input type="checkbox" id="layerPoiPins" /> Places (school, hospital, etc.)</label>
+        <button class="secondary" id="addPoiBtn" title="Search for a place and drop a pin, shared with the whole group">📍 Add place</button>
       </div>
     </details>
     <details class="map-legend" id="mapLegend">
@@ -214,6 +216,7 @@
           </div>
           <div class="fit-badge"></div>
         </div>
+        <div class="card-summary-value fin-row cf-summaryValue"></div>
         <div class="card-price cf-price"></div>
         <div class="card-group cf-groupSentiment"></div>
         <div class="card-commute cf-commute"></div>
