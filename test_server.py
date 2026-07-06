@@ -155,6 +155,7 @@ class SchemaTests(ServerTestCase):
         self.assertIn("people", tables)
         self.assertIn("listing_feedback", tables)
         self.assertIn("household_settings", tables)
+        self.assertIn("potential_purchase_prices", tables)
 
     def test_wal_mode_enabled(self) -> None:
         conn = server.get_db()
@@ -628,6 +629,85 @@ class HouseholdSettingsTests(ServerTestCase):
         try:
             count = conn.execute(
                 "SELECT COUNT(*) FROM household_settings WHERE key = 'first_time_buyer'"
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(count, 1)
+
+
+class PotentialPurchasePriceTests(ServerTestCase):
+    """One shared price per listing, not per person, like household
+    settings, not like a per-person rating."""
+
+    def test_get_without_token_401(self) -> None:
+        status, _ = self.request("GET", "/api/potential-purchase-prices?listing_ids=POC-2")
+        self.assertEqual(status, 401)
+
+    def test_get_absent_when_never_entered(self) -> None:
+        status, data = self.request(
+            "GET", "/api/potential-purchase-prices?listing_ids=POC-2", token=self.TOKEN,
+        )
+        self.assertEqual(status, 200)
+        self.assertNotIn("POC-2", data["potential_purchase_prices"])
+
+    def test_post_requires_known_person(self) -> None:
+        status, data = self.request(
+            "POST", "/api/potential-purchase-prices", token=self.TOKEN,
+            body={"person_id": 999, "listing_id": "POC-2", "price": 450000},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(data["error"], "unknown_person")
+
+    def test_post_requires_known_listing(self) -> None:
+        status, data = self.request(
+            "POST", "/api/potential-purchase-prices", token=self.TOKEN,
+            body={"person_id": 1, "listing_id": "POC-999999", "price": 450000},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(data["error"], "unknown_listing")
+
+    def test_post_requires_positive_price(self) -> None:
+        status, data = self.request(
+            "POST", "/api/potential-purchase-prices", token=self.TOKEN,
+            body={"person_id": 1, "listing_id": "POC-2", "price": 0},
+        )
+        self.assertEqual(status, 400)
+
+    def test_post_then_visible_to_everyone_shared_not_per_person(self) -> None:
+        status, data = self.request(
+            "POST", "/api/potential-purchase-prices", token=self.TOKEN,
+            body={"person_id": 1, "listing_id": "POC-2", "price": 450000},
+        )
+        self.assertEqual(status, 200)
+
+        status, data = self.request(
+            "GET", "/api/potential-purchase-prices?listing_ids=POC-2", token=self.TOKEN,
+        )
+        self.assertEqual(status, 200)
+        entry = data["potential_purchase_prices"]["POC-2"]
+        self.assertEqual(entry["price"], 450000)
+        self.assertEqual(entry["updated_by_name"], "Mark")
+
+    def test_post_twice_overwrites_not_appends(self) -> None:
+        self.request(
+            "POST", "/api/potential-purchase-prices", token=self.TOKEN,
+            body={"person_id": 1, "listing_id": "POC-2", "price": 450000},
+        )
+        self.request(
+            "POST", "/api/potential-purchase-prices", token=self.TOKEN,
+            body={"person_id": 2, "listing_id": "POC-2", "price": 460000},
+        )
+        status, data = self.request(
+            "GET", "/api/potential-purchase-prices?listing_ids=POC-2", token=self.TOKEN,
+        )
+        entry = data["potential_purchase_prices"]["POC-2"]
+        self.assertEqual(entry["price"], 460000)
+        self.assertEqual(entry["updated_by_name"], "Katie")
+
+        conn = server.get_db()
+        try:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM potential_purchase_prices WHERE listing_id = 'POC-2'"
             ).fetchone()[0]
         finally:
             conn.close()

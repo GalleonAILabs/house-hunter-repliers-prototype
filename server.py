@@ -148,6 +148,17 @@ def init_db() -> None:
                 updated_by INTEGER REFERENCES people(id),
                 updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             );
+
+            -- One shared price per listing, not per person, the same way
+            -- a household's negotiating position on a specific property is
+            -- one fact the group holds, not one opinion per person. Same
+            -- upsert-by-primary-key shape as household_settings.
+            CREATE TABLE IF NOT EXISTS potential_purchase_prices (
+                listing_id TEXT PRIMARY KEY,
+                price REAL NOT NULL,
+                updated_by INTEGER REFERENCES people(id),
+                updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
             """
         )
         existing = conn.execute("SELECT COUNT(*) FROM people").fetchone()[0]
@@ -489,6 +500,67 @@ def handle_household_settings_post(body: dict[str, Any]) -> tuple[dict[str, Any]
             "SELECT updated_at FROM household_settings WHERE key = ?", (key,)
         ).fetchone()
         return {"ok": True, "key": key, "value": value, "updated_at": row["updated_at"]}, 200
+    finally:
+        conn.close()
+
+
+def potential_prices_for_listings(
+    conn: sqlite3.Connection, listing_ids: list[str]
+) -> dict[str, dict[str, Any]]:
+    """One shared price per listing, not per person. Listings with no entry
+    are simply absent from the result, not present with a null price, since
+    "never entered" and "entered as zero" are different things."""
+    if not listing_ids:
+        return {}
+    placeholders = ",".join("?" for _ in listing_ids)
+    rows = conn.execute(
+        f"""
+        SELECT p.listing_id, p.price, p.updated_by, pe.name AS updated_by_name, p.updated_at
+        FROM potential_purchase_prices p
+        JOIN people pe ON pe.id = p.updated_by
+        WHERE p.listing_id IN ({placeholders})
+        """,
+        listing_ids,
+    ).fetchall()
+    return {row["listing_id"]: dict(row) for row in rows}
+
+
+def handle_potential_price_post(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """Upserts the one shared price for a listing. Not a per-person value,
+    not a history list, one current figure the whole group sees, the same
+    upsert-by-primary-key shape as household_settings."""
+    listing_id = body.get("listing_id")
+    price = body.get("price")
+    person_id = body.get("person_id")
+
+    if not isinstance(listing_id, str) or not listing_id:
+        return {"error": "invalid_request", "detail": "listing_id is required"}, 400
+    if not isinstance(price, (int, float)) or isinstance(price, bool) or price <= 0:
+        return {"error": "invalid_request", "detail": "price must be a positive number"}, 400
+
+    conn = get_db()
+    try:
+        if not person_exists(conn, person_id):
+            return {"error": "unknown_person", "detail": f"person_id {person_id!r} not found"}, 400
+        if not validate_listing_id(listing_id):
+            return {"error": "unknown_listing", "detail": f"listing_id {listing_id!r} not found"}, 400
+
+        conn.execute(
+            """
+            INSERT INTO potential_purchase_prices (listing_id, price, updated_by, updated_at)
+            VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            ON CONFLICT(listing_id) DO UPDATE SET
+                price = excluded.price,
+                updated_by = excluded.updated_by,
+                updated_at = excluded.updated_at
+            """,
+            (listing_id, float(price), person_id),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT updated_at FROM potential_purchase_prices WHERE listing_id = ?", (listing_id,)
+        ).fetchone()
+        return {"ok": True, "listing_id": listing_id, "price": float(price), "updated_at": row["updated_at"]}, 200
     finally:
         conn.close()
 
@@ -905,6 +977,18 @@ class Handler(BaseHTTPRequestHandler):
                 finally:
                     conn.close()
                 return
+            if parsed.path == "/api/potential-purchase-prices":
+                if not require_auth(self):
+                    self.send_json({"error": "unauthorized"}, 401)
+                    return
+                listing_ids = [x for x in (params.get("listing_ids") or "").split(",") if x]
+                conn = get_db()
+                try:
+                    prices = potential_prices_for_listings(conn, listing_ids)
+                    self.send_json({"potential_purchase_prices": prices})
+                finally:
+                    conn.close()
+                return
             if parsed.path == "/api/poi":
                 # T14: shared across the whole buyer group, same auth as
                 # /api/people and /api/feedback, not per-person filtered.
@@ -993,6 +1077,23 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
                     return
                 data, status = handle_feedback_post(body)
+                self.send_json(data, status)
+                return
+            if parsed.path == "/api/potential-purchase-prices":
+                if not require_auth(self):
+                    self.send_json({"error": "unauthorized"}, 401)
+                    return
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                raw_body = self.rfile.read(length) if length else b""
+                try:
+                    body = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    self.send_json({"error": "invalid_request", "detail": "malformed JSON body"}, 400)
+                    return
+                if not isinstance(body, dict):
+                    self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
+                    return
+                data, status = handle_potential_price_post(body)
                 self.send_json(data, status)
                 return
             if parsed.path == "/api/poi":
