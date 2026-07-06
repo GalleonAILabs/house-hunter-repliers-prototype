@@ -110,7 +110,11 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .fit-badge { min-width:54px; height:54px; border-radius:13px; flex-shrink:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; }
 .fit-badge strong{font-size:18px;line-height:1}.fit-badge span{font-size:9px;font-weight:800;text-transform:uppercase}
 .fit-green{background:#eaf5ec;color:var(--green);border:1px solid #bfe2c7}.fit-blue{background:#e8f0fe;color:var(--blue);border:1px solid #b0c8f8}.fit-amber{background:#fff8e1;color:var(--gold);border:1px solid #ffe082}.fit-red{background:#fff0ee;color:var(--red);border:1px solid #ffc8c1}
-.card-summary-value:empty{display:none}.card-price{font-size:22px;font-weight:900}
+.card-summary-value:empty{display:none}.card-price{font-size:22px;font-weight:900}.price-fallback-note{font-size:12px;font-weight:400;color:var(--muted)}
+.card-potential-price:empty{display:none}
+.card-potential-price{display:flex;flex-direction:column;gap:6px;font-size:12px}
+.potential-price-display{color:var(--muted)}
+.card-potential-price .fb-btn{font-size:12px;padding:6px 10px;min-height:0;align-self:flex-start}
 /* Group sentiment row: read-only, quiet by design. Never louder than price
    or the fit badge (Section 6 hierarchy rule) -- 12px type, same chip pill
    family as the filter panel, no button affordance since these are display

@@ -46,12 +46,43 @@ function summaryValueFor(item) {
     const val = item.pit || (item.pitNum != null ? money(item.pitNum) : '');
     return val ? { label: 'Monthly PIT', value: val } : null;
   }
-  return item.price != null ? { label: 'Price', value: money(item.price) } : null;
+  const effective = effectivePrice(item);
+  if (effective.value == null) return null;
+  return { label: effective.isFallback ? 'Price (list, no potential entered)' : 'Price', value: money(effective.value) };
+}
+
+// Which price headlines the card: List price (item.price, always what it
+// is) or Potential purchase price (the shared, group-entered figure for
+// this listing, when one exists). Falls back to list price whenever no
+// potential price has been entered for a listing, regardless of the
+// toggle, and that fallback is surfaced visibly (isFallback), never
+// silently. This also drives every downstream figure that currently
+// reads list price: the summaryValueFor() "Price" option above, and the
+// mortgageBreakdown attached server-side is itself keyed off this same
+// potential price, so nothing here needs to redo that math client-side.
+const PRICE_MODE_KEY = 'hh_price_mode_v1';
+const PRICE_MODE_OPTIONS = [
+  { value: 'list', label: 'List price' },
+  { value: 'potential', label: 'Potential purchase price' },
+];
+function loadPriceMode() {
+  const saved = localStorage.getItem(PRICE_MODE_KEY);
+  return saved === 'potential' ? 'potential' : 'list';
+}
+function savePriceMode(value) { localStorage.setItem(PRICE_MODE_KEY, value); }
+function effectivePrice(item) {
+  const mode = loadPriceMode();
+  const potential = item.potentialPurchasePrice;
+  if (mode === 'potential' && potential != null) {
+    return { value: potential.price, isFallback: false, mode };
+  }
+  return { value: item.price, isFallback: mode === 'potential', mode };
 }
 
 const CARD_FIELDS = [
   { key: 'summaryValue', label: 'Card summary value',      desc: 'One headline number: Price, Cost to close, or PIT', defaultOn: true },
   { key: 'price',     label: 'Price',                     desc: 'Asking price',                      defaultOn: true  },
+  { key: 'potentialPrice', label: 'Potential purchase price', desc: 'Shared, editable price the group is actually considering offering', defaultOn: true, pocOnly: true },
   { key: 'groupSentiment', label: 'Group sentiment',      desc: 'Who has rated, said no, or requested research, at a glance', defaultOn: true },
   { key: 'commute',   label: 'GO commute',                desc: 'Station, drive time, total to Union', defaultOn: true,  pocOnly: true },
   { key: 'stats',     label: 'Beds / baths / sqft / lot', desc: 'Key property stats',                 defaultOn: true  },
@@ -139,6 +170,17 @@ function buildSettingsPanel() {
       select.innerHTML = SUMMARY_VALUE_OPTIONS.map(o => `<option value="${o.value}">${esc(o.label)}</option>`).join('');
       select.value = loadSummaryValueChoice();
       select.addEventListener('change', () => { saveSummaryValueChoice(select.value); applyCardVisibility(); renderCards(state.listings); });
+      choiceRow.appendChild(select);
+      container.appendChild(choiceRow);
+    }
+    if (f.key === 'price') {
+      const choiceRow = document.createElement('div');
+      choiceRow.className = 'settings-row settings-subrow';
+      const select = document.createElement('select');
+      select.id = 'priceModeChoice';
+      select.innerHTML = PRICE_MODE_OPTIONS.map(o => `<option value="${o.value}">${esc(o.label)}</option>`).join('');
+      select.value = loadPriceMode();
+      select.addEventListener('change', () => { savePriceMode(select.value); renderCards(state.listings); });
       choiceRow.appendChild(select);
       container.appendChild(choiceRow);
     }
@@ -393,6 +435,96 @@ async function postFeedback(payload) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.detail || data.error || 'Save failed');
   return data;
+}
+
+// Refetches listings and feedback without recentering the map, unlike
+// load(), which is also used by Apply/Reset and always re-jumps the map
+// to the source's default view. A potential purchase price edit must not
+// reset whatever the user was already looking at on the map.
+async function reloadListingsPreservingMapView() {
+  const source = currentSource();
+  const res = await fetch((source === 'poc' ? '/api/poc-listings' : '/api/listings') + '?' + filterParams());
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || data.error || 'Reload failed');
+  state.rawListings = data.listings;
+  state.sourceCount = data.sourceCount;
+  state.clusters = data.clusters || [];
+  state.feedback = await fetchFeedback(state.rawListings.map(x => x.mls));
+  applyFiltersAndRender();
+}
+
+// One shared price per listing, not per person (see DECISIONS.md), so
+// this is not attached to a specific actor's feedback the way rating/
+// note/reject are. Same not-open-by-default, small-edit-control-reveals-
+// an-input affordance as the note Add/Edit buttons, but a single Add-or-
+// Edit control, not a split pair, since there is one current value here,
+// not a history list.
+function buildPotentialPriceEditor(node, item) {
+  const container = node.querySelector('.card-potential-price');
+  if (!container) return;
+  container.innerHTML = '';
+  if (!item.poc) return; // pocOnly field; Repliers listings have no shared negotiating price concept
+
+  const entry = item.potentialPurchasePrice || null;
+
+  const display = document.createElement('div');
+  display.className = 'potential-price-display';
+  display.textContent = entry
+    ? `Potential purchase price: ${money(entry.price)} (${entry.updatedByName})`
+    : 'No potential purchase price entered yet';
+
+  const editBtn = document.createElement('button');
+  editBtn.type = 'button';
+  editBtn.className = 'secondary fb-btn';
+  editBtn.textContent = entry ? '✏️ Edit potential price' : '➕ Add potential price';
+
+  const box = document.createElement('div');
+  box.className = 'feedback-compose';
+  box.hidden = true;
+  const input = document.createElement('input');
+  input.type = 'number';
+  input.min = '0';
+  input.step = '1000';
+  input.placeholder = 'Potential purchase price';
+  const saveBtn = document.createElement('button');
+  saveBtn.type = 'button';
+  saveBtn.textContent = 'Save';
+  const statusEl = document.createElement('div');
+  statusEl.className = 'feedback-status';
+
+  saveBtn.addEventListener('click', async () => {
+    if (!state.activePerson) { showFeedbackStatus(statusEl, 'Select who you are first.', true); return; }
+    const price = Number(input.value);
+    if (!price || price <= 0) { showFeedbackStatus(statusEl, 'Enter a positive number.', true); return; }
+    try {
+      const res = await fetch('/api/potential-purchase-prices', {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ person_id: state.activePerson, listing_id: item.mls, price }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || data.error || 'Save failed');
+      const openMlsBeforeReload = state.openMapItem?.mls;
+      await reloadListingsPreservingMapView();
+      // Only re-show if the map card that was open is the one just
+      // edited, by mls, since reload replaces every item with a fresh
+      // object; a different open card must be left alone, not replaced.
+      if (openMlsBeforeReload === item.mls) {
+        const refreshed = findListing(item.mls);
+        if (refreshed) showMapCard(refreshed);
+      }
+    } catch (err) {
+      showFeedbackStatus(statusEl, err.message, true);
+    }
+  });
+  box.append(input, saveBtn, statusEl);
+
+  editBtn.addEventListener('click', () => {
+    if (box.hidden) { input.value = entry ? entry.price : ''; box.hidden = false; }
+    else { box.hidden = true; }
+  });
+
+  container.append(display, editBtn, box);
 }
 
 function showFeedbackStatus(el, text, isError) {
@@ -1170,8 +1302,20 @@ function populateCard(node, item) {
     ? `<span class="fin-label">${esc(summary.label)}</span><span class="fin-value">${esc(summary.value)}</span>`
     : '';
 
-  // Price
-  node.querySelector('.card-price').textContent = money(item.price);
+  // Price: list price, or potential purchase price when the toggle says
+  // so and one has actually been entered for this listing. Falls back to
+  // list price otherwise, visibly, never silently.
+  {
+    const effective = effectivePrice(item);
+    const priceEl = node.querySelector('.card-price');
+    priceEl.innerHTML = effective.isFallback
+      ? `${esc(money(effective.value))} <span class="price-fallback-note">(list price, no potential price entered)</span>`
+      : esc(money(effective.value));
+  }
+
+  // Potential purchase price editor: shared across the group, not per
+  // person, edit affordance directly below the price it can override.
+  buildPotentialPriceEditor(node, item);
 
   // Group sentiment row (display only, see groupSentimentChip/buyerHeadline)
   {
