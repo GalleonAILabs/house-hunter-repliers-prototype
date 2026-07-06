@@ -901,6 +901,247 @@ def normalize_poc(p: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# CMHC Mortgage Loan Insurance premium tiers, Homeowner Loans (owner-
+# occupied, 1-4 units), fetched directly from CMHC's own published table,
+# not a secondary source, since blog aggregators disagreed with each
+# other on the exact tier percentages:
+# https://www.cmhc-schl.gc.ca/professionals/project-funding-and-mortgage-financing/mortgage-loan-insurance/mortgage-loan-insurance-homeownership-programs/premium-information-for-homeowner-and-small-rental-loans
+# (fetched 2026-07-06). Each tuple is (ltv upper bound inclusive, premium
+# pct of the insured loan amount). The "non-traditional down payment"
+# 4.50% variant for the 90.01-95% tier is not modeled here, since this
+# app has no field distinguishing a borrowed down payment source from a
+# traditional one.
+CMHC_PREMIUM_TIERS: list[tuple[float, float]] = [
+    (0.65, 0.60),
+    (0.75, 1.70),
+    (0.80, 2.40),
+    (0.85, 2.80),
+    (0.90, 3.10),
+    (0.95, 4.00),
+]
+# "An amortization period beyond 25 years is subject to a 0.20% surcharge."
+# Same CMHC source as above.
+CMHC_EXTENDED_AMORTIZATION_SURCHARGE_PCT = 0.20
+# "Premiums in Quebec, Ontario and Saskatchewan are subject to provincial
+# sales tax. The provincial sales tax cannot be added to the loan
+# amount." Same CMHC source as above; Ontario's PST rate is 8%.
+ONTARIO_PST_ON_PREMIUM_PCT = 8.0
+
+# Ontario provincial Land Transfer Tax marginal brackets, residential,
+# fetched directly from Ontario's own published rate table:
+# https://www.ontario.ca/document/land-transfer-tax/calculating-land-transfer-tax
+# (fetched 2026-07-06). Each tuple is (bracket upper bound, marginal rate
+# pct applied to the slice of price within that bracket only). The final
+# tuple's upper bound is None, meaning no upper bound.
+ONTARIO_LTT_BRACKETS: list[tuple[float | None, float]] = [
+    (55_000, 0.5),
+    (250_000, 1.0),
+    (400_000, 1.5),
+    (2_000_000, 2.0),
+    (None, 2.5),
+]
+# https://www.ontario.ca/document/land-transfer-tax/land-transfer-tax-refunds-first-time-homebuyers
+# (fetched 2026-07-06): "the maximum amount of the refund is $4,000."
+ONTARIO_LTT_FIRST_TIME_BUYER_REBATE_MAX = 4_000.0
+
+# Toronto Municipal Land Transfer Tax marginal brackets, residential (one
+# or two single family residences), fetched directly from Toronto's own
+# published rate table, effective April 1, 2026:
+# https://www.toronto.ca/services-payments/property-taxes-utilities/municipal-land-transfer-tax-mltt/municipal-land-transfer-tax-mltt-rates-and-fees/
+# (fetched 2026-07-06). This has more brackets than the Ontario provincial
+# table above (luxury tiers beyond $2,000,000, up to 8.60% over
+# $20,000,000), confirmed by reading Toronto's own published table
+# directly rather than assuming it mirrors the provincial structure.
+TORONTO_MLTT_BRACKETS: list[tuple[float | None, float]] = [
+    (55_000, 0.5),
+    (250_000, 1.0),
+    (400_000, 1.5),
+    (2_000_000, 2.0),
+    (3_000_000, 2.5),
+    (4_000_000, 4.40),
+    (5_000_000, 5.45),
+    (10_000_000, 6.50),
+    (20_000_000, 7.55),
+    (None, 8.60),
+]
+# https://www.toronto.ca/services-payments/property-taxes-utilities/municipal-land-transfer-tax-mltt/municipal-land-transfer-tax-mltt-rebate-opportunities/
+# (fetched 2026-07-06): "up to $4,475.00"
+TORONTO_MLTT_FIRST_TIME_BUYER_REBATE_MAX = 4_475.0
+
+
+def marginal_bracket_tax(price: float, brackets: list[tuple[float | None, float]]) -> float:
+    """Standard marginal-bracket tax: each bracket's rate applies only to
+    the slice of price inside that bracket, not the whole price once a
+    higher bracket is reached."""
+    tax = 0.0
+    lower = 0.0
+    for upper, rate in brackets:
+        if upper is None or price <= upper:
+            tax += max(0.0, price - lower) * (rate / 100)
+            break
+        tax += (upper - lower) * (rate / 100)
+        lower = upper
+    return tax
+
+
+def minimum_down_payment(price: float) -> float:
+    """Canada's federal minimum down payment rule: 5% on the portion of
+    price up to $500,000, 10% on the portion from $500,000 up to $1.5
+    million, 20% of the whole price at $1.5 million or above (insured
+    mortgages are not available at or above that threshold, so 20%
+    conventional financing is the practical minimum there)."""
+    if price <= 500_000:
+        return price * 0.05
+    if price < 1_500_000:
+        return 500_000 * 0.05 + (price - 500_000) * 0.10
+    return price * 0.20
+
+
+def cmhc_premium_pct(ltv: float, amortization_years: float) -> float:
+    """CMHC premium as a percent of the insured loan amount, selected by
+    loan-to-value tier, plus the extended-amortization surcharge when
+    amortization is beyond 25 years."""
+    for upper, tier_pct in CMHC_PREMIUM_TIERS:
+        if ltv <= upper + 1e-9:
+            return tier_pct + (CMHC_EXTENDED_AMORTIZATION_SURCHARGE_PCT if amortization_years > 25 else 0.0)
+    # Should be unreachable: the minimum-down-payment rule above always
+    # caps LTV at 95%. Fail loud rather than silently return a wrong
+    # premium if that invariant is ever broken.
+    raise ValueError(f"LTV {ltv} exceeds the insurable maximum of 95%")
+
+
+def monthly_mortgage_payment(principal: float, annual_rate_pct: float, amortization_years: float) -> float:
+    """Standard fixed-rate mortgage payment formula, monthly-compounding
+    approximation. Real Canadian mortgages compound semi-annually not in
+    advance, which differs slightly from this simplified monthly
+    convention; documented here as an approximation, not exact bank
+    math, same spirit as the disclaimer shown alongside it in the UI."""
+    monthly_rate = (annual_rate_pct / 100) / 12
+    n = amortization_years * 12
+    if monthly_rate == 0:
+        return principal / n
+    return principal * (monthly_rate * (1 + monthly_rate) ** n) / ((1 + monthly_rate) ** n - 1)
+
+
+def is_toronto_address(address: str | None) -> bool:
+    """No dedicated municipality field exists in the POC data (checked:
+    every key in the schema, none of them hold this). The address format
+    is always "street, municipality" though (confirmed: all 105 real
+    rows have exactly one comma), so this parses the same signal a human
+    would read off the address itself."""
+    if not address or "," not in address:
+        return False
+    municipality = address.rsplit(",", 1)[1].strip()
+    return municipality.lower() == "toronto"
+
+
+def _setting_float(settings: dict[str, str], key: str, default: float) -> float:
+    try:
+        return float(settings.get(key, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def compute_mortgage_breakdown(
+    price: float,
+    settings: dict[str, str],
+    is_toronto: bool,
+) -> dict[str, Any]:
+    """The full potential-purchase-price mortgage estimate: down payment
+    (with the legal minimum top-up rule), CMHC premium and its Ontario
+    PST if under 20% down, Ontario and (if applicable) Toronto land
+    transfer tax with first-time-buyer rebates, fixed closing costs, and
+    a recomputed Monthly PIT. Every figure here is computed against a
+    real published rate or bracket, not a placeholder, but it is still an
+    estimate: see the disclaimer surfaced alongside it in the UI."""
+    down_payment_pct = _setting_float(settings, "down_payment_pct", 10.0)
+    interest_rate_pct = _setting_float(settings, "interest_rate_pct", 5.0)
+    amortization_years = _setting_float(settings, "amortization_years", 30.0)
+    property_tax_pct = _setting_float(settings, "property_tax_pct", 1.0)
+    first_time_buyer = settings.get("first_time_buyer") == "true"
+
+    entered_down_payment = price * (down_payment_pct / 100)
+    required_minimum = minimum_down_payment(price)
+    topped_up = entered_down_payment < required_minimum
+    down_payment_amount = required_minimum if topped_up else entered_down_payment
+
+    insured_loan_amount = price - down_payment_amount
+    effective_down_payment_pct = down_payment_amount / price
+
+    cmhc_rate_pct = 0.0
+    cmhc_premium = 0.0
+    cmhc_pst = 0.0
+    cmhc_applies = effective_down_payment_pct < 0.20
+    if cmhc_applies:
+        ltv = insured_loan_amount / price
+        cmhc_rate_pct = cmhc_premium_pct(ltv, amortization_years)
+        cmhc_premium = insured_loan_amount * (cmhc_rate_pct / 100)
+        cmhc_pst = cmhc_premium * (ONTARIO_PST_ON_PREMIUM_PCT / 100)
+
+    financed_loan_amount = insured_loan_amount + cmhc_premium
+
+    ontario_ltt_before_rebate = marginal_bracket_tax(price, ONTARIO_LTT_BRACKETS)
+    ontario_rebate = min(ontario_ltt_before_rebate, ONTARIO_LTT_FIRST_TIME_BUYER_REBATE_MAX) if first_time_buyer else 0.0
+    ontario_ltt_after_rebate = ontario_ltt_before_rebate - ontario_rebate
+
+    toronto_ltt_before_rebate = 0.0
+    toronto_rebate = 0.0
+    toronto_ltt_after_rebate = 0.0
+    if is_toronto:
+        toronto_ltt_before_rebate = marginal_bracket_tax(price, TORONTO_MLTT_BRACKETS)
+        toronto_rebate = min(toronto_ltt_before_rebate, TORONTO_MLTT_FIRST_TIME_BUYER_REBATE_MAX) if first_time_buyer else 0.0
+        toronto_ltt_after_rebate = toronto_ltt_before_rebate - toronto_rebate
+
+    fixed_costs = {
+        "legalFees": _setting_float(settings, "legal_fees_flat", 1500.0),
+        "homeInspection": _setting_float(settings, "home_inspection_flat", 500.0),
+        "appraisal": _setting_float(settings, "appraisal_flat", 350.0),
+        "titleInsurance": _setting_float(settings, "title_insurance_flat", 300.0),
+    }
+    fixed_costs_total = sum(fixed_costs.values())
+
+    monthly_principal_interest = monthly_mortgage_payment(financed_loan_amount, interest_rate_pct, amortization_years)
+    monthly_property_tax = price * (property_tax_pct / 100) / 12
+    monthly_pit = monthly_principal_interest + monthly_property_tax
+
+    cost_to_close = down_payment_amount + cmhc_pst + ontario_ltt_after_rebate + toronto_ltt_after_rebate + fixed_costs_total
+
+    return {
+        "price": price,
+        "downPayment": {
+            "enteredPct": down_payment_pct,
+            "enteredAmount": round(entered_down_payment, 2),
+            "requiredMinimum": round(required_minimum, 2),
+            "toppedUp": topped_up,
+            "amount": round(down_payment_amount, 2),
+        },
+        "cmhc": {
+            "applies": cmhc_applies,
+            "premiumRatePct": round(cmhc_rate_pct, 2),
+            "premium": round(cmhc_premium, 2),
+            "pst": round(cmhc_pst, 2),
+        },
+        "ontarioLtt": {
+            "beforeRebate": round(ontario_ltt_before_rebate, 2),
+            "rebate": round(ontario_rebate, 2),
+            "afterRebate": round(ontario_ltt_after_rebate, 2),
+        },
+        "torontoLtt": {
+            "applies": is_toronto,
+            "beforeRebate": round(toronto_ltt_before_rebate, 2),
+            "rebate": round(toronto_rebate, 2),
+            "afterRebate": round(toronto_ltt_after_rebate, 2),
+        },
+        "fixedCosts": {k: round(v, 2) for k, v in fixed_costs.items()},
+        "fixedCostsTotal": round(fixed_costs_total, 2),
+        "costToClose": round(cost_to_close, 2),
+        "financedLoanAmount": round(financed_loan_amount, 2),
+        "monthlyPrincipalInterest": round(monthly_principal_interest, 2),
+        "monthlyPropertyTax": round(monthly_property_tax, 2),
+        "monthlyPit": round(monthly_pit, 2),
+    }
+
+
 def fetch_poc(params: dict[str, str]) -> dict[str, Any]:
     if not POC_DATA_PATH.exists():
         raise RuntimeError("POC data export is missing. Run scripts/export_poc.py first.")
@@ -916,6 +1157,41 @@ def fetch_poc(params: dict[str, str]) -> dict[str, Any]:
         "listings": filtered,
         "prototypeNote": "Existing House Hunter POC Google Sheet export, served locally and not committed.",
     }
+
+
+def enrich_with_potential_prices(listings: list[dict[str, Any]], conn: sqlite3.Connection) -> None:
+    """Attaches potentialPurchasePrice (always, when entered) and
+    mortgageBreakdown (only when the entered price differs from list
+    price) to each listing. Mutates listings in place. Every listing with
+    no potential price entered, or where it equals list price exactly,
+    is left with pitNum/dueNum/condoFeeNum exactly as they already are;
+    nothing here ever touches those fields."""
+    listing_ids = [item["mls"] for item in listings if item.get("mls")]
+    if not listing_ids:
+        return
+    potential_prices = potential_prices_for_listings(conn, listing_ids)
+    if not potential_prices:
+        return
+
+    settings_rows = conn.execute("SELECT key, value FROM household_settings").fetchall()
+    settings = dict(HOUSEHOLD_SETTING_DEFAULTS)
+    settings.update({row["key"]: row["value"] for row in settings_rows})
+
+    for item in listings:
+        entry = potential_prices.get(item["mls"])
+        if entry is None:
+            continue
+        potential_price = entry["price"]
+        item["potentialPurchasePrice"] = {
+            "price": potential_price,
+            "updatedBy": entry["updated_by"],
+            "updatedByName": entry["updated_by_name"],
+            "updatedAt": entry["updated_at"],
+        }
+        if potential_price == item.get("price"):
+            continue
+        is_toronto = is_toronto_address(item.get("address"))
+        item["mortgageBreakdown"] = compute_mortgage_breakdown(potential_price, settings, is_toronto)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -969,7 +1245,13 @@ class Handler(BaseHTTPRequestHandler):
                 })
                 return
             if parsed.path == "/api/poc-listings":
-                self.send_json(fetch_poc(params))
+                data = fetch_poc(params)
+                conn = get_db()
+                try:
+                    enrich_with_potential_prices(data["listings"], conn)
+                finally:
+                    conn.close()
+                self.send_json(data)
                 return
             if parsed.path == "/api/people":
                 if not require_auth(self):

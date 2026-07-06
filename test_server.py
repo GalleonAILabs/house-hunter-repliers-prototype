@@ -735,6 +735,196 @@ class PotentialPurchasePriceTests(ServerTestCase):
             conn.close()
         self.assertEqual(count, 1)
 
+    def test_poc_listings_enriched_when_potential_price_differs_from_list(self) -> None:
+        # POC-2 has no priceNum in the fixture (list price is None), so any
+        # entered potential price differs from it and the breakdown must
+        # appear.
+        self.request(
+            "POST", "/api/potential-purchase-prices", token=self.TOKEN,
+            body={"person_id": 1, "listing_id": "POC-2", "price": 450000},
+        )
+        status, data = self.request("GET", "/api/poc-listings")
+        self.assertEqual(status, 200)
+        item = next(l for l in data["listings"] if l["mls"] == "POC-2")
+        self.assertEqual(item["potentialPurchasePrice"]["price"], 450000)
+        self.assertEqual(item["potentialPurchasePrice"]["updatedByName"], "Mark")
+        self.assertIn("mortgageBreakdown", item)
+        self.assertGreater(item["mortgageBreakdown"]["monthlyPit"], 0)
+
+    def test_poc_listings_no_breakdown_when_potential_price_equals_list_price(self) -> None:
+        fixture = json.loads(json.dumps(FIXTURE_POC))
+        fixture["properties"][0]["priceNum"] = 450000
+        self.poc_path.write_text(json.dumps(fixture))
+
+        self.request(
+            "POST", "/api/potential-purchase-prices", token=self.TOKEN,
+            body={"person_id": 1, "listing_id": "POC-2", "price": 450000},
+        )
+        status, data = self.request("GET", "/api/poc-listings")
+        self.assertEqual(status, 200)
+        item = next(l for l in data["listings"] if l["mls"] == "POC-2")
+        self.assertEqual(item["price"], 450000)
+        # Still surfaced so the edit UI knows a value was entered, just no
+        # recomputed breakdown, since it matches list price exactly.
+        self.assertEqual(item["potentialPurchasePrice"]["price"], 450000)
+        self.assertNotIn("mortgageBreakdown", item)
+
+    def test_poc_listings_untouched_when_no_potential_price_entered(self) -> None:
+        fixture = json.loads(json.dumps(FIXTURE_POC))
+        fixture["properties"][0]["priceNum"] = 450000
+        fixture["properties"][0]["pitNum"] = 2200
+        fixture["properties"][0]["dueNum"] = 30000
+        self.poc_path.write_text(json.dumps(fixture))
+
+        status, data = self.request("GET", "/api/poc-listings")
+        self.assertEqual(status, 200)
+        item = next(l for l in data["listings"] if l["mls"] == "POC-2")
+        self.assertNotIn("potentialPurchasePrice", item)
+        self.assertNotIn("mortgageBreakdown", item)
+        self.assertEqual(item["pitNum"], 2200)
+        self.assertEqual(item["dueNum"], 30000)
+
+
+DEFAULT_MORTGAGE_SETTINGS = {
+    "first_time_buyer": "true",
+    "down_payment_pct": "10",
+    "interest_rate_pct": "5.0",
+    "amortization_years": "30",
+    "property_tax_pct": "1.0",
+    "legal_fees_flat": "1500",
+    "home_inspection_flat": "500",
+    "appraisal_flat": "350",
+    "title_insurance_flat": "300",
+}
+
+
+class MortgageMathTests(unittest.TestCase):
+    """Pure functions, no DB or server needed. Every rate and bracket here
+    was fetched directly from CMHC's, Ontario's, and Toronto's own
+    published pages (see the source comments in server.py), not a
+    secondary source."""
+
+    def test_marginal_bracket_tax_ontario_ltt_known_value(self) -> None:
+        # 55000*0.005 + 195000*0.01 + 150000*0.015 = 275 + 1950 + 2250 = 4475
+        tax = server.marginal_bracket_tax(400_000, server.ONTARIO_LTT_BRACKETS)
+        self.assertAlmostEqual(tax, 4475.0, places=2)
+
+    def test_marginal_bracket_tax_below_first_bracket(self) -> None:
+        tax = server.marginal_bracket_tax(50_000, server.ONTARIO_LTT_BRACKETS)
+        self.assertAlmostEqual(tax, 50_000 * 0.005, places=2)
+
+    def test_minimum_down_payment_under_500k_is_five_pct(self) -> None:
+        self.assertAlmostEqual(server.minimum_down_payment(400_000), 20_000.0, places=2)
+
+    def test_minimum_down_payment_between_500k_and_1_5m(self) -> None:
+        # 500000*0.05 + 300000*0.10 = 25000 + 30000 = 55000
+        self.assertAlmostEqual(server.minimum_down_payment(800_000), 55_000.0, places=2)
+
+    def test_minimum_down_payment_at_exactly_1_5m_is_twenty_pct_of_whole_price(self) -> None:
+        self.assertAlmostEqual(server.minimum_down_payment(1_500_000), 300_000.0, places=2)
+
+    def test_minimum_down_payment_above_1_5m_is_twenty_pct_of_whole_price(self) -> None:
+        self.assertAlmostEqual(server.minimum_down_payment(2_000_000), 400_000.0, places=2)
+
+    def test_cmhc_premium_pct_tier_boundaries(self) -> None:
+        self.assertEqual(server.cmhc_premium_pct(0.65, 25), 0.60)
+        self.assertEqual(server.cmhc_premium_pct(0.6501, 25), 1.70)
+        self.assertEqual(server.cmhc_premium_pct(0.75, 25), 1.70)
+        self.assertEqual(server.cmhc_premium_pct(0.80, 25), 2.40)
+        self.assertEqual(server.cmhc_premium_pct(0.85, 25), 2.80)
+        self.assertEqual(server.cmhc_premium_pct(0.90, 25), 3.10)
+        self.assertEqual(server.cmhc_premium_pct(0.95, 25), 4.00)
+
+    def test_cmhc_premium_pct_above_95_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            server.cmhc_premium_pct(0.96, 25)
+
+    def test_cmhc_amortization_surcharge_applies_beyond_25_years(self) -> None:
+        self.assertEqual(server.cmhc_premium_pct(0.90, 25), 3.10)
+        self.assertAlmostEqual(server.cmhc_premium_pct(0.90, 30), 3.30, places=6)
+
+    def test_monthly_mortgage_payment_zero_rate_is_exact(self) -> None:
+        self.assertAlmostEqual(server.monthly_mortgage_payment(120_000, 0.0, 10), 1000.0, places=2)
+
+    def test_monthly_mortgage_payment_matches_known_reference(self) -> None:
+        # 300000 loan, 5% annual, 25 year amortization is a commonly cited
+        # reference case landing in the mid 1700s per month depending on
+        # the exact compounding convention used.
+        payment = server.monthly_mortgage_payment(300_000, 5.0, 25)
+        self.assertGreater(payment, 1700)
+        self.assertLess(payment, 1800)
+
+    def test_is_toronto_address_true_for_toronto(self) -> None:
+        self.assertTrue(server.is_toronto_address("100 Queen St W, Toronto"))
+
+    def test_is_toronto_address_case_insensitive(self) -> None:
+        self.assertTrue(server.is_toronto_address("100 Queen St W, TORONTO"))
+
+    def test_is_toronto_address_false_for_other_gta_municipality(self) -> None:
+        self.assertFalse(server.is_toronto_address("1684 Vaughan Dr, Caledon"))
+        self.assertFalse(server.is_toronto_address("1 Meander Clse, Mississauga"))
+
+    def test_is_toronto_address_false_for_malformed_address(self) -> None:
+        self.assertFalse(server.is_toronto_address("no comma here"))
+        self.assertFalse(server.is_toronto_address(""))
+        self.assertFalse(server.is_toronto_address(None))
+
+    def test_compute_mortgage_breakdown_full_case_not_toronto(self) -> None:
+        result = server.compute_mortgage_breakdown(400_000, DEFAULT_MORTGAGE_SETTINGS, is_toronto=False)
+        self.assertEqual(result["downPayment"]["amount"], 40_000.0)
+        self.assertFalse(result["downPayment"]["toppedUp"])
+        self.assertTrue(result["cmhc"]["applies"])
+        self.assertAlmostEqual(result["cmhc"]["premiumRatePct"], 3.30, places=6)  # 90% LTV tier + 30yr surcharge
+        self.assertAlmostEqual(result["cmhc"]["premium"], 360_000 * 0.033, places=2)
+        self.assertAlmostEqual(result["cmhc"]["pst"], result["cmhc"]["premium"] * 0.08, places=2)
+        self.assertAlmostEqual(result["ontarioLtt"]["beforeRebate"], 4475.0, places=2)
+        self.assertEqual(result["ontarioLtt"]["rebate"], 4000.0)
+        self.assertAlmostEqual(result["ontarioLtt"]["afterRebate"], 475.0, places=2)
+        self.assertFalse(result["torontoLtt"]["applies"])
+        self.assertEqual(result["torontoLtt"]["afterRebate"], 0.0)
+        self.assertEqual(result["fixedCostsTotal"], 2650.0)
+        self.assertGreater(result["monthlyPit"], result["monthlyPrincipalInterest"])
+
+    def test_compute_mortgage_breakdown_down_payment_topped_up(self) -> None:
+        # 3% entered on an $800,000 listing is below the required blended
+        # minimum ($55,000, 6.875%), so the minimum must be used instead,
+        # flagged, not silently understated.
+        settings = dict(DEFAULT_MORTGAGE_SETTINGS, down_payment_pct="3")
+        result = server.compute_mortgage_breakdown(800_000, settings, is_toronto=False)
+        self.assertTrue(result["downPayment"]["toppedUp"])
+        self.assertAlmostEqual(result["downPayment"]["enteredAmount"], 24_000.0, places=2)
+        self.assertAlmostEqual(result["downPayment"]["requiredMinimum"], 55_000.0, places=2)
+        self.assertAlmostEqual(result["downPayment"]["amount"], 55_000.0, places=2)
+
+    def test_compute_mortgage_breakdown_no_cmhc_at_twenty_pct_down(self) -> None:
+        settings = dict(DEFAULT_MORTGAGE_SETTINGS, down_payment_pct="20")
+        result = server.compute_mortgage_breakdown(500_000, settings, is_toronto=False)
+        self.assertFalse(result["cmhc"]["applies"])
+        self.assertEqual(result["cmhc"]["premium"], 0.0)
+        self.assertEqual(result["cmhc"]["pst"], 0.0)
+
+    def test_compute_mortgage_breakdown_toronto_adds_municipal_ltt(self) -> None:
+        # Toronto MLTT on $600,000: 275 + 1950 + 2250 + (200000*0.02=4000)
+        # = 8475, same bracket shape as Ontario's up to $2,000,000, an
+        # extra tax on top of the provincial one, not instead of it.
+        result = server.compute_mortgage_breakdown(600_000, DEFAULT_MORTGAGE_SETTINGS, is_toronto=True)
+        self.assertTrue(result["torontoLtt"]["applies"])
+        self.assertAlmostEqual(result["torontoLtt"]["beforeRebate"], 8475.0, places=2)
+        # The $4,475 rebate cap is smaller than the bill here, so it only
+        # partially offsets it, not silently to zero.
+        self.assertEqual(result["torontoLtt"]["rebate"], 4475.0)
+        self.assertAlmostEqual(result["torontoLtt"]["afterRebate"], 4000.0, places=2)
+        # Both the provincial and municipal LTT apply at once in Toronto,
+        # each with its own separate rebate.
+        self.assertGreater(result["ontarioLtt"]["beforeRebate"], 0)
+
+    def test_compute_mortgage_breakdown_not_first_time_buyer_no_rebate(self) -> None:
+        settings = dict(DEFAULT_MORTGAGE_SETTINGS, first_time_buyer="false")
+        result = server.compute_mortgage_breakdown(400_000, settings, is_toronto=True)
+        self.assertEqual(result["ontarioLtt"]["rebate"], 0.0)
+        self.assertEqual(result["torontoLtt"]["rebate"], 0.0)
+        self.assertAlmostEqual(result["ontarioLtt"]["afterRebate"], result["ontarioLtt"]["beforeRebate"], places=2)
+
 
 if __name__ == "__main__":
     unittest.main()
