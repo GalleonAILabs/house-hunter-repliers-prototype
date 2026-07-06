@@ -121,6 +121,7 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .headline-vetoed{color:var(--red)}
 .headline-aligned{color:var(--green)}
 .headline-split{color:var(--muted)}
+.headline-waiting{color:var(--muted)}
 .group-chip{font-size:12px;cursor:default}
 .chip-reject{background:#fff0ee;border-color:#ffc8c1;color:var(--red)}
 .chip-rated{background:#eaf5ec;border-color:#bfe2c7;color:var(--green)}

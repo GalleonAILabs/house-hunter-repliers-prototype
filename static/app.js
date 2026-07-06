@@ -976,11 +976,25 @@ function groupSentimentChip(person, f) {
   return `<span class="chip group-chip ${stateClass}${advisor ? ' chip-advisor' : ''}" title="${esc(person.name)} (${esc(person.role)})">${mark}${label}</span>`;
 }
 
+function firstName(name) {
+  return (name || '').trim().split(/\s+/)[0] || name;
+}
+
 // Buyer-only headline. Advisors show as chips above but never move this word.
-function buyerHeadline(buyerFeedback) {
+// `buyers` is the dynamic list of people with role === 'buyer'; `feedbackByPerson`
+// maps person id to their feedback for this listing, same map groupSentimentChip uses.
+function buyerHeadline(buyers, feedbackByPerson) {
+  const buyerFeedback = buyers.map(p => feedbackByPerson.get(p.id) || null);
   if (buyerFeedback.some(f => f?.status === 'rejected')) return { word: 'Vetoed', cls: 'headline-vetoed' };
-  if (buyerFeedback.length && buyerFeedback.every(f => f?.rating != null)) return { word: 'Aligned', cls: 'headline-aligned' };
-  return { word: 'Split', cls: 'headline-split' };
+  if (buyers.length && buyerFeedback.every(f => f?.rating != null)) return { word: 'Aligned', cls: 'headline-aligned' };
+  // Zero-buyers safety default: no buyer data exists to summarize, so never
+  // imply a consensus (or a "waiting on" list) that doesn't exist.
+  if (!buyers.length) return { word: 'Split', cls: 'headline-split' };
+  const missing = buyers.filter(p => (feedbackByPerson.get(p.id) || null)?.rating == null);
+  const word = missing.length <= 2
+    ? 'Waiting on ' + missing.map(p => firstName(p.name)).join(' and ')
+    : 'Waiting on ' + missing.length;
+  return { word, cls: 'headline-waiting' };
 }
 
 function populateCard(node, item) {
@@ -1049,10 +1063,8 @@ function populateCard(node, item) {
         const feedbackList = state.feedback[item.mls] || [];
         const feedbackByPerson = new Map(feedbackList.map(f => [f.person_id, f]));
         const chips = state.people.map(p => groupSentimentChip(p, feedbackByPerson.get(p.id) || null));
-        const buyerFeedback = state.people
-          .filter(p => p.role === 'buyer')
-          .map(p => feedbackByPerson.get(p.id) || null);
-        const headline = buyerHeadline(buyerFeedback);
+        const buyers = state.people.filter(p => p.role === 'buyer');
+        const headline = buyerHeadline(buyers, feedbackByPerson);
         groupEl.innerHTML = `<span class="group-headline ${headline.cls}">${esc(headline.word)}</span>` + chips.join('');
       }
     }
