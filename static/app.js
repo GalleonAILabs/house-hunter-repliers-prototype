@@ -582,14 +582,11 @@ function initMap() {
     if (state.rawListings.length) applyFiltersAndRender();
   });
 
-  // Background click (i.e. not on a pin/cluster/layer feature) closes the
-  // card + filter panel, same as the old Leaflet map-click behaviour.
-  state.map.on('click', e => {
-    const hits = state.map.queryRenderedFeatures(e.point, {
-      layers: MAP_LAYER_IDS.filter(id => state.map.getLayer(id)),
-    });
-    if (!hits.length) { closeMapCard(); closeFilters(); }
-  });
+  // Background click (i.e. not on a pin/cluster/layer feature) is handled
+  // by the global click-outside-to-dismiss listener below, same as any
+  // other click outside an open panel. Feature clicks that open something
+  // (a pin, a cluster) stop propagation so that same click does not also
+  // trigger the outside-click close on what it just opened.
 
   window.addEventListener('resize', () => state.map?.resize());
 }
@@ -631,8 +628,14 @@ function setupMapSources() {
     },
   });
   map.on('click', 'listings-circles', e => {
+    // Stops this click from also reaching the global click-outside-to-
+    // dismiss listener, which would otherwise immediately close the map
+    // card this same click just opened.
+    e.originalEvent?.stopPropagation();
     const item = findListing(e.features[0].properties.mls);
-    if (item) { showMapCard(item); closeFilters(); }
+    // Closes Filters/Layers/Legend the same as any other outside click
+    // would, but never mapCard, since this click is the one opening it.
+    if (item) { showMapCard(item); closeOutsideDetailsPanels(document.body); }
   });
   map.on('mouseenter', 'listings-circles', () => { map.getCanvas().style.cursor = 'pointer'; });
   map.on('mouseleave', 'listings-circles', () => { map.getCanvas().style.cursor = ''; });
@@ -662,6 +665,7 @@ function setupMapSources() {
     paint: { 'text-color': '#18211f' },
   });
   map.on('click', 'clusters-circles', e => {
+    e.originalEvent?.stopPropagation();
     const p = e.features[0].properties;
     if (p.swLng != null) {
       map.fitBounds([[p.swLng, p.swLat], [p.neLng, p.neLat]], { padding: 20 });
@@ -941,9 +945,26 @@ function showMapCard(item) {
 
 function closeMapCard() { $('mapCard').hidden = true; state.openMapItem = null; }
 
-function closeFilters() {
-  const fb = $('filterbox');
-  if (fb) fb.open = false;
+// ─── Click-outside-to-dismiss ──────────────────────────────────────────────────
+// One consistent rule for every open dropdown/panel: Filters, the map Layers
+// panel, the map Legend, and the map card popup all close on a click outside
+// themselves, standard click-outside behaviour, applied the same way to all
+// four instead of each having its own bespoke dismiss logic. A click on a
+// feature that opens one of these (a listing pin opening the map card, for
+// example) calls e.originalEvent.stopPropagation() in its own handler so that
+// same click is never seen here and cannot immediately close what it just
+// opened. The settings drawer is intentionally not included here: it already
+// has its own dedicated overlay-click-to-close pattern.
+function closeOutsideDetailsPanels(clickTarget) {
+  [$('filterbox'), $('mapLayersPanel'), $('mapLegend')].forEach(el => {
+    if (el && el.open && !el.contains(clickTarget)) el.open = false;
+  });
+}
+
+function closeOutsidePanels(clickTarget) {
+  closeOutsideDetailsPanels(clickTarget);
+  const mapCard = $('mapCard');
+  if (mapCard && !mapCard.hidden && !mapCard.contains(clickTarget)) closeMapCard();
 }
 
 // ─── Card builder ─────────────────────────────────────────────────────────────
@@ -1432,6 +1453,7 @@ window.addEventListener('DOMContentLoaded', () => {
   $('settingsClose').addEventListener('click', closeSettings);
   $('settingsOverlay').addEventListener('click', closeSettings);
   $('mapCardClose').addEventListener('click', closeMapCard);
+  document.addEventListener('click', e => closeOutsidePanels(e.target));
   $('settingsSelectAll').addEventListener('click', () => { CARD_FIELDS.forEach(f => cardSettings[f.key] = true); saveSettings(); buildSettingsPanel(); applyCardVisibility(); });
   $('settingsSelectNone').addEventListener('click', () => { CARD_FIELDS.forEach(f => { if (f.key !== 'actions') cardSettings[f.key] = false; }); saveSettings(); buildSettingsPanel(); applyCardVisibility(); });
   $('settingsReset').addEventListener('click', () => { localStorage.removeItem(SETTINGS_KEY); cardSettings = loadSettings(); saveSettings(); buildSettingsPanel(); applyCardVisibility(); });

@@ -107,6 +107,8 @@ Apple HIG and Android both converge near 44×44pt / 48×48dp. This app's floor:
 
 8. **Any fixed bar pinned to the bottom must reserve its space in the scroll container beneath it.** Use `--bottom-bar-height`, composed as `calc(var(--bottom-bar-height) + 24px)`, the same pattern `--hdr-h` already uses at the top (`calc(var(--hdr-h) + 10px)` for the filter panel). A flat guessed padding number drifts out of sync with the bar's real rendered height the moment the bar's content changes; a token composed from the bar's actual height cannot drift.
 
+9. **Every open dropdown or panel closes on a click outside itself.** Filters, the map Layers panel, the map Legend, and the map card popup all use one shared `closeOutsidePanels()` click-outside listener on `document`, not four separate bespoke implementations. A click on a feature that opens one of these (a listing pin opening the map card) must call `e.originalEvent.stopPropagation()` in its own Mapbox click handler so that same click, which still bubbles to `document`, cannot immediately close what it just opened. The settings drawer is the one exception: it already had its own dedicated overlay-click-to-close pattern before this rule existed, and that pattern already satisfies the same click-outside expectation, so it was left as-is rather than folded in.
+
 ### Layout dimension tokens
 
 | Token | Value | Holds | Composed as |
