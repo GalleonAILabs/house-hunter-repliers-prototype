@@ -246,15 +246,22 @@ function matchesStatusFilter(listingId, value) {
 }
 
 // ─── Keyword search (live, client-side, no Apply needed) ─────────────────────
+// T12: match each whitespace-separated word independently (AND across
+// words), not the whole typed phrase as one exact substring. The haystack
+// is separate fields joined with a single space, so a query typed the
+// natural way (e.g. "mill st essa" for "18 Mill St, Essa") previously
+// failed outright because the real string has a comma the query does not:
+// "18 mill st, essa" does not contain the literal substring "mill st essa".
 function matchesKeyword(item, keyword) {
   if (!keyword) return true;
+  const words = keyword.split(/\s+/).filter(Boolean);
   const feedbackList = state.feedback[item.mls] || [];
   const hay = [
     item.address, item.city, item.state, item.propertyType, item.style,
     item.brokerage, item.goStation, item.features,
     ...feedbackList.map(f => f.note), ...feedbackList.map(f => f.research_note),
   ].filter(Boolean).join(' ').toLowerCase();
-  return hay.includes(keyword);
+  return words.every(word => hay.includes(word));
 }
 
 // ─── Numeric range helpers (PIT / due-at-closing, client-side only — POC-only fields) ──
