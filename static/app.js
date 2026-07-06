@@ -129,6 +129,20 @@ function effectivePrice(item) {
   return { value: item.price, isFallback: mode === 'potential', mode };
 }
 
+// Same figure the Financial section on the card actually renders (see
+// renderCard's `if (item.mortgageBreakdown)` branch): the recomputed
+// value whenever a potential purchase price was entered and differs
+// from list price, regardless of the list/potential headline toggle
+// (that toggle only switches the card's headline price, not this
+// breakdown -- see docs/design-spec.md). Falls back to the flat
+// pre-entered figure exactly when the card does.
+function effectivePitNum(item) {
+  return item.mortgageBreakdown ? item.mortgageBreakdown.monthlyPit : item.pitNum;
+}
+function effectiveDueNum(item) {
+  return item.mortgageBreakdown ? item.mortgageBreakdown.costToClose : item.dueNum;
+}
+
 const CARD_FIELDS = [
   { key: 'summaryValue', label: 'Card summary value',      desc: 'One headline number: Price, Cost to close, or PIT', defaultOn: true },
   { key: 'price',     label: 'Price',                     desc: 'Asking price',                      defaultOn: true  },
@@ -440,8 +454,8 @@ function filterByFeedback(listings) {
   return listings.filter(item => {
     if (!matchesStatusFilter(item.mls, statusVal)) return false;
     if (!matchesKeyword(item, keyword)) return false;
-    if (!matchesRange(item.pitNum, 'minPit', 'maxPit')) return false;
-    if (!matchesRange(item.dueNum, 'minDue', 'maxDue')) return false;
+    if (!matchesRange(effectivePitNum(item), 'minPit', 'maxPit')) return false;
+    if (!matchesRange(effectiveDueNum(item), 'minDue', 'maxDue')) return false;
     if (!matchesRangeDirect(item.sqft, 'minSqft', 'maxSqft')) return false;
     if (!matchesRangeDirect(item.acres, 'minAcres', 'maxAcres')) return false;
     if (!matchesRangeDirect(item.goMin, '', 'maxCommute')) return false;
