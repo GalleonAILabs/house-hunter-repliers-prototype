@@ -244,3 +244,25 @@ re-evaluates all active filters against the fresh data with no new
 filter logic needed. If the listing whose map card is open no longer
 passes the filter, the card now closes instead of showing a card for a
 pin that just disappeared.
+
+## T17: whose rating to show on the pin
+
+**Ambiguity:** the instructions say to show "the numeric star rating"
+on map pins, sourced from existing feedback data, but a listing can have
+a different rating from every buyer group member, and a pin has no room
+to show more than one number.
+
+**Default chosen:** show the active person's own rating (the same "I
+am" actor already driving the personal-rating filter from T16 and the
+"My rating" sort option), rendered as a small white number on top of the
+pin's color, with a dark halo for legibility against any pin color. No
+label at all when no one is selected as "I am," or when the active
+person hasn't rated that listing yet, same as every other
+active-person-scoped feature in the app.
+
+**Why:** every other place ratings are personalized in this app (the
+per-person filter checkboxes, the "My rating" sort, the reject/status
+filter) is scoped to the active actor, not an aggregate. Showing a
+single average or "any" rating on the pin would be a new, inconsistent
+concept; showing the active person's own number keeps the map
+consistent with how the rest of the app already treats "whose rating."

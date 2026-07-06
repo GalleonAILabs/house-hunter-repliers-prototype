@@ -569,6 +569,26 @@ function setupMapSources() {
       'circle-stroke-color': '#fff',
     },
   });
+  // T17: the active person's own star rating, shown on their pin. Empty
+  // string renders nothing, so unrated listings and "no one selected yet"
+  // both stay a plain color-only pin.
+  map.addLayer({
+    id: 'listings-labels',
+    type: 'symbol',
+    source: 'listings',
+    layout: {
+      'text-field': ['get', 'ratingLabel'],
+      'text-size': 11,
+      'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
+      'text-allow-overlap': true,
+      'text-ignore-placement': true,
+    },
+    paint: {
+      'text-color': '#fff',
+      'text-halo-color': 'rgba(0,0,0,0.45)',
+      'text-halo-width': 1,
+    },
+  });
   map.on('click', 'listings-circles', e => {
     const item = findListing(e.features[0].properties.mls);
     if (item) { showMapCard(item); closeFilters(); }
@@ -844,10 +864,11 @@ function refreshMap(list) {
   } else {
     list.forEach(item => {
       if (item.lat == null || item.lng == null) return;
+      const myRating = personFeedbackFor(item.mls, state.activePerson)?.rating;
       listingsFC.features.push({
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [item.lng, item.lat] },
-        properties: { mls: item.mls, color: markerColor(item) },
+        properties: { mls: item.mls, color: markerColor(item), ratingLabel: myRating != null ? String(myRating) : '' },
       });
       bounds.push([item.lng, item.lat]);
     });
