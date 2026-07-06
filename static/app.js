@@ -91,7 +91,7 @@ async function loadConfig() {
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────
-const state = { map: null, mapReady: false, rawListings: [], listings: [], activeView: 'map', people: [], activePerson: null, feedback: {}, openMapItem: null, source: 'poc', sourceCount: 0, clusters: [], poi: [] };
+const state = { map: null, mapReady: false, rawListings: [], listings: [], activeView: 'map', people: [], activePerson: null, feedback: {}, openMapItem: null, source: 'poc', sourceCount: 0, clusters: [], poi: [], householdSettings: {} };
 let cardSettings = loadSettings();
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -822,6 +822,49 @@ async function loadPoi() {
   refreshPoiLayer();
 }
 
+// Household-level settings: one shared value per key across the whole
+// buyer group, not per person, unlike everything else that's "I am"
+// scoped. Not used in any calculation yet.
+async function loadHouseholdSettings() {
+  try {
+    const res = await fetch('/api/household-settings', { headers: authHeaders() });
+    if (res.ok) {
+      const data = await res.json();
+      state.householdSettings = data.settings || {};
+    }
+  } catch (err) {
+    console.error(err);
+  }
+  const cb = $('firstTimeBuyerToggle');
+  if (cb) cb.checked = state.householdSettings.first_time_buyer === 'true';
+}
+
+function bindHouseholdToggle(id, key) {
+  const cb = $(id);
+  if (!cb) return;
+  cb.addEventListener('change', async () => {
+    if (!state.activePerson) {
+      cb.checked = !cb.checked;
+      alert('Select who you are (top right) first.');
+      return;
+    }
+    const value = String(cb.checked);
+    try {
+      const res = await fetch('/api/household-settings', {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ person_id: state.activePerson, key, value }),
+      });
+      if (!res.ok) throw new Error('save failed');
+      state.householdSettings[key] = value;
+    } catch (err) {
+      console.error(err);
+      cb.checked = !cb.checked;
+      alert('Could not save the setting. Try again.');
+    }
+  });
+}
+
 // Search-then-drop, using Mapbox's Geocoding API (same token as the map
 // tiles, see DECISIONS.md T14 for why this is a new external call and why
 // it was judged low-risk enough to add directly rather than stopping to ask).
@@ -1410,9 +1453,11 @@ window.addEventListener('DOMContentLoaded', () => {
       try { initMap(); } catch (err) { console.error('Map init failed:', err); }
       loadPeople().then(applyFiltersAndRender);
       loadPoi();
+      loadHouseholdSettings();
       return load();
     })
     .catch(showError);
+  bindHouseholdToggle('firstTimeBuyerToggle', 'first_time_buyer');
   $('addPoiBtn')?.addEventListener('click', () => addPoiPin().catch(err => console.error(err)));
   $('layerPoiPins')?.addEventListener('change', e => {
     if (!state.mapReady) return;

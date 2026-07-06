@@ -83,31 +83,64 @@ metro-scoped) is the realistic number. `PROJECT_BRIEF.md`/the design doc's
 
 **Depends on:** Nothing; `REPLIERS_API_KEY` is now in `.env`.
 
-## Canadian vs US mortgage calculator selection during onboarding
+## No real mortgage calculator exists in this app yet
 
-**What:** The mortgage/PIT calculator currently assumes Canadian semi-annual
-compounding unconditionally. Add a country selection step during onboarding
-that sets the correct compounding formula: semi-annual for Canada, monthly
-for the US.
+**What:** This entry previously said "the mortgage/PIT calculator
+currently assumes Canadian semi-annual compounding unconditionally,"
+describing it as existing code. It does not. Investigated directly:
+grep across server.py, static/app.js, and every script in this repo for
+mortgage/compound/amortiz/percent finds nothing. Monthly PIT
+(`pitNum`), cost to close (`dueNum`), and condo fee (`condoFeeNum`) are
+all pre-entered flat dollar figures read straight from the POC sheet
+export, never computed from price by this app. `scripts/export_poc.py`
+only pulls the already-finished numbers from an external path
+(`~/.hermes/skills/family/house-hunter/scripts`, outside this repo,
+and not present on this machine either), it does not compute them
+itself. Whatever compounding convention produced those numbers lives
+entirely outside this repository and cannot be inspected from here.
 
-**Why:** House Hunter's financial numbers (Monthly PIT, due at closing) are
-only correct for a Canadian mortgage. A US buyer group using the same tool
-would see a PIT figure computed with the wrong compounding convention,
-silently wrong rather than obviously broken.
+**What still needs building, once picked up:** A real in-app
+calculator taking price, interest rate, amortization period, down
+payment, and country/compounding convention as inputs, none of which
+this app currently collects or stores anywhere (no onboarding flow
+exists yet; "I am" actor selection is the closest thing, and it is
+per-person identity, not household financial inputs). A first
+household-level input, first-time-buyer status, was added to
+`household_settings` (see server.py), defaulted true, editable in the
+settings drawer, but is not wired into any calculation yet. The
+Canada-vs-US compounding question from the original entry is still
+real and still applies once a real calculator is built: semi-annual
+for Canada, monthly for the US, keyed off a country input that also
+does not exist yet.
 
-**Pros:** Small, well-scoped fix once picked up -- one formula branch keyed
-off a single onboarding answer, no schema change.
+**Why it matters:** House Hunter's financial numbers are currently
+just whatever the family's own external process produced, correct or
+not, with no way for this app to verify or adjust them. A real in-app
+calculator would need every input above, and would need to get the
+compounding convention right per buyer group, or it would produce a
+confidently wrong number instead of an obviously incomplete one.
 
-**Cons:** Needs an onboarding step to exist first (there isn't one today --
-"I am" actor selection is the closest thing, and country isn't currently
-part of that model).
+**Context:** Not needed for the current Mark/Katie/Anees/Kevin demo
+(all Canadian, Ontario listings, numbers supplied externally).
+Relevant once a real in-app calculator is actually built, not just
+once a US buyer group shows up, since there is no calculator to be
+wrong about yet.
 
-**Context:** Not needed for the current Mark/Katie/Anees/Kevin demo (all
-Canadian, Ontario listings). Relevant the moment a US-based buyer group or
-market is added.
+**Depends on:** An onboarding flow to collect rate/amortization/down
+payment/country, none of which exist yet; the household_settings table
+already exists and can hold the household-level ones (country,
+first-time-buyer already added) once that flow exists.
 
-**Depends on:** Nothing; independent of the current listing_feedback/actor
-model.
+**Unverified assumption to resolve before real amortization math is
+written:** the POC listing data has no field indicating new
+construction versus resale (confirmed: no such key anywhere in
+`data/poc_listings.json`'s field list). Treating every POC listing as
+resale for now, since that is almost certainly correct for this
+family's actual search, but it is an assumption, not a verified fact
+from the data. New-construction buyers are eligible for 30-year insured
+amortization; resale repeat buyers are not, so this needs to be either
+confirmed per listing or asked directly before the real calculator
+depends on it.
 
 ## Highway 413 geometry is derived/simplified, not the authoritative file
 

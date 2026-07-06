@@ -48,6 +48,17 @@ MAPBOX_TOKEN = os.getenv("MAPBOX_TOKEN", "")
 ALLOWED_ACTION_TYPES = {"rating", "note", "reject", "research_request"}
 ALLOWED_POI_TYPES = {"school", "hospital", "work", "worship", "other"}
 
+# Household-level settings (household_settings table): one shared value per
+# key across the whole buyer group, not per person. Defaults apply only
+# when a key has never been set; they are not hardcoded in the sense of
+# being unchangeable, they are just the starting value before anyone edits
+# it, same as any other settings default. first_time_buyer defaults true:
+# both Mark and Katie are first-time buyers today. Not used in any
+# calculation yet.
+HOUSEHOLD_SETTING_DEFAULTS: dict[str, str] = {
+    "first_time_buyer": "true",
+}
+
 # D10: known POC listing ids, loaded once at startup (see load_poc_listing_ids).
 # Repliers-sourced ids are format-checked only, not existence-checked against
 # this set. See validate_listing_id.
@@ -121,6 +132,21 @@ def init_db() -> None:
                 lng REAL NOT NULL,
                 created_by INTEGER NOT NULL REFERENCES people(id),
                 created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+
+            -- Household-level settings: one shared value per key across the
+            -- whole buyer group, not per person, the same way a household
+            -- fact like first-time-buyer status is one fact about the
+            -- household, not one opinion per person. Key/value rather than
+            -- a dedicated column per setting, so the next household-level
+            -- setting (units of measure, onboarding destination, both
+            -- still unbuilt) reuses this same table instead of a new
+            -- migration each time.
+            CREATE TABLE IF NOT EXISTS household_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_by INTEGER REFERENCES people(id),
+                updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             );
             """
         )
@@ -421,6 +447,48 @@ def handle_poi_post(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
             "SELECT id, created_at FROM poi_pins WHERE id = ?", (cursor.lastrowid,)
         ).fetchone()
         return {"ok": True, "id": row["id"], "created_at": row["created_at"]}, 200
+    finally:
+        conn.close()
+
+
+def handle_household_settings_post(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """One shared value per key across the whole buyer group, not per
+    person. updated_by/updated_at track who last changed it and when, the
+    same attribution shape used elsewhere, but there is only ever one
+    current value per key, not a per-person history list."""
+    key = body.get("key")
+    value = body.get("value")
+    person_id = body.get("person_id")
+
+    if key not in HOUSEHOLD_SETTING_DEFAULTS:
+        return {
+            "error": "invalid_request",
+            "detail": f"key must be one of {sorted(HOUSEHOLD_SETTING_DEFAULTS)}",
+        }, 400
+    if not isinstance(value, str):
+        return {"error": "invalid_request", "detail": "value must be a string"}, 400
+
+    conn = get_db()
+    try:
+        if not person_exists(conn, person_id):
+            return {"error": "unknown_person", "detail": f"person_id {person_id!r} not found"}, 400
+
+        conn.execute(
+            """
+            INSERT INTO household_settings (key, value, updated_by, updated_at)
+            VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_by = excluded.updated_by,
+                updated_at = excluded.updated_at
+            """,
+            (key, value, person_id),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT updated_at FROM household_settings WHERE key = ?", (key,)
+        ).fetchone()
+        return {"ok": True, "key": key, "value": value, "updated_at": row["updated_at"]}, 200
     finally:
         conn.close()
 
@@ -858,6 +926,21 @@ class Handler(BaseHTTPRequestHandler):
                 finally:
                     conn.close()
                 return
+            if parsed.path == "/api/household-settings":
+                # Shared across the whole buyer group, same auth as
+                # /api/people and /api/poi, not per-person filtered.
+                if not require_auth(self):
+                    self.send_json({"error": "unauthorized"}, 401)
+                    return
+                conn = get_db()
+                try:
+                    rows = conn.execute("SELECT key, value FROM household_settings").fetchall()
+                    settings = dict(HOUSEHOLD_SETTING_DEFAULTS)
+                    settings.update({row["key"]: row["value"] for row in rows})
+                    self.send_json({"settings": settings})
+                finally:
+                    conn.close()
+                return
             if parsed.path == "/api/health":
                 self.send_json({"ok": True, "hasKey": bool(API_KEY), "baseUrl": BASE_URL})
                 return
@@ -927,6 +1010,23 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
                     return
                 data, status = handle_poi_post(body)
+                self.send_json(data, status)
+                return
+            if parsed.path == "/api/household-settings":
+                if not require_auth(self):
+                    self.send_json({"error": "unauthorized"}, 401)
+                    return
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                raw_body = self.rfile.read(length) if length else b""
+                try:
+                    body = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    self.send_json({"error": "invalid_request", "detail": "malformed JSON body"}, 400)
+                    return
+                if not isinstance(body, dict):
+                    self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
+                    return
+                data, status = handle_household_settings_post(body)
                 self.send_json(data, status)
                 return
             self.send_json({"error": "not_found"}, 404)

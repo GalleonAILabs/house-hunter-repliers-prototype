@@ -154,6 +154,7 @@ class SchemaTests(ServerTestCase):
             conn.close()
         self.assertIn("people", tables)
         self.assertIn("listing_feedback", tables)
+        self.assertIn("household_settings", tables)
 
     def test_wal_mode_enabled(self) -> None:
         conn = server.get_db()
@@ -567,6 +568,70 @@ class PoiEndpointTests(ServerTestCase):
         )
         status, data = self.request("GET", "/api/poi", token=self.TOKEN)
         self.assertEqual(len(data["poi"]), 2)
+
+
+class HouseholdSettingsTests(ServerTestCase):
+    """Household-level settings: one shared value per key across the whole
+    buyer group, not per person, like listing_feedback's shared POI pins,
+    not like a per-person rating."""
+
+    def test_get_without_token_401(self) -> None:
+        status, _ = self.request("GET", "/api/household-settings")
+        self.assertEqual(status, 401)
+
+    def test_default_first_time_buyer_true_before_anyone_sets_it(self) -> None:
+        status, data = self.request("GET", "/api/household-settings", token=self.TOKEN)
+        self.assertEqual(status, 200)
+        self.assertEqual(data["settings"]["first_time_buyer"], "true")
+
+    def test_post_requires_known_key(self) -> None:
+        status, data = self.request(
+            "POST", "/api/household-settings", token=self.TOKEN,
+            body={"person_id": 1, "key": "not_a_real_setting", "value": "true"},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(data["error"], "invalid_request")
+
+    def test_post_requires_known_person(self) -> None:
+        status, data = self.request(
+            "POST", "/api/household-settings", token=self.TOKEN,
+            body={"person_id": 999, "key": "first_time_buyer", "value": "false"},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(data["error"], "unknown_person")
+
+    def test_post_then_visible_to_everyone_shared_not_per_person(self) -> None:
+        status, data = self.request(
+            "POST", "/api/household-settings", token=self.TOKEN,
+            body={"person_id": 2, "key": "first_time_buyer", "value": "false"},
+        )
+        self.assertEqual(status, 200)
+
+        status, data = self.request("GET", "/api/household-settings", token=self.TOKEN)
+        self.assertEqual(status, 200)
+        self.assertEqual(data["settings"]["first_time_buyer"], "false")
+
+    def test_post_twice_overwrites_not_appends(self) -> None:
+        # One current value per key, not a history list like notes.
+        self.request(
+            "POST", "/api/household-settings", token=self.TOKEN,
+            body={"person_id": 1, "key": "first_time_buyer", "value": "false"},
+        )
+        self.request(
+            "POST", "/api/household-settings", token=self.TOKEN,
+            body={"person_id": 2, "key": "first_time_buyer", "value": "true"},
+        )
+        status, data = self.request("GET", "/api/household-settings", token=self.TOKEN)
+        self.assertEqual(data["settings"]["first_time_buyer"], "true")
+
+        conn = server.get_db()
+        try:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM household_settings WHERE key = 'first_time_buyer'"
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(count, 1)
 
 
 if __name__ == "__main__":
