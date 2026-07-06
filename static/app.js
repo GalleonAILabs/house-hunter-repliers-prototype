@@ -447,12 +447,24 @@ function matchesFeatureKeywords(item) {
   return true;
 }
 
+// Same "any buyer rejected" definition as the card's group-sentiment
+// headline (buyerHeadline), reused directly so this filter can never
+// disagree with what the card already labels Vetoed. Unrelated to
+// filterStatus, which reflects the property's real-estate listing
+// status, not buyer feedback.
+function isVetoed(item) {
+  const feedbackByPerson = new Map((state.feedback[item.mls] || []).map(f => [f.person_id, f]));
+  const buyers = state.people.filter(p => p.role === 'buyer');
+  return buyerHeadline(buyers, feedbackByPerson).word === 'Vetoed';
+}
+
 function filterByFeedback(listings) {
   const statusVal = $('filterStatus')?.value || '';
   const keyword = ($('q')?.value || '').trim().toLowerCase();
   const personFilters = state.people.map(p => ({ id: p.id, values: checkedValuesFor(p.id) }));
   return listings.filter(item => {
     if (!matchesStatusFilter(item.mls, statusVal)) return false;
+    if ($('hideVetoed')?.checked && isVetoed(item)) return false;
     if (!matchesKeyword(item, keyword)) return false;
     if (!matchesRange(effectivePitNum(item), 'minPit', 'maxPit')) return false;
     if (!matchesRange(effectiveDueNum(item), 'minDue', 'maxDue')) return false;
@@ -1629,7 +1641,7 @@ function reset() {
   ['q','minPrice','maxPrice','minBeds','maxBeds','minBaths','maxBaths','minSqft','maxSqft','minAcres','maxAcres','maxCommute','minPit','maxPit','minDue','maxDue','minFit','filterStatus']
     .forEach(id => { const el=$(id); if(el) { el.value=''; delete el.dataset.raw; } });
   $('resultsPerPage').value = '60';
-  ['featGarage','featPool','featBasement','clusterToggle'].forEach(id => { const el = $(id); if (el) el.checked = false; });
+  ['featGarage','featPool','featBasement','clusterToggle','hideVetoed'].forEach(id => { const el = $(id); if (el) el.checked = false; });
   state.people.forEach(p => {
     PERSON_FILTER_OPTIONS.forEach(o => { const cb = $(personFilterCbId(p.id, o.value)); if (cb) cb.checked = false; });
   });
@@ -1660,7 +1672,7 @@ const PERSISTED_FIELD_IDS = [
   'resultsPerPage', 'source', 'sort',
 ];
 const PERSISTED_CHECKBOX_IDS = [
-  'featGarage', 'featPool', 'featBasement', 'clusterToggle',
+  'featGarage', 'featPool', 'featBasement', 'clusterToggle', 'hideVetoed',
   'layerGoStations', 'layerGoStationsPlanned', 'layerGoLines', 'layerHwy413', 'layerPoiPins',
 ];
 
@@ -1763,7 +1775,7 @@ window.addEventListener('DOMContentLoaded', () => {
   $('minDue')?.addEventListener('change', applyFiltersAndRender);
   $('maxDue')?.addEventListener('change', applyFiltersAndRender);
   ['minSqft','maxSqft','minAcres','maxAcres','maxCommute'].forEach(id => $(id)?.addEventListener('change', applyFiltersAndRender));
-  ['featGarage','featPool','featBasement'].forEach(id => $(id)?.addEventListener('change', applyFiltersAndRender));
+  ['featGarage','featPool','featBasement','hideVetoed'].forEach(id => $(id)?.addEventListener('change', applyFiltersAndRender));
   $('source').addEventListener('change', () => { buildSettingsPanel(); updateClusterVisibility(); load().catch(showError); });
   $('clusterToggle')?.addEventListener('change', () => load().catch(showError));
   $('sort')?.addEventListener('change', e => { syncSort(e.target.value); renderCards(state.listings); refreshMap(state.listings); });
