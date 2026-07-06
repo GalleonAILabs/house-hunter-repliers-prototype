@@ -266,3 +266,33 @@ filter) is scoped to the active actor, not an aggregate. Showing a
 single average or "any" rating on the pin would be a new, inconsistent
 concept; showing the active person's own number keeps the map
 consistent with how the rest of the app already treats "whose rating."
+
+## T18: card summary value, placement and relationship to existing fields
+
+**Ambiguity:** the app already has a "Price" field (`.card-price`, always
+the asking price) and a "Monthly PIT + closing" block (both, POC only).
+T18 asks for a *new*, separate, single-choice headline value picking
+between the same three concepts (Price / Cost to close / PIT), which
+overlaps with what already exists on the card.
+
+**Default chosen (per the instructions' own given default, recorded
+here for a complete log):** implemented as a genuinely new, additional
+compact line, not a replacement for the existing Price field or the
+existing financial block, both of which are untouched. The new line
+sits directly above the existing Price line on the card. Its own
+visibility is a normal `cf-summaryValue` toggle in `CARD_FIELDS` (on by
+default), exactly like every other card section, so it participates in
+"All on"/"All off" and hides on its own; the choice of *which* of the
+three values it shows is a separate small `<select>` (`localStorage`
+key `hh_summary_value_choice_v1`, default "Price"), rendered directly
+beneath that toggle's row in the settings drawer, since a 3-way choice
+doesn't fit the existing boolean-checkbox model.
+
+**Why a real gap and not "just enable the existing fields":** the
+existing Price field is unconditional (always the asking price, no
+choice), and the existing financial block always shows *both* Monthly
+PIT and Due at closing together, POC-only. Neither lets a person pick
+one single value, or shows it for a Repliers listing that has no
+Monthly PIT concept at all (a Repliers listing choosing "Cost to close"
+or "PIT" correctly shows nothing, same hide-when-absent rule as T15,
+since it hides via CSS `:empty` when `summaryValueFor()` returns null).

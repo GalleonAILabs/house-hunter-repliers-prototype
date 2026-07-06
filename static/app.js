@@ -21,7 +21,36 @@ function cycleTheme() {
 }
 
 
+// T18: a single, user-chosen headline value (Price / Cost to close / PIT),
+// distinct from the always-detailed "Monthly PIT + closing" block below.
+// One choice, one compact line -- the choice itself lives in localStorage,
+// not in CARD_FIELDS, since it's a single select, not a per-field toggle.
+const SUMMARY_VALUE_KEY = 'hh_summary_value_choice_v1';
+const SUMMARY_VALUE_OPTIONS = [
+  { value: 'price',   label: 'Price' },
+  { value: 'closing', label: 'Cost to close' },
+  { value: 'pit',     label: 'Monthly PIT' },
+];
+function loadSummaryValueChoice() {
+  const saved = localStorage.getItem(SUMMARY_VALUE_KEY);
+  return SUMMARY_VALUE_OPTIONS.some(o => o.value === saved) ? saved : 'price';
+}
+function saveSummaryValueChoice(value) { localStorage.setItem(SUMMARY_VALUE_KEY, value); }
+function summaryValueFor(item) {
+  const choice = loadSummaryValueChoice();
+  if (choice === 'closing') {
+    const val = item.dueClosing || (item.dueNum != null ? money(item.dueNum) : '');
+    return val ? { label: 'Cost to close', value: val } : null;
+  }
+  if (choice === 'pit') {
+    const val = item.pit || (item.pitNum != null ? money(item.pitNum) : '');
+    return val ? { label: 'Monthly PIT', value: val } : null;
+  }
+  return item.price != null ? { label: 'Price', value: money(item.price) } : null;
+}
+
 const CARD_FIELDS = [
+  { key: 'summaryValue', label: 'Card summary value',      desc: 'One headline number: Price, Cost to close, or PIT', defaultOn: true },
   { key: 'price',     label: 'Price',                     desc: 'Asking price',                      defaultOn: true  },
   { key: 'commute',   label: 'GO commute',                desc: 'Station, drive time, total to Union', defaultOn: true,  pocOnly: true },
   { key: 'stats',     label: 'Beds / baths / sqft / lot', desc: 'Key property stats',                 defaultOn: true  },
@@ -101,6 +130,17 @@ function buildSettingsPanel() {
     text.innerHTML = `<div>${esc(f.label)}</div><div class="field-desc">${esc(f.desc)}</div>`;
     label.append(cb, text);
     container.appendChild(label);
+    if (f.key === 'summaryValue') {
+      const choiceRow = document.createElement('div');
+      choiceRow.className = 'settings-row settings-subrow';
+      const select = document.createElement('select');
+      select.id = 'summaryValueChoice';
+      select.innerHTML = SUMMARY_VALUE_OPTIONS.map(o => `<option value="${o.value}">${esc(o.label)}</option>`).join('');
+      select.value = loadSummaryValueChoice();
+      select.addEventListener('change', () => { saveSummaryValueChoice(select.value); applyCardVisibility(); renderCards(state.listings); });
+      choiceRow.appendChild(select);
+      container.appendChild(choiceRow);
+    }
   });
 }
 
@@ -950,6 +990,15 @@ function populateCard(node, item) {
   const fb = node.querySelector('.fit-badge');
   fb.innerHTML = `<strong>${esc(fit.label)}</strong><span>fit</span>`;
   fb.className = 'fit-badge ' + (fit.met >= 7 ? 'fit-green' : fit.met >= 5 ? 'fit-blue' : fit.met >= 4 ? 'fit-amber' : 'fit-red');
+
+  // Summary value (T18) — single user-chosen headline number, hidden when
+  // the chosen field has no data for this listing (e.g. Repliers listings
+  // have no Cost to close / PIT).
+  const summaryEl = node.querySelector('.card-summary-value');
+  const summary = summaryValueFor(item);
+  summaryEl.innerHTML = summary
+    ? `<span class="fin-label">${esc(summary.label)}</span><span class="fin-value">${esc(summary.value)}</span>`
+    : '';
 
   // Price
   node.querySelector('.card-price').textContent = money(item.price);
