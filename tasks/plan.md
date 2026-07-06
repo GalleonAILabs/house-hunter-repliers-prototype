@@ -433,9 +433,10 @@ Kicked off as a batch, run to completion without interactive prompts, on
 branch `batch2-ui-fixes`. Ambiguities resolved and logged in `DECISIONS.md`
 at the repo root rather than stopping to ask. Checkbox as shipped.
 
-- [ ] **T10 (P2, human: ~1h / CC: ~15min)** -- frontend -- Persist filter, map layer, and sort state across reloads via localStorage, same mechanism as dark mode and card settings. Last-used-state persistence only, no second reset concept beyond the existing Reset button.
+- [x] **T10 (P2, human: ~1h / CC: ~15min)** -- frontend -- Persist filter, map layer, and sort state across reloads via localStorage, same mechanism as dark mode and card settings. Last-used-state persistence only, no second reset concept beyond the existing Reset button.
   - Files: `static/app.js`
   - Verify: `test_server.py` passes (frontend-only change, no backend impact expected); manual, set filters/layers/sort, reload, confirm they persist
+  - **Done.** One `hh_filter_state_v1` localStorage key holds all filter field values, static checkboxes, checked person-filter ids, and sort. Map layer checkboxes are also saved there; their actual Mapbox visibility is re-applied once the map finishes loading via `applyPersistedLayerVisibility()`. Saving is a delegated `change`/`input` listener on `.controls` and `.map-layers-body`, so no existing per-field listener needed editing. Reset clears the saved key too. Verified live: set minBeds and sort, reload, both restored; checked a map layer, reload, still checked; called `reset()`, localStorage key removed.
 - [ ] **T11 (P1, human: ~1-2h / CC: ~20min)** -- frontend/data -- Fix note flow: adding a new note reopens the previous note instead of a fresh composer. Add and edit must be distinct actions. A new note must be timestamped with its creation date. Investigate the note data model (single note per person per listing vs. a list) first, log the finding in `DECISIONS.md`.
   - Files: `server.py`, `static/app.js`
   - Verify: `test_server.py` passes; manual, add a note, add a second note, confirm both are distinct and timestamped

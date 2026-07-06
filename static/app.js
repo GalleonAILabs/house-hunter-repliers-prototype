@@ -196,7 +196,9 @@ function buildPersonFilters() {
       `).join('')}
     </div>
   `).join('');
+  const savedPersonFilters = loadSavedFilterState()._personFilters || [];
   container.querySelectorAll('input[type=checkbox]').forEach(cb => {
+    cb.checked = savedPersonFilters.includes(cb.id);
     cb.addEventListener('change', applyFiltersAndRender);
   });
 }
@@ -499,6 +501,9 @@ function initMap() {
   state.map.on('load', () => {
     setupMapSources();
     state.mapReady = true;
+    // Layer checkboxes may already be checked from restored state (T10) --
+    // apply their visibility now that the layers actually exist.
+    applyPersistedLayerVisibility();
     // Data may have already loaded while the map style was still loading.
     if (state.rawListings.length) applyFiltersAndRender();
   });
@@ -988,9 +993,66 @@ function reset() {
   state.people.forEach(p => {
     PERSON_FILTER_OPTIONS.forEach(o => { const cb = $(personFilterCbId(p.id, o.value)); if (cb) cb.checked = false; });
   });
+  // Reset stays the only reset concept (T10) -- also clears the persisted
+  // last-used-state copy so a reload right after Reset doesn't bring it back.
+  localStorage.removeItem(FILTER_STATE_KEY);
   load().catch(showError);
 }
 function showError(err) { console.error(err); $('summary').textContent = 'Error: ' + err.message; }
+
+// ─── Filter/layer/sort state persistence (T10) ─────────────────────────────────
+// Last-used-state persistence, same mechanism as THEME_KEY/SETTINGS_KEY --
+// not a second "restore to default" concept. The existing Reset button
+// stays the only way to clear filters back to their defaults; it also
+// clears this saved state so a reload after Reset doesn't resurrect it.
+const FILTER_STATE_KEY = 'hh_filter_state_v1';
+const PERSISTED_FIELD_IDS = [
+  'q', 'minPrice', 'maxPrice', 'minBeds', 'maxBeds', 'minBaths', 'maxBaths',
+  'minSqft', 'maxSqft', 'minAcres', 'maxAcres', 'maxCommute',
+  'minPit', 'maxPit', 'minDue', 'maxDue', 'minFit', 'filterStatus',
+  'resultsPerPage', 'source', 'sort',
+];
+const PERSISTED_CHECKBOX_IDS = [
+  'featGarage', 'featPool', 'featBasement', 'clusterToggle',
+  'layerGoStations', 'layerGoStationsPlanned', 'layerGoLines', 'layerHwy413',
+];
+
+function saveFilterState() {
+  const saved = {};
+  PERSISTED_FIELD_IDS.forEach(id => { const el = $(id); if (el) saved[id] = el.value; });
+  PERSISTED_CHECKBOX_IDS.forEach(id => { const el = $(id); if (el) saved[id] = el.checked; });
+  saved._personFilters = Array.from(document.querySelectorAll('#personFilters input[type=checkbox]:checked')).map(cb => cb.id);
+  localStorage.setItem(FILTER_STATE_KEY, JSON.stringify(saved));
+}
+
+function loadSavedFilterState() {
+  try { return JSON.parse(localStorage.getItem(FILTER_STATE_KEY) || '{}'); } catch { return {}; }
+}
+
+// Restores plain field/select values and static checkboxes. Person-filter
+// checkboxes are built dynamically after loadPeople() resolves, so they are
+// restored separately in buildPersonFilters(); map layer visibility is
+// applied separately once the map finishes loading (see initMap()).
+function restoreFilterState() {
+  const saved = loadSavedFilterState();
+  PERSISTED_FIELD_IDS.forEach(id => { const el = $(id); if (el && id in saved) el.value = saved[id]; });
+  PERSISTED_CHECKBOX_IDS.forEach(id => { const el = $(id); if (el && id in saved) el.checked = saved[id]; });
+  if (saved.sort) syncSort(saved.sort);
+}
+
+function applyPersistedLayerVisibility() {
+  if (!state.mapReady) return;
+  const layerFor = {
+    layerGoStations: 'go-stations-existing-circles',
+    layerGoStationsPlanned: 'go-stations-planned-circles',
+    layerGoLines: 'go-lines-layer',
+    layerHwy413: 'hwy413-line',
+  };
+  Object.entries(layerFor).forEach(([checkboxId, layerId]) => {
+    const cb = $(checkboxId);
+    if (cb) state.map.setLayoutProperty(layerId, 'visibility', cb.checked ? 'visible' : 'none');
+  });
+}
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 function debounce(fn, ms) {
@@ -1001,6 +1063,13 @@ function debounce(fn, ms) {
 window.addEventListener('DOMContentLoaded', () => {
   loadTheme();
   ['minPrice', 'maxPrice', 'minPit', 'maxPit', 'minDue', 'maxDue'].forEach(wirePriceInput);
+  // Restore last-used filter/layer/sort state (T10) before the initial load
+  // so filterParams()/currentSource()/currentSort() all read restored values.
+  restoreFilterState();
+  document.querySelector('.controls')?.addEventListener('change', saveFilterState);
+  document.querySelector('.controls')?.addEventListener('input', debounce(saveFilterState, 300));
+  document.querySelector('.map-layers-body')?.addEventListener('change', saveFilterState);
+  $('sort')?.addEventListener('change', saveFilterState);
   loadConfig()
     .then(() => {
       // A Mapbox init failure (WebGL disabled, blocked CDN, bad token) must
