@@ -243,6 +243,7 @@ class FeedbackReadTests(ServerTestCase):
         for entry in data["feedback"]["POC-999"]:
             self.assertIsNone(entry["rating"])
             self.assertIsNone(entry["status"])
+            self.assertFalse(entry["research_requested"])
 
     def test_feedback_without_token_401(self) -> None:
         status, _ = self.request("GET", "/api/feedback?listing_ids=POC-2")
@@ -277,7 +278,50 @@ class FeedbackReadTests(ServerTestCase):
         mark = next(p for p in data["feedback"]["POC-2"] if p["person_name"] == "Mark")
         self.assertEqual(mark["note"], "Nice place")
         self.assertEqual(mark["research_note"], "What's the zoning history here?")
-        self.assertEqual(mark["status"], "research_requested")
+        self.assertTrue(mark["research_requested"])
+        self.assertIsNone(mark["status"])
+
+    def test_reject_and_research_request_both_visible_independently(self) -> None:
+        # Regression test for the TODOS.md bug: reject and research_request
+        # used to share one "status" field, so whichever action landed last
+        # in read-side processing order silently won, hiding the other. The
+        # underlying listing_feedback rows were never actually lost, only
+        # collapsed on read. Both must now be independently true and visible
+        # regardless of which action was submitted first.
+        self.request(
+            "POST", "/api/feedback", token=self.TOKEN,
+            body={"person_id": 1, "listing_id": "POC-2", "action_type": "reject", "reason": "too small"},
+        )
+        self.request(
+            "POST", "/api/feedback", token=self.TOKEN,
+            body={"person_id": 1, "listing_id": "POC-2", "action_type": "research_request",
+                  "note": "Worth a second look if the lot is bigger than it looks?"},
+        )
+        _, data = self.request("GET", "/api/feedback?listing_ids=POC-2", token=self.TOKEN)
+        mark = next(p for p in data["feedback"]["POC-2"] if p["person_name"] == "Mark")
+        self.assertEqual(mark["status"], "rejected")
+        self.assertEqual(mark["reason"], "too small")
+        self.assertTrue(mark["research_requested"])
+        self.assertEqual(mark["research_note"], "Worth a second look if the lot is bigger than it looks?")
+
+    def test_research_request_then_reject_still_both_visible(self) -> None:
+        # Same case, opposite submission order, to confirm the fix does not
+        # depend on which action happens to be processed first.
+        self.request(
+            "POST", "/api/feedback", token=self.TOKEN,
+            body={"person_id": 2, "listing_id": "POC-2", "action_type": "research_request",
+                  "note": "What's the flood zone status?"},
+        )
+        self.request(
+            "POST", "/api/feedback", token=self.TOKEN,
+            body={"person_id": 2, "listing_id": "POC-2", "action_type": "reject", "reason": "too far"},
+        )
+        _, data = self.request("GET", "/api/feedback?listing_ids=POC-2", token=self.TOKEN)
+        katie = next(p for p in data["feedback"]["POC-2"] if p["person_name"] == "Katie")
+        self.assertEqual(katie["status"], "rejected")
+        self.assertEqual(katie["reason"], "too far")
+        self.assertTrue(katie["research_requested"])
+        self.assertEqual(katie["research_note"], "What's the flood zone status?")
 
     def test_note_history_keeps_every_note_newest_first(self) -> None:
         # T11: the write path has always been append-only; the read side

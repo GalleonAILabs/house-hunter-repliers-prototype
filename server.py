@@ -246,9 +246,14 @@ def latest_feedback_for_listings(
     Every known person gets an entry per requested listing, with nulls if
     they have no feedback yet (D6's batch shape), so the frontend gets an
     explicit "no rating yet" state without a separate lookup against
-    GET /api/people. rating/note/reject are each independently the latest
-    by action_type; updated_at is the max created_at across all of them
-    for that person on that listing.
+    GET /api/people. rating/note/reject/research_request are each
+    independently the latest by action_type; updated_at is the max
+    created_at across all of them for that person on that listing.
+
+    "status" reflects reject state only (null or "rejected").
+    "research_requested" is a separate boolean: a person can reject a
+    listing and still want research on it, both true at once, so this is
+    never folded into "status".
     """
     if not listing_ids:
         return {}
@@ -269,6 +274,7 @@ def latest_feedback_for_listings(
                 "note_history": [],
                 "reason": None,
                 "research_note": None,
+                "research_requested": False,
                 "updated_at": None,
             }
 
@@ -301,7 +307,12 @@ def latest_feedback_for_listings(
             entry["status"] = row["status"]
             entry["reason"] = row["reason"]
         elif row["action_type"] == "research_request":
-            entry["status"] = entry["status"] or "research_requested"
+            # Independent of reject/status: a person can reject a listing
+            # and still want research on it, or vice versa. Both are real,
+            # simultaneously true facts about one person's opinion, not a
+            # single mutually-exclusive state, so this is its own field
+            # rather than another value crammed into "status".
+            entry["research_requested"] = True
             entry["research_note"] = row["note"]
         if entry["updated_at"] is None or row["created_at"] > entry["updated_at"]:
             entry["updated_at"] = row["created_at"]

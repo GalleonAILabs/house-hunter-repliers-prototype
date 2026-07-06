@@ -514,7 +514,7 @@ function buildFeedbackActions(node, item) {
   const researchBtn = document.createElement('button');
   researchBtn.type = 'button';
   researchBtn.className = 'secondary fb-btn';
-  const alreadyRequested = mine.status === 'research_requested';
+  const alreadyRequested = !!mine.research_requested;
   if (alreadyRequested) researchBtn.classList.add('fb-btn-requested');
   researchBtn.textContent = alreadyRequested ? '✅ Requested' : '🔍 Research';
   researchBtn.addEventListener('click', () => {
@@ -960,11 +960,16 @@ function groupSentimentChip(person, f) {
   let label = esc(person.name);
   if (f?.status === 'rejected') {
     stateClass = 'chip-reject';
-    label = `🚫 ${esc(person.name)}`;
+    // Reject wins the chip's single headline state (a chip can only show
+    // one thing), but a research request on the same listing is a real,
+    // independent fact, not mutually exclusive with reject. Append the
+    // research icon so it stays visible on the chip itself instead of
+    // silently dropping out just because reject is the louder state.
+    label = f.research_requested ? `🚫🔍 ${esc(person.name)}` : `🚫 ${esc(person.name)}`;
   } else if (f?.rating != null) {
     stateClass = 'chip-rated';
     label = `${esc(person.name)} ★${f.rating}`;
-  } else if (f?.status === 'research_requested') {
+  } else if (f?.research_requested) {
     stateClass = 'chip-research';
     label = `🔍 ${esc(person.name)}`;
   }
@@ -1111,10 +1116,14 @@ function populateCard(node, item) {
   {
     const feedbackList = state.feedback[item.mls] || [];
     const rows = feedbackList
-      .filter(f => f.rating != null || f.status)
+      .filter(f => f.rating != null || f.status || f.research_requested)
       .map(f => {
+        // status and research_requested are independent facts (a person can
+        // reject a listing and still want research on it), so both render
+        // as their own tag rather than one hiding the other.
         const statusTag = f.status ? ` <span class="tag${f.status === 'rejected' ? ' bad' : ''}">${esc(f.status)}</span>` : '';
-        return `<div class="rating-row"><span class="rating-who">${esc(f.person_name)}</span><span class="rating-stars">${stars(f.rating)}</span>${statusTag}</div>`;
+        const researchTag = f.research_requested ? ` <span class="tag">🔍 research requested</span>` : '';
+        return `<div class="rating-row"><span class="rating-who">${esc(f.person_name)}</span><span class="rating-stars">${stars(f.rating)}</span>${statusTag}${researchTag}</div>`;
       });
     const el = node.querySelector('.card-ratings');
     if (rows.length) el.innerHTML = rows.join('');
