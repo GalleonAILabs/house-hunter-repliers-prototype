@@ -182,3 +182,36 @@ and queried those directly for the real design geometry.
 
 **Depends on:** Sourcing the MTO Environmental Assessment GeoJSON (or an
 equivalent authoritative corridor file).
+
+## GO Station popup hover needs richer information
+
+**What:** The GO station hover popup (`app.js`, `go-station-tooltip`)
+currently shows only the station name, a "(planned)" suffix for non-
+existing stations, and the comma-joined `lines` property. Add: planned
+opening date for Planned/Proposed stations, a clearer status description
+(not just the raw `"Planned: SmartTrack"`-style string), and a link to the
+relevant Metrolinx project page where one exists.
+
+**Why:** A bare status string like "Planned: GO Expansion" doesn't tell
+Anees or anyone else when a station might actually open, which matters
+for a house-hunting decision (e.g. "is this planned station realistic to
+count on in the next 5 years"). A link to the source project page lets
+someone verify the claim instead of trusting an unlabeled map pin.
+
+**Pros:** Isolated to the popup's `setHTML()` call and the properties on
+each station feature in `go_stations.geojson` -- no architecture change.
+
+**Cons:** Opening dates and project-page URLs need to be sourced per
+station (most Planned/Proposed stations don't have a firm date -- many
+SmartTrack/GO Expansion candidates are still conceptual, not funded/
+scheduled), which is real research work, not a mechanical code change.
+Existing (currently operating) stations don't need an opening date at
+all, so the popup template needs a status-dependent branch either way.
+
+**Context:** Noted after shipping the existing/planned station layer
+split and the real-GTFS station data fix.
+
+**Depends on:** Nothing structurally; needs per-station research (likely
+similar to the GTFS/ArcGIS research already done for station coordinates
+and the Highway 413 alignment) to fill in real dates and links rather than
+guessing them.
