@@ -4,6 +4,82 @@ This file records every ambiguity resolved without stopping to ask, per the
 batch kickoff instructions. Entries are added as work proceeds. A summary
 section is added at the top once the batch is complete.
 
+## Batch 2 summary (all items complete)
+
+All of T10-T19 are done on branch `batch2-ui-fixes`, one commit per item,
+`test_server.py` run and passing before every commit. Nothing was pushed,
+merged to `main`, or deployed. `main`'s pre-existing uncommitted work (a
+group sentiment feature and CSS fixes) is safely stashed, not lost, not
+touched, not committed by this batch (see "Setup" below to restore it).
+
+**Built (T10, T11, T12, T14, T15, T16, T17, T18):**
+- **T10:** filter/map-layer/sort state now persists across reloads via
+  `localStorage`, same mechanism as dark mode and card settings.
+- **T11:** note "Add" and "Edit" are now distinct actions (previously both
+  reopened the same pre-filled composer); every note keeps its own
+  timestamp in a new `note_history` list, not just the latest one.
+- **T12:** listing search now matches each typed word independently
+  instead of requiring the whole phrase as one exact substring (a real
+  address like "18 Mill St, Essa" previously failed a natural search like
+  "mill st essa" because of the comma).
+- **T14:** POI pins (school/hospital/work/worship/other) can be searched
+  for and dropped on the map, shared across the whole buyer group. Needed
+  a new external API call (Mapbox Geocoding, same account/token already
+  in use for map tiles), logged before use per the constraints.
+- **T15:** a "Condo fee" line surfaces beside Monthly PIT, but only when
+  both a condo flag and a fee value are present. Real for Repliers sample
+  data today (`HOAFee` + `style === "Condominium"` both already exist
+  there); silently inert for POC data until the family adds those columns
+  to their sheet, since no such field exists there yet.
+- **T16:** a rating/reject/note change now re-runs the active filters
+  immediately (list and map both), instead of leaving a listing visible
+  until a manual "Apply." Investigation confirmed this applies to the
+  per-person rating checkboxes, not the unrelated computed fit-score
+  filter.
+- **T17:** map pins show the active "I am" person's own numeric star
+  rating, consistent with how every other personalized feature in the app
+  (the rating filter, the "My rating" sort) is already scoped to the
+  active actor rather than an aggregate.
+- **T18:** a new, separate, single-line card summary lets a person choose
+  exactly one of Price / Cost to close / Monthly PIT to headline, on top
+  of (not replacing) the existing always-shown Price line.
+
+**Research only, nothing built (T13, as instructed):** the GTFS feed
+already used for the GO Line map layer also has trip-level schedules and
+zone-based fare data for GO Train stations, no new data source needed for
+either. Express/local status is derivable for rail but isn't a clean flag
+in the data. A rough scope estimate for building commute-timing and fare
+lookups as a future item is in the T13 section below.
+
+**Investigated, blocker logged, not forced (T19):** pin clustering only
+works for Repliers sample data because it is the Repliers vendor API's
+own server-side clustering, passed through almost as-is; POC data is a
+local static file with nothing to delegate clustering to. Making it work
+for both would mean writing a real spatial clustering algorithm or
+rewriting the whole feature on Mapbox's native client-side clustering,
+which is real standalone engineering work, not a small enable-it fix.
+Scope estimate for that future rebuild is in the T19 section below.
+
+**Needs a human decision or action, not resolved by this batch:**
+- **T15 (condo data):** the POC spreadsheet needs new `isCondo` and
+  `condoFeeNum` columns populated by the family for any real condo
+  listings; the code is ready and will surface real values the moment
+  those columns exist, but no real POC listing shows a condo fee today.
+- **T19 (clustering):** a decision on whether it's worth the roughly
+  half-day rebuild (moving to Mapbox's native clustering) to get
+  consistent clustering across both data sources, given POC's pin count
+  (105) makes the practical benefit there much smaller than for the
+  larger Repliers feed.
+- **T13 (commute/fare, research only):** whether and when to build the
+  GO Train commute-timing and fare-lookup feature the research scoped
+  out; not started, by instruction.
+- **Stashed pre-batch2 work on `main`:** the group sentiment feature and
+  CSS fixes that were uncommitted before this batch started are still
+  sitting in a stash (see "Setup" below for the exact stash message).
+  They were deliberately left alone rather than folded into this batch's
+  history; someone needs to decide whether to `git stash pop` them back
+  onto `main` and commit, or handle them separately.
+
 ## Setup
 
 **Ambiguity:** The kickoff instructions asked me to confirm a clean working
