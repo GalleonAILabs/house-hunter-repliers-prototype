@@ -46,6 +46,7 @@ APP_AUTH_TOKEN = os.getenv("APP_AUTH_TOKEN", "")
 # this to travel through the unprotected /api/config bootstrap endpoint.
 MAPBOX_TOKEN = os.getenv("MAPBOX_TOKEN", "")
 ALLOWED_ACTION_TYPES = {"rating", "note", "reject", "research_request"}
+ALLOWED_POI_TYPES = {"school", "hospital", "work", "worship", "other"}
 
 # D10: known POC listing ids, loaded once at startup (see load_poc_listing_ids).
 # Repliers-sourced ids are format-checked only, not existence-checked against
@@ -109,6 +110,18 @@ def init_db() -> None:
 
             CREATE INDEX IF NOT EXISTS idx_feedback_listing ON listing_feedback(listing_id);
             CREATE INDEX IF NOT EXISTS idx_feedback_person ON listing_feedback(person_id);
+
+            CREATE TABLE IF NOT EXISTS poi_pins (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                type TEXT NOT NULL CHECK (
+                    type IN ('school', 'hospital', 'work', 'worship', 'other')
+                ),
+                label TEXT,
+                lat REAL NOT NULL,
+                lng REAL NOT NULL,
+                created_by INTEGER NOT NULL REFERENCES people(id),
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
             """
         )
         existing = conn.execute("SELECT COUNT(*) FROM people").fetchone()[0]
@@ -357,6 +370,44 @@ def handle_feedback_post(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         conn.commit()
         row = conn.execute(
             "SELECT id, created_at FROM listing_feedback WHERE id = ?", (cursor.lastrowid,)
+        ).fetchone()
+        return {"ok": True, "id": row["id"], "created_at": row["created_at"]}, 200
+    finally:
+        conn.close()
+
+
+def handle_poi_post(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """T14: POI pins are shared across the whole buyer group, same as
+    listing feedback -- created_by just records who added it, it is not a
+    privacy boundary."""
+    person_id = body.get("person_id")
+    poi_type = body.get("type")
+    lat = body.get("lat")
+    lng = body.get("lng")
+    label = body.get("label")
+
+    if poi_type not in ALLOWED_POI_TYPES:
+        return {
+            "error": "invalid_request",
+            "detail": f"type must be one of {sorted(ALLOWED_POI_TYPES)}",
+        }, 400
+    if not isinstance(lat, (int, float)) or not isinstance(lng, (int, float)):
+        return {"error": "invalid_request", "detail": "lat and lng are required numbers"}, 400
+    if label is not None and not isinstance(label, str):
+        return {"error": "invalid_request", "detail": "label must be a string if present"}, 400
+
+    conn = get_db()
+    try:
+        if not person_exists(conn, person_id):
+            return {"error": "unknown_person", "detail": f"person_id {person_id!r} not found"}, 400
+
+        cursor = conn.execute(
+            "INSERT INTO poi_pins (type, label, lat, lng, created_by) VALUES (?, ?, ?, ?, ?)",
+            (poi_type, label, float(lat), float(lng), person_id),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT id, created_at FROM poi_pins WHERE id = ?", (cursor.lastrowid,)
         ).fetchone()
         return {"ok": True, "id": row["id"], "created_at": row["created_at"]}, 200
     finally:
@@ -759,6 +810,27 @@ class Handler(BaseHTTPRequestHandler):
                 finally:
                     conn.close()
                 return
+            if parsed.path == "/api/poi":
+                # T14: shared across the whole buyer group, same auth as
+                # /api/people and /api/feedback, not per-person filtered.
+                if not require_auth(self):
+                    self.send_json({"error": "unauthorized"}, 401)
+                    return
+                conn = get_db()
+                try:
+                    rows = conn.execute(
+                        """
+                        SELECT p.id, p.type, p.label, p.lat, p.lng,
+                               p.created_by, pe.name AS created_by_name, p.created_at
+                        FROM poi_pins p
+                        JOIN people pe ON pe.id = p.created_by
+                        ORDER BY p.id
+                        """
+                    ).fetchall()
+                    self.send_json({"poi": [dict(row) for row in rows]})
+                finally:
+                    conn.close()
+                return
             if parsed.path == "/api/health":
                 self.send_json({"ok": True, "hasKey": bool(API_KEY), "baseUrl": BASE_URL})
                 return
@@ -811,6 +883,23 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
                     return
                 data, status = handle_feedback_post(body)
+                self.send_json(data, status)
+                return
+            if parsed.path == "/api/poi":
+                if not require_auth(self):
+                    self.send_json({"error": "unauthorized"}, 401)
+                    return
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                raw_body = self.rfile.read(length) if length else b""
+                try:
+                    body = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    self.send_json({"error": "invalid_request", "detail": "malformed JSON body"}, 400)
+                    return
+                if not isinstance(body, dict):
+                    self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
+                    return
+                data, status = handle_poi_post(body)
                 self.send_json(data, status)
                 return
             self.send_json({"error": "not_found"}, 404)

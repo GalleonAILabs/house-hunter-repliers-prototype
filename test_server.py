@@ -400,5 +400,60 @@ class PocListingsFilterTests(ServerTestCase):
         self.assertIn("2 Test St", addresses)  # beds=5
 
 
+class PoiEndpointTests(ServerTestCase):
+    """T14: POI pins are shared across the whole buyer group, like listing
+    feedback -- not a per-person concept, no listing_id involved."""
+
+    def test_get_poi_without_token_401(self) -> None:
+        status, _ = self.request("GET", "/api/poi")
+        self.assertEqual(status, 401)
+
+    def test_get_poi_empty_list_by_default(self) -> None:
+        status, data = self.request("GET", "/api/poi", token=self.TOKEN)
+        self.assertEqual(status, 200)
+        self.assertEqual(data["poi"], [])
+
+    def test_post_poi_requires_valid_type(self) -> None:
+        status, data = self.request(
+            "POST", "/api/poi", token=self.TOKEN,
+            body={"person_id": 1, "type": "not-a-real-type", "lat": 43.6, "lng": -79.4},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(data["error"], "invalid_request")
+
+    def test_post_poi_requires_known_person(self) -> None:
+        status, data = self.request(
+            "POST", "/api/poi", token=self.TOKEN,
+            body={"person_id": 999, "type": "school", "lat": 43.6, "lng": -79.4},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(data["error"], "unknown_person")
+
+    def test_post_poi_then_visible_to_everyone(self) -> None:
+        status, data = self.request(
+            "POST", "/api/poi", token=self.TOKEN,
+            body={"person_id": 1, "type": "school", "label": "Local elementary", "lat": 43.6, "lng": -79.4},
+        )
+        self.assertEqual(status, 200)
+        self.assertIn("id", data)
+
+        status, data = self.request("GET", "/api/poi", token=self.TOKEN)
+        self.assertEqual(status, 200)
+        self.assertEqual(len(data["poi"]), 1)
+        poi = data["poi"][0]
+        self.assertEqual(poi["type"], "school")
+        self.assertEqual(poi["label"], "Local elementary")
+        self.assertEqual(poi["created_by_name"], "Mark")
+
+        # A second person adding a pin does not overwrite or hide the first
+        # (shared, not per-person).
+        self.request(
+            "POST", "/api/poi", token=self.TOKEN,
+            body={"person_id": 2, "type": "hospital", "lat": 43.7, "lng": -79.5},
+        )
+        status, data = self.request("GET", "/api/poi", token=self.TOKEN)
+        self.assertEqual(len(data["poi"]), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

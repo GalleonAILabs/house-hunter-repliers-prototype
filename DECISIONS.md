@@ -128,3 +128,44 @@ to price (`fare_attributes.txt`). No separate fare source is needed.
   by this estimate) is a separate, later item. This batch item is research
   only, per the instructions; no commute breakdown, fare display, or
   onboarding-destination feature was implemented.
+
+## T14: new external API, Mapbox Geocoding
+
+**New external API integration, logged before use as required:** T14 asks
+for a person to "search for" a place to drop a POI pin, not only click the
+map. That needs geocoding (turning a typed place name into coordinates).
+Verified live with a real request that the existing `MAPBOX_TOKEN` (already
+in `.env` for the map tiles) also works against Mapbox's Geocoding API
+(`api.mapbox.com/geocoding/v5/mapbox.places/...`), a separate product from
+the map tiles under the same Mapbox account, at no new credential or
+account needed.
+
+**Default chosen:** use it, called directly from the browser (same pattern
+as the map tiles themselves, which are already fetched client-side with
+the public token), with a `proximity` parameter biased toward the GTA
+(`-79.5,44.0`) so search results are relevant to this app's actual area
+instead of matching similarly-named places worldwide.
+
+**Why:** the alternative (require the user to click the map instead of
+searching) would silently drop the "search for" half of the requirement.
+Reusing the same vendor and the same already-approved token is the
+lowest-risk way to add this, rather than introducing a second geocoding
+provider or a server-side proxy for a call that is no more sensitive than
+the map tiles already being fetched the same way.
+
+## T14: POI pin defaults
+
+Recording the defaults given in the kickoff instructions (already decided
+there, logged here for a complete record) plus one additional default of
+my own:
+
+- Visual/map-only for now, not wired into any commute or distance
+  calculation (given).
+- A person can add more than one POI pin (given).
+- POI pins are shared across the whole buyer group the same way listing
+  feedback is shared, not private to one person (given).
+- **My addition:** the POI pin map layer defaults to off, same as every
+  other optional map layer already shipped (GO Stations, GO Lines, Highway
+  413), toggled from the same layer panel. Chosen for consistency with the
+  existing pattern rather than making this one layer behave differently
+  from the others with no stated reason to.

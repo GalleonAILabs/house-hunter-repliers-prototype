@@ -61,7 +61,7 @@ async function loadConfig() {
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────
-const state = { map: null, mapReady: false, rawListings: [], listings: [], activeView: 'map', people: [], activePerson: null, feedback: {}, openMapItem: null, source: 'poc', sourceCount: 0, clusters: [] };
+const state = { map: null, mapReady: false, rawListings: [], listings: [], activeView: 'map', people: [], activePerson: null, feedback: {}, openMapItem: null, source: 'poc', sourceCount: 0, clusters: [], poi: [] };
 let cardSettings = loadSettings();
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -495,7 +495,7 @@ function switchView(view) {
 }
 
 // ─── Map (Mapbox GL JS) ────────────────────────────────────────────────────────
-const MAP_LAYER_IDS = ['listings-circles', 'clusters-circles', 'clusters-labels', 'go-stations-existing-circles', 'go-stations-planned-circles', 'go-lines-layer', 'hwy413-line'];
+const MAP_LAYER_IDS = ['listings-circles', 'clusters-circles', 'clusters-labels', 'go-stations-existing-circles', 'go-stations-planned-circles', 'go-lines-layer', 'hwy413-line', 'poi-pins-circles'];
 
 function findListing(mls) {
   return state.listings.find(x => x.mls === mls) || null;
@@ -670,6 +670,123 @@ function setupMapSources() {
     layout: { visibility: 'none' },
     paint: { 'line-color': '#b3261e', 'line-opacity': 0.55, 'line-width': 4 },
   });
+
+  // T14: POI pins. Own source (server data, not a static file), off by
+  // default like every other optional layer above.
+  map.addSource('poi-pins', { type: 'geojson', data: emptyFC() });
+  map.addLayer({
+    id: 'poi-pins-circles',
+    type: 'circle',
+    source: 'poi-pins',
+    layout: { visibility: 'none' },
+    paint: {
+      'circle-radius': 7,
+      'circle-color': ['get', 'color'],
+      'circle-stroke-width': 2,
+      'circle-stroke-color': '#fff',
+    },
+  });
+  let poiPopup = null;
+  map.on('mouseenter', 'poi-pins-circles', e => {
+    map.getCanvas().style.cursor = 'pointer';
+    const p = e.features[0].properties;
+    const typeLabel = (POI_TYPE_META[p.type] || POI_TYPE_META.other).label;
+    poiPopup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false, className: 'go-station-tooltip', offset: 10 })
+      .setLngLat(e.features[0].geometry.coordinates)
+      .setHTML(`<strong>${esc(p.label || typeLabel)}</strong><br>${esc(typeLabel)}${p.created_by_name ? ' &middot; added by ' + esc(p.created_by_name) : ''}`)
+      .addTo(map);
+  });
+  map.on('mouseleave', 'poi-pins-circles', () => {
+    map.getCanvas().style.cursor = '';
+    poiPopup?.remove();
+    poiPopup = null;
+  });
+  refreshPoiLayer();
+}
+
+// ─── POI pins (T14) ─────────────────────────────────────────────────────────
+// Visual/map-only for now, not wired into any commute or distance
+// calculation. Shared across the whole buyer group the same way listing
+// feedback is shared -- created_by just records who added it.
+const POI_TYPE_META = {
+  school: { label: 'School', color: '#2b67d6' },
+  hospital: { label: 'Hospital', color: '#b3261e' },
+  work: { label: 'Workplace', color: '#8e44ad' },
+  worship: { label: 'Place of worship', color: '#e8b400' },
+  other: { label: 'Other', color: '#68726f' },
+};
+
+function refreshPoiLayer() {
+  if (!state.mapReady) return;
+  const fc = {
+    type: 'FeatureCollection',
+    features: state.poi.map(p => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+      properties: {
+        type: p.type,
+        label: p.label || '',
+        color: (POI_TYPE_META[p.type] || POI_TYPE_META.other).color,
+        created_by_name: p.created_by_name,
+      },
+    })),
+  };
+  state.map.getSource('poi-pins').setData(fc);
+}
+
+async function loadPoi() {
+  try {
+    const res = await fetch('/api/poi', { headers: authHeaders() });
+    if (res.ok) {
+      const data = await res.json();
+      state.poi = data.poi || [];
+    }
+  } catch (err) {
+    console.error(err);
+  }
+  refreshPoiLayer();
+}
+
+// Search-then-drop, using Mapbox's Geocoding API (same token as the map
+// tiles, see DECISIONS.md T14 for why this is a new external call and why
+// it was judged low-risk enough to add directly rather than stopping to ask).
+async function addPoiPin() {
+  if (!state.activePerson) { alert('Select who you are (top right) first.'); return; }
+  const query = (prompt('Search for a place (school, hospital, workplace, place of worship, etc.):') || '').trim();
+  if (!query) return;
+
+  let feature = null;
+  try {
+    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json`
+      + `?access_token=${encodeURIComponent(MAPBOX_TOKEN)}&proximity=-79.5,44.0&limit=1`;
+    const res = await fetch(url);
+    if (res.ok) {
+      const data = await res.json();
+      feature = (data.features || [])[0] || null;
+    }
+  } catch (err) {
+    console.error(err);
+  }
+  if (!feature) { alert(`No place found for "${query}". Try a different search.`); return; }
+
+  const typeChoices = Object.keys(POI_TYPE_META).join(', ');
+  const typedType = (prompt(`Type (${typeChoices}):`, 'other') || 'other').trim().toLowerCase();
+  const type = POI_TYPE_META[typedType] ? typedType : 'other';
+  const label = (prompt('Label (optional):', feature.place_name) || feature.place_name || '').trim();
+  const [lng, lat] = feature.center;
+
+  try {
+    const res = await fetch('/api/poi', {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ person_id: state.activePerson, type, label, lat, lng }),
+    });
+    if (!res.ok) throw new Error('save failed');
+    await loadPoi();
+  } catch (err) {
+    console.error(err);
+    alert('Could not save the place. Try again.');
+  }
 }
 
 // Rejected status must come from the ACTIVE actor's live feedback
@@ -1042,7 +1159,7 @@ const PERSISTED_FIELD_IDS = [
 ];
 const PERSISTED_CHECKBOX_IDS = [
   'featGarage', 'featPool', 'featBasement', 'clusterToggle',
-  'layerGoStations', 'layerGoStationsPlanned', 'layerGoLines', 'layerHwy413',
+  'layerGoStations', 'layerGoStationsPlanned', 'layerGoLines', 'layerHwy413', 'layerPoiPins',
 ];
 
 function saveFilterState() {
@@ -1075,6 +1192,7 @@ function applyPersistedLayerVisibility() {
     layerGoStationsPlanned: 'go-stations-planned-circles',
     layerGoLines: 'go-lines-layer',
     layerHwy413: 'hwy413-line',
+    layerPoiPins: 'poi-pins-circles',
   };
   Object.entries(layerFor).forEach(([checkboxId, layerId]) => {
     const cb = $(checkboxId);
@@ -1105,9 +1223,15 @@ window.addEventListener('DOMContentLoaded', () => {
       // with the map and should keep working regardless.
       try { initMap(); } catch (err) { console.error('Map init failed:', err); }
       loadPeople().then(applyFiltersAndRender);
+      loadPoi();
       return load();
     })
     .catch(showError);
+  $('addPoiBtn')?.addEventListener('click', () => addPoiPin().catch(err => console.error(err)));
+  $('layerPoiPins')?.addEventListener('change', e => {
+    if (!state.mapReady) return;
+    state.map.setLayoutProperty('poi-pins-circles', 'visibility', e.target.checked ? 'visible' : 'none');
+  });
   $('layerGoStations')?.addEventListener('change', e => {
     if (!state.mapReady) return;
     state.map.setLayoutProperty('go-stations-existing-circles', 'visibility', e.target.checked ? 'visible' : 'none');
