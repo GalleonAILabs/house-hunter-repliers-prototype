@@ -371,20 +371,30 @@
           </div>
           <div class="fit-badge"></div>
         </div>
+        <!-- Section order and grouping are NOT decided here. This is a flat
+             bag of sections; assembleCardGroups() in app.js moves each into
+             its workflow group in CARD_GROUPS / CARD_FIELDS order, which is
+             the single source of truth. Listed here in that same order only
+             for readability. -->
+        <!-- Identify & review -->
         <div class="card-summary-value fin-row cf-summaryValue"></div>
-        <div class="card-price cf-price"></div>
-        <div class="card-potential-price cf-potentialPrice"></div>
-        <div class="card-group cf-groupSentiment"></div>
+        <!-- Property facts -->
+        <div class="card-stats cf-stats"></div>
+        <div class="card-features cf-features"></div>
+        <div class="card-fit-tags cf-fit"></div>
         <div class="card-commute cf-commute"></div>
         <div class="card-highway cf-highway"></div>
-        <div class="card-stats cf-stats"></div>
-        <div class="card-financial cf-financial"></div>
-        <div class="card-ratings cf-ratings"></div>
-        <div class="card-fit-tags cf-fit"></div>
-        <div class="card-features cf-features"></div>
         <div class="card-place-attachments cf-placeAttachments"></div>
+        <!-- Opinions & input -->
+        <div class="card-group cf-groupSentiment"></div>
+        <div class="card-ratings cf-ratings"></div>
         <div class="card-comments cf-comments"></div>
         <div class="card-feedback-actions cf-feedbackActions"></div>
+        <!-- Financial -->
+        <div class="card-price cf-price"></div>
+        <div class="card-potential-price cf-potentialPrice"></div>
+        <div class="card-financial cf-financial"></div>
+        <!-- Actions -->
         <div class="card-actions cf-actions">
           <a class="card-link-btn" target="_blank" rel="noopener">View listing</a>
           <a class="card-doc-btn" target="_blank" rel="noopener">Research doc</a>

@@ -103,6 +103,12 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .card-status-badge { position:absolute; top:10px; left:10px; padding:4px 10px; border-radius:999px; font-size:11px; font-weight:800; }
 .badge-rejected{background:var(--red);color:#fff}.badge-shortlist{background:var(--green);color:#fff}.badge-reviewing{background:var(--blue);color:#fff}
 .card-body { padding:14px; display:flex; flex-direction:column; gap:10px; }
+/* Workflow groups: sections within a group keep the 10px card gap; groups are
+   separated by the same subtle dashed muted divider already used elsewhere
+   (feedback actions, person filters), with a little extra space above. No
+   boxes, no new colors. Empty group wrappers are collapsed in JS. */
+.card-grp { display:flex; flex-direction:column; gap:10px; }
+.card-grp + .card-grp { padding-top:12px; border-top:1px dashed var(--line); }
 .card-top { display:flex; justify-content:space-between; gap:10px; align-items:flex-start; }
 .card-title-block{flex:1;min-width:0}.address{font-size:15px;font-weight:800;line-height:1.25;overflow-wrap:break-word;margin-bottom:3px}.meta{color:var(--muted);font-size:12px}
 .tier-badge{display:block;margin-top:2px;font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}

@@ -145,22 +145,43 @@ function effectiveDueNum(item) {
   return item.mortgageBreakdown ? item.mortgageBreakdown.costToClose : null;
 }
 
+// The card renders top-to-bottom in the family's review workflow, and the
+// settings drawer mirrors it. CARD_GROUPS (order + heading) and CARD_FIELDS
+// (order + group) are the SINGLE SOURCE OF TRUTH for both the card's section
+// order and the settings toggle order. assembleCardGroups() rebuilds each
+// card's DOM from these arrays, so reorganizing the card in future means
+// reordering these arrays and nothing else -- the template's div order is a
+// flat bag and is NOT authoritative. See DECISIONS.md (card workflow grouping).
+const CARD_GROUPS = [
+  { key: 'identify',  label: 'Identify & review' },
+  { key: 'facts',     label: 'Property facts' },
+  { key: 'opinions',  label: 'Opinions & input' },
+  { key: 'financial', label: 'Financial' },
+  { key: 'actions',   label: 'Actions' },
+];
 const CARD_FIELDS = [
-  { key: 'summaryValue', label: 'Card summary value',      desc: 'One headline number: Price, Cost to close, or PIT', defaultOn: true },
-  { key: 'price',     label: 'Price',                     desc: 'Asking price',                      defaultOn: true  },
-  { key: 'potentialPrice', label: 'Potential purchase price', desc: 'Shared, editable price the group is actually considering offering', defaultOn: true, pocOnly: true },
-  { key: 'groupSentiment', label: 'Group sentiment',      desc: 'Who has rated, said no, or requested research, at a glance', defaultOn: true },
-  { key: 'commute',   label: 'GO commute',                desc: 'Station, drive time, total to Union', defaultOn: true,  pocOnly: true },
-  { key: 'highway',   label: 'Highway distance',          desc: 'Straight-line distance to the nearest 400-series highway', defaultOn: true,  pocOnly: true },
-  { key: 'stats',     label: 'Beds / baths / sqft / lot', desc: 'Key property stats',                 defaultOn: true  },
-  { key: 'financial', label: 'Monthly PIT + closing',     desc: 'Monthly payment and due at closing', defaultOn: true,  pocOnly: true },
-  { key: 'ratings',   label: 'Ratings',                   desc: 'Per-person star ratings',            defaultOn: true  },
-  { key: 'fit',       label: 'Fit score tags',            desc: 'What the property fails on',         defaultOn: true  },
-  { key: 'features',  label: 'Features',                  desc: 'Loft, home office, shop, etc.',      defaultOn: true,  pocOnly: true },
-  { key: 'placeAttachments', label: 'Attached places',      desc: 'Places attached to this property, with distance and drive time', defaultOn: true, pocOnly: true },
-  { key: 'comments',  label: 'Latest comments',           desc: 'Most recent note per person',        defaultOn: false },
-  { key: 'feedbackActions', label: 'Rate / note / reject controls', desc: 'Record your feedback as the selected actor', defaultOn: true },
-  { key: 'actions',   label: 'Action buttons',            desc: 'View listing, research doc, map',    defaultOn: true  },
+  // 1. Identify & review. The photo, address, beds summary and fit BADGE are
+  // the always-on card header above these; summaryValue is the one pinnable
+  // headline number (Price / Cost to close / PIT) used for identification.
+  { key: 'summaryValue', group: 'identify', label: 'Card summary value', desc: 'One headline number: Price, Cost to close, or PIT', defaultOn: true },
+  // 2. Property facts. The things you evaluate a property against.
+  { key: 'stats',     group: 'facts', label: 'Beds / baths / sqft / lot', desc: 'Key property stats', defaultOn: true },
+  { key: 'features',  group: 'facts', label: 'Features', desc: 'Loft, home office, shop, etc.', defaultOn: true, pocOnly: true },
+  { key: 'fit',       group: 'facts', label: 'Fit score tags', desc: 'What the property fails on', defaultOn: true },
+  { key: 'commute',   group: 'facts', label: 'GO commute', desc: 'Station, drive time, total to Union', defaultOn: true, pocOnly: true },
+  { key: 'highway',   group: 'facts', label: 'Highway distance', desc: 'Straight-line distance to the nearest 400-series highway', defaultOn: true, pocOnly: true },
+  { key: 'placeAttachments', group: 'facts', label: 'Attached places', desc: 'Places attached to this property, with distance and drive time', defaultOn: true, pocOnly: true },
+  // 3. Opinions & input. Where the group's sentiment and your feedback live.
+  { key: 'groupSentiment', group: 'opinions', label: 'Group sentiment', desc: 'Who has rated, said no, or requested research, at a glance', defaultOn: true },
+  { key: 'ratings',   group: 'opinions', label: 'Ratings', desc: 'Per-person star ratings', defaultOn: true },
+  { key: 'comments',  group: 'opinions', label: 'Latest comments', desc: 'Most recent note per person', defaultOn: false },
+  { key: 'feedbackActions', group: 'opinions', label: 'Rate / note / reject controls', desc: 'Record your feedback as the selected actor', defaultOn: true },
+  // 4. Financial. The deep-dive stage after a property survives review.
+  { key: 'price',     group: 'financial', label: 'Price', desc: 'Asking price', defaultOn: true },
+  { key: 'potentialPrice', group: 'financial', label: 'Potential purchase price', desc: 'Shared, editable price the group is actually considering offering', defaultOn: true, pocOnly: true },
+  { key: 'financial', group: 'financial', label: 'Monthly PIT + closing', desc: 'Monthly payment and due at closing', defaultOn: true, pocOnly: true },
+  // Utility footer, not a review stage: the navigation buttons.
+  { key: 'actions',   group: 'actions', label: 'Action buttons', desc: 'View listing, research doc, map', defaultOn: true },
 ];
 const SETTINGS_KEY = 'hh_card_fields_v1';
 
@@ -255,10 +276,37 @@ function buildSettingsPanel() {
   });
 }
 
+// Rebuild a freshly-cloned card body into the workflow groups, in
+// CARD_GROUPS / CARD_FIELDS order. Each section (.cf-<key>) is moved out of the
+// flat template into its group wrapper (.card-grp), so this, not the template
+// markup, decides section order. The always-on header (.card-top) stays first.
+function assembleCardGroups(node) {
+  const body = node.querySelector('.card-body');
+  if (!body || body.querySelector('.card-grp')) return; // fresh clone only
+  CARD_GROUPS.forEach(g => {
+    const wrap = document.createElement('div');
+    wrap.className = 'card-grp card-grp-' + g.key;
+    CARD_FIELDS.filter(f => f.group === g.key).forEach(f => {
+      const sec = body.querySelector('.cf-' + f.key);
+      if (sec) wrap.appendChild(sec);
+    });
+    body.appendChild(wrap);
+  });
+}
+
 function applyCardVisibility() {
   CARD_FIELDS.forEach(f => {
     const show = fieldVisible(f.key);
     document.querySelectorAll('.cf-' + f.key).forEach(el => el.style.display = show ? '' : 'none');
+  });
+  // Collapse a group wrapper that has no visible section, so no stray group
+  // divider or gap shows. Content-based (inline display + actual content), not
+  // computed style, so it stays correct even when the card is in a hidden view
+  // (list cards while the map view is active compute display:none wholesale).
+  document.querySelectorAll('.card-grp').forEach(wrap => {
+    const anyVisible = [...wrap.children].some(c =>
+      c.style.display !== 'none' && (c.children.length > 0 || c.textContent.trim().length > 0));
+    wrap.style.display = anyVisible ? '' : 'none';
   });
 }
 
@@ -1855,6 +1903,9 @@ function buyerHeadline(buyers, feedbackByPerson) {
 
 function populateCard(node, item) {
   const poc = item.poc || null;
+
+  // Order the card's sections into the workflow groups before filling them.
+  assembleCardGroups(node);
 
   // Photo
   const img = node.querySelector('.photo');

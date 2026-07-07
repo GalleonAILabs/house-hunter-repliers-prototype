@@ -557,3 +557,75 @@ missing from the set defeats its purpose. Effect on the 105 listings:
 
 Still deferred (unchanged from prior entry): real multi-modal travel-time
 computation (T13), and the all-buyers aggregate highway filter.
+
+## Card workflow grouping + single-source render order (unattended design session)
+
+Mark out; conservative documented calls, display/ordering only, no data/
+endpoint/filter changes, every section keeps its toggle and functionality.
+
+**Single source of truth for order (the structural point).** The card template
+in index.html used to hardcode section order as a flat list of `.cf-*` divs,
+independent of `CARD_FIELDS`, so the two could drift. Refactored: `CARD_GROUPS`
+(four workflow groups + an Actions footer, in order) and `CARD_FIELDS` (each
+field carries its `group`, in order) are now the ONE definition of both what
+appears and in what order. `assembleCardGroups()` rebuilds each freshly-cloned
+card's body into group wrappers from those arrays, so the template's div order
+is no longer authoritative (it is a flat bag, kept in the same order only for
+readability, with a comment saying so). Reorganizing the card in future means
+reordering these arrays and nothing else. The settings drawer builds from the
+same arrays, so card order and settings order cannot diverge.
+
+**The four groups, top to bottom, follow the family's review workflow:**
+1. Identify & review: the always-on header (photo, address, beds summary, fit
+   BADGE) plus the one pinnable headline number (`summaryValue`).
+2. Property facts (what you evaluate against): stats, features, fit tags,
+   GO commute, highway distance, attached places.
+3. Opinions & input: group sentiment, per-person ratings, latest comments,
+   the rate/note/reject controls (which include the star input).
+4. Financial (the deep-dive stage): price, potential purchase price, the
+   itemized cost breakdown.
+
+**Decision logged as required: does price belong near the top for identification
+as well as in Financial, or only in Financial?** Chose ONLY in Financial, with
+no duplicate price line at the top. Reason: the `summaryValue` setting already
+lets a user pin one headline number (Price / Cost to close / PIT, default
+Price) at the very top of the card, which resolves the identification need
+without duplicating the price in two places. Duplicating price would also
+undercut the workflow the reorg is built around (price is deliberately the
+last, deep-dive stage). So the top-of-card number is the configurable
+`summaryValue` headline; the detailed `price` line lives in the Financial
+group. A user who wants price pinned up top already gets it (it is the
+default); a user who pins PIT or Cost to close instead has made that call
+deliberately.
+
+**Judgment call: the Actions buttons (View listing / Research doc / Map) do not
+fit any of the four workflow stages.** They are navigation utilities, not a
+review step. Rather than force them under "Financial", they get their own
+trailing "Actions" group (a fifth heading), kept at the very bottom of the card
+and the settings drawer. This is a small deviation from "the same four
+headings", made because folding nav buttons under Financial would misdescribe
+them in the settings list; documented here per the "if a section does not fit
+one group cleanly, make the call and log it" instruction.
+
+**fit BADGE vs fit TAGS.** The fit score badge (the N/8 number, top-right of the
+header) stays in the always-on Identify header. The fit TAGS (`cf-fit`, what the
+property fails on) are a property fact and sit in group 2. Two different things,
+deliberately in two groups.
+
+**Visual grouping.** Subtle only, in the existing language: sections within a
+group keep the standard 10px card gap; groups are separated by the same 1px
+dashed `var(--line)` divider already used for feedback actions and person-filter
+rows, with 12px extra padding above. No boxes, no new colors, no new type. A
+group wrapper whose sections are all hidden (toggled off or empty) is collapsed
+in JS (`applyCardVisibility`) using a content check rather than computed style,
+so it stays correct even for list cards while the map view is active (which
+compute display:none wholesale), and so no stray divider shows.
+
+**Responsive verification method (documented per instruction).** Mobile-first
+checks use the browse tool's `viewport WxH` command, which sets the viewport via
+CDP `Emulation.setDeviceMetricsOverride` (Playwright `setViewportSize`), a true
+device-metrics override that reflows layout. Do NOT verify responsiveness with a
+browser window-size flag / headed window resize: that resizes the OS window, not
+the emulated device, and gives false positives where the layout looks fine but
+never actually hit the mobile breakpoint. Verified this change at 390x844
+(mobile) and 1280x800 (desktop), on both list cards and the map popup.
