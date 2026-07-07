@@ -638,3 +638,73 @@ and 1280x800 (CDP device-metrics, not a window flag) on both list cards and the
 map popup, per-toggle hide/show checks, group-collapse checks, and a
 settings-order-equals-card-order check. Re-run `/codex review` when quota
 resets.
+
+## Map clustering + draw-an-area (two Repliers map features)
+
+**POC clustering finding (as required).** POC has NO server-side density
+clustering: batch2 T19 established the count-bubble clustering is the Repliers
+vendor's own server-side clustering, and POC is a local static file with
+nothing to delegate to. So the Map clustering toggle (count bubbles that split
+on zoom) applies to Sample Data only; this is stated in the setting's
+description, and POC always renders individual pins. HOWEVER, the cluster-CLICK
+mini-card popup DOES work for POC: POC has real overlapping pins (2 pairs
+within 50 m, 3 within 150 m of each other), and clicking a stack of pins uses
+queryRenderedFeatures to gather them and open the same chooser popup. So the
+split is: no count-bubbles for POC, but yes to the stacked-pin chooser.
+
+**API behaviours that differed from the docs (as required).**
+1. The clustering doc says small-cluster listing details arrive under a
+   `listing` (singular) field. Actual: it is `listings` (plural, an array) per
+   cluster, present only for clusters at/under clusterListingsThreshold; a
+   single-listing cluster carries a one-element `listings` array. Code reads
+   `listings`.
+2. The doc says "set clusterPrecision to match the zoom" but gives no mapping
+   and implies precision alone controls granularity. Actual: clustering the
+   whole 42,886-listing sample never yields small or single clusters at any
+   precision, because clusterLimit caps the number of clusters (~100-200) so
+   each stays large. Meaningful splitting requires clustering WITHIN the map
+   viewport, i.e. passing the viewport rectangle as the `map` polygon and
+   recomputing on pan/zoom. Viewport-scoping is the real mechanism, and the doc
+   does not mention it. (At precision 15 in a ~20 km box, still 100 clusters of
+   ~18 each; a street-level box yields singles.)
+3. The flat top-level `listings` array still returns a normal page alongside
+   the clusters (the doc is ambiguous; confirmed present).
+4. The `map` polygon param is an array of [lng, lat] closed rings (first point
+   == last), mapOperator OR/AND, matching the doc. Confirmed 42,886 -> 1,777
+   for a Charlotte test box; POC point-in-polygon confirmed 105 -> 25 exact.
+5. Data-quality note (not a doc item): the free Repliers sample has many
+   listings with "Address hidden" and no image; the mini-cards handle both
+   (placeholder thumbnail, address shown as given).
+
+**Decisions.**
+- Clustering settings (toggle + coarse/medium/fine granularity) live in
+  localStorage like the theme, per the instruction to store them where
+  theme-level appearance settings live. Granularity maps to a clusterPrecision
+  offset from the zoom, not the raw 1-29 number.
+- Cluster click behaviour (realtor.ca-style, per the follow-up): clusters up to
+  50 open the mini-card chooser (inline listings when at/under threshold, else
+  one bounds-scoped fetch); count 1 opens the full card directly; over 50 zooms
+  to split (a popup of thousands is not useful). Stacked pins use
+  queryRenderedFeatures.
+- Mini-cards show the group sentiment chips as the at-a-glance element, NOT
+  inline rate/reject controls, to keep the list scannable; full controls are
+  one tap away on the real card. Inline quick-rating from a mini-card is flagged
+  as a possible follow-up, not built.
+- Draw-an-area: tap-per-vertex (touch-friendly) rather than freehand tracing,
+  with an explicit Finish. POC filters client-side (ray-casting point-in-
+  polygon); Sample Data filters server-side via the Repliers `map` param. AND
+  with the panel; OR across multiple drawn polygons. Session-level only; named
+  saved zones flagged as a follow-up, not built.
+
+**Verification limitation.** The Mapbox map needs a WebGL canvas, which the
+headless test browser does not provide (and headed-mode JS eval was
+unreliable), so the on-map rendering (cluster bubbles, the drawing gesture with
+touch) could not be verified in this environment. Verified headless: the
+cluster API path (splits to singles in a small viewport), the chooser popup UI
+(renders 20 mini-cards, scrolls, tap opens the card), the Appearance settings,
+POC point-in-polygon (exact), and Sample Data server-side polygon filtering.
+The on-map interactions are for real-device verification via the phone tunnel.
+
+**Codex review: still blocked** ("Quota exceeded / check your plan and billing")
+on both feature diffs, same OpenAI billing limit as the previous two sessions.
+Stood in with the headless verification above + 118 stdlib tests.
