@@ -27,6 +27,8 @@ FIXTURE_POC = {
         {
             "row": 2,
             "address": "1 Test St",
+            "lat": 43.65,
+            "lon": -79.40,
             "beds": 2,
             "bedsNum": 2,
             "markRank": 4,
@@ -1225,6 +1227,128 @@ class MortgageMathTests(unittest.TestCase):
         self.assertEqual(result["ontarioLtt"]["rebate"], 0.0)
         self.assertEqual(result["torontoLtt"]["rebate"], 0.0)
         self.assertAlmostEqual(result["ontarioLtt"]["afterRebate"], result["ontarioLtt"]["beforeRebate"], places=2)
+
+
+class PlaceAttachmentTests(ServerTestCase):
+    """Per-property place attachments: attach a POI (existing or new) to a
+    listing, shared across the group, straight-line distance immediately, drive
+    time cached. Mapbox is nulled here so no network call is made; drive fields
+    come back null (routing-unavailable path), exercised for real on the live
+    domain instead."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._orig_mapbox = server.MAPBOX_TOKEN
+        server.MAPBOX_TOKEN = ""  # no network call; mapbox_drive returns (None, None)
+
+    def tearDown(self) -> None:
+        server.MAPBOX_TOKEN = self._orig_mapbox
+        super().tearDown()
+
+    def test_get_without_token_401(self) -> None:
+        status, _ = self.request("GET", "/api/place-attachments?listing_ids=POC-2")
+        self.assertEqual(status, 401)
+
+    def test_attach_new_place_creates_poi_and_computes_straight_km(self) -> None:
+        status, data = self.request(
+            "POST", "/api/place-attachments", token=self.TOKEN,
+            body={"listing_id": "POC-2", "person_id": 1,
+                  "new_place": {"type": "work", "label": "Office", "lat": 43.70, "lng": -79.40}},
+        )
+        self.assertEqual(status, 200, data)
+        att = data["attachment"]
+        self.assertEqual(att["poi_label"], "Office")
+        self.assertEqual(att["created_by_name"], "Mark")
+        # ~0.05 deg latitude north of the listing is ~5.5 km straight-line.
+        self.assertAlmostEqual(att["straight_km"], 5.56, delta=0.1)
+        self.assertIsNone(att["drive_minutes"])  # mapbox nulled in tests
+        # A POI pin was created (one source of truth for places).
+        _, poi = self.request("GET", "/api/poi", token=self.TOKEN)
+        self.assertTrue(any(p["label"] == "Office" for p in poi["poi"]))
+
+    def test_attach_existing_poi_and_shared_read(self) -> None:
+        # Create a POI, then attach it by id.
+        _, poi = self.request(
+            "POST", "/api/poi", token=self.TOKEN,
+            body={"person_id": 2, "type": "school", "label": "School", "lat": 43.66, "lng": -79.41},
+        )
+        poi_id = poi["id"]
+        status, data = self.request(
+            "POST", "/api/place-attachments", token=self.TOKEN,
+            body={"listing_id": "POC-2", "person_id": 2, "poi_id": poi_id},
+        )
+        self.assertEqual(status, 200, data)
+        # Visible to everyone reading the listing.
+        _, read = self.request("GET", "/api/place-attachments?listing_ids=POC-2", token=self.TOKEN)
+        atts = read["place_attachments"]["POC-2"]
+        self.assertEqual(len(atts), 1)
+        self.assertEqual(atts[0]["poi_id"], poi_id)
+        self.assertEqual(atts[0]["created_by_name"], "Katie")
+
+    def test_duplicate_attachment_rejected(self) -> None:
+        _, poi = self.request(
+            "POST", "/api/poi", token=self.TOKEN,
+            body={"person_id": 1, "type": "work", "lat": 43.66, "lng": -79.41},
+        )
+        body = {"listing_id": "POC-2", "person_id": 1, "poi_id": poi["id"]}
+        self.request("POST", "/api/place-attachments", token=self.TOKEN, body=body)
+        status, data = self.request("POST", "/api/place-attachments", token=self.TOKEN, body=body)
+        self.assertEqual(status, 400)
+        self.assertEqual(data["error"], "already_attached")
+
+    def test_attach_requires_known_person_and_listing(self) -> None:
+        s1, _ = self.request(
+            "POST", "/api/place-attachments", token=self.TOKEN,
+            body={"listing_id": "POC-2", "person_id": 999,
+                  "new_place": {"type": "work", "lat": 43.7, "lng": -79.4}},
+        )
+        self.assertEqual(s1, 400)
+        s2, _ = self.request(
+            "POST", "/api/place-attachments", token=self.TOKEN,
+            body={"listing_id": "POC-99999", "person_id": 1,
+                  "new_place": {"type": "work", "lat": 43.7, "lng": -79.4}},
+        )
+        self.assertEqual(s2, 400)
+
+    def test_attach_rejects_listing_without_coords(self) -> None:
+        # POC-4 ("3 Test St") has no lat/lon in the fixture.
+        status, data = self.request(
+            "POST", "/api/place-attachments", token=self.TOKEN,
+            body={"listing_id": "POC-4", "person_id": 1,
+                  "new_place": {"type": "work", "lat": 43.7, "lng": -79.4}},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(data["error"], "no_listing_coords")
+
+    def test_delete_attachment_leaves_poi(self) -> None:
+        _, data = self.request(
+            "POST", "/api/place-attachments", token=self.TOKEN,
+            body={"listing_id": "POC-2", "person_id": 1,
+                  "new_place": {"type": "work", "label": "Job", "lat": 43.7, "lng": -79.4}},
+        )
+        att_id = data["attachment"]["id"]
+        status, _ = self.request("DELETE", "/api/place-attachments", token=self.TOKEN, body={"id": att_id})
+        self.assertEqual(status, 200)
+        _, read = self.request("GET", "/api/place-attachments?listing_ids=POC-2", token=self.TOKEN)
+        self.assertEqual(read["place_attachments"]["POC-2"], [])
+        # POI pin survives (shared, may be attached elsewhere).
+        _, poi = self.request("GET", "/api/poi", token=self.TOKEN)
+        self.assertTrue(any(p["label"] == "Job" for p in poi["poi"]))
+
+    def test_recompute_updates_row(self) -> None:
+        _, data = self.request(
+            "POST", "/api/place-attachments", token=self.TOKEN,
+            body={"listing_id": "POC-2", "person_id": 1,
+                  "new_place": {"type": "work", "lat": 43.7, "lng": -79.4}},
+        )
+        att_id = data["attachment"]["id"]
+        status, data = self.request(
+            "POST", "/api/place-attachments/recompute", token=self.TOKEN, body={"id": att_id})
+        self.assertEqual(status, 200)
+        self.assertAlmostEqual(data["attachment"]["straight_km"], 5.56, delta=0.1)
+
+    def test_mapbox_drive_returns_none_without_token(self) -> None:
+        self.assertEqual(server.mapbox_drive(43.6, -79.4, 43.7, -79.5), (None, None))
 
 
 class RoleMigrationTests(unittest.TestCase):

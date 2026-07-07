@@ -157,6 +157,7 @@ const CARD_FIELDS = [
   { key: 'ratings',   label: 'Ratings',                   desc: 'Per-person star ratings',            defaultOn: true  },
   { key: 'fit',       label: 'Fit score tags',            desc: 'What the property fails on',         defaultOn: true  },
   { key: 'features',  label: 'Features',                  desc: 'Loft, home office, shop, etc.',      defaultOn: true,  pocOnly: true },
+  { key: 'placeAttachments', label: 'Attached places',      desc: 'Places attached to this property, with distance and drive time', defaultOn: true, pocOnly: true },
   { key: 'comments',  label: 'Latest comments',           desc: 'Most recent note per person',        defaultOn: false },
   { key: 'feedbackActions', label: 'Rate / note / reject controls', desc: 'Record your feedback as the selected actor', defaultOn: true },
   { key: 'actions',   label: 'Action buttons',            desc: 'View listing, research doc, map',    defaultOn: true  },
@@ -189,7 +190,7 @@ async function loadConfig() {
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────
-const state = { map: null, mapReady: false, rawListings: [], listings: [], activeView: 'map', people: [], activePerson: null, feedback: {}, openMapItem: null, source: 'poc', sourceCount: 0, clusters: [], poi: [], householdSettings: {}, personThresholds: {}, personThresholdsError: false };
+const state = { map: null, mapReady: false, rawListings: [], listings: [], activeView: 'map', people: [], activePerson: null, feedback: {}, openMapItem: null, source: 'poc', sourceCount: 0, clusters: [], poi: [], householdSettings: {}, personThresholds: {}, personThresholdsError: false, placeAttachments: {} };
 let cardSettings = loadSettings();
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -534,6 +535,20 @@ async function fetchFeedback(listingIds) {
   }
 }
 
+async function fetchPlaceAttachments(listingIds) {
+  const ids = [...new Set(listingIds.filter(Boolean))];
+  if (!ids.length) return {};
+  try {
+    const res = await fetch('/api/place-attachments?listing_ids=' + encodeURIComponent(ids.join(',')), { headers: authHeaders() });
+    if (!res.ok) return {};
+    const data = await res.json();
+    return data.place_attachments || {};
+  } catch (err) {
+    console.error(err);
+    return {};
+  }
+}
+
 async function postFeedback(payload) {
   const res = await fetch('/api/feedback', {
     method: 'POST',
@@ -557,7 +572,9 @@ async function reloadListingsPreservingMapView() {
   state.rawListings = data.listings;
   state.sourceCount = data.sourceCount;
   state.clusters = data.clusters || [];
-  state.feedback = await fetchFeedback(state.rawListings.map(x => x.mls));
+  const listingIds = state.rawListings.map(x => x.mls);
+  state.feedback = await fetchFeedback(listingIds);
+  state.placeAttachments = await fetchPlaceAttachments(listingIds);
   applyFiltersAndRender();
 }
 
@@ -1493,6 +1510,155 @@ async function addPoiPin() {
   }
 }
 
+// ─── Per-property place attachments ───────────────────────────────────────────
+// Progressive, like notes and the potential price: existing attachments and an
+// "Attach a place" button always show; the composer is hidden until clicked. A
+// place is always a POI pin (one source of truth): attach an existing pin, or
+// enter a new address that gets geocoded into a pin. Shared across the group
+// with who-added attribution. Straight-line distance shows immediately;
+// street-routed drive time is computed on attach and cached server-side, with a
+// recompute affordance. Deliberately NOT gated on any star rating in code.
+async function geocodePlace(query) {
+  try {
+    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json`
+      + `?access_token=${encodeURIComponent(MAPBOX_TOKEN)}&proximity=-79.5,44.0&limit=1`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const f = (data.features || [])[0];
+    return f ? { lng: f.center[0], lat: f.center[1], label: f.place_name } : null;
+  } catch (err) { console.error(err); return null; }
+}
+
+function buildPlaceAttachments(node, item) {
+  const container = node.querySelector('.card-place-attachments');
+  if (!container) return;
+  container.innerHTML = '';
+  if (!item.poc) return; // pocOnly: attachments measure from a listing's coordinates
+
+  container.append(el('div', { className: 'attach-heading', textContent: 'Attached places' }));
+
+  (state.placeAttachments[item.mls] || []).forEach(a => {
+    const typeLabel = (POI_TYPE_META[a.poi_type] || POI_TYPE_META.other).label;
+    const straight = a.straight_km != null ? `${num(a.straight_km)} km straight-line` : '';
+    const drive = a.drive_minutes != null
+      ? `${num(a.drive_minutes)} min drive` + (a.drive_km != null ? ` (${num(a.drive_km)} km)` : '')
+      : 'drive time unavailable';
+    const row = el('div', { className: 'attach-row' });
+    row.append(el('div', { className: 'attach-info' },
+      el('span', { className: 'attach-name', textContent: a.poi_label || typeLabel }),
+      el('span', { className: 'attach-detail', textContent: [straight, drive].filter(Boolean).join(' · ') }),
+      el('span', { className: 'attach-by', textContent: `added by ${a.created_by_name}` })));
+    const recomputeBtn = el('button', { type: 'button', className: 'secondary fb-btn', textContent: '↻', title: 'Recompute drive time' });
+    recomputeBtn.addEventListener('click', () => recomputeAttachment(item, a.id));
+    const removeBtn = el('button', { type: 'button', className: 'secondary fb-btn fb-btn-reject', textContent: '✕', title: 'Remove this place' });
+    removeBtn.addEventListener('click', () => removeAttachment(item, a.id));
+    row.append(el('div', { className: 'attach-btns' }, recomputeBtn, removeBtn));
+    container.append(row);
+  });
+
+  const addBtn = el('button', { type: 'button', className: 'secondary fb-btn', textContent: '➕ Attach a place' });
+  const composer = el('div', { className: 'feedback-compose attach-compose' });
+  composer.hidden = true;
+
+  const modeSel = el('select', { className: 'attach-select' });
+  modeSel.innerHTML = `<option value="existing">Choose a pinned place</option><option value="new">New address</option>`;
+  const poiSel = el('select', { className: 'attach-select' });
+  const refreshPoiOptions = () => {
+    poiSel.innerHTML = state.poi.length
+      ? state.poi.map(p => `<option value="${p.id}">${esc(p.label || (POI_TYPE_META[p.type] || POI_TYPE_META.other).label)}</option>`).join('')
+      : `<option value="">No places pinned yet</option>`;
+  };
+  refreshPoiOptions();
+
+  const addrInput = el('input', { type: 'text', placeholder: 'Address or place name' });
+  const typeSel = el('select', { className: 'attach-select' });
+  typeSel.innerHTML = Object.entries(POI_TYPE_META).map(([k, v]) => `<option value="${k}">${esc(v.label)}</option>`).join('');
+  typeSel.value = 'work';
+  const newWrap = el('div', { className: 'attach-new-wrap' }, addrInput, typeSel);
+
+  const applyMode = () => {
+    const isNew = modeSel.value === 'new';
+    poiSel.style.display = isNew ? 'none' : '';
+    newWrap.style.display = isNew ? '' : 'none';
+  };
+  modeSel.addEventListener('change', applyMode);
+  applyMode();
+
+  const statusEl = el('div', { className: 'feedback-status' });
+  const confirmBtn = el('button', { type: 'button', textContent: 'Attach' });
+  confirmBtn.addEventListener('click', () => attachPlace(item, { modeSel, poiSel, addrInput, typeSel, statusEl, confirmBtn }));
+
+  composer.append(modeSel, poiSel, newWrap, confirmBtn, statusEl);
+  addBtn.addEventListener('click', () => { if (composer.hidden) { refreshPoiOptions(); composer.hidden = false; } else { composer.hidden = true; } });
+  container.append(addBtn, composer);
+}
+
+async function attachPlace(item, ui) {
+  if (!state.activePerson) { showFeedbackStatus(ui.statusEl, 'Select who you are first.', true); return; }
+  ui.confirmBtn.disabled = true;
+  try {
+    let body;
+    if (ui.modeSel.value === 'new') {
+      const query = ui.addrInput.value.trim();
+      if (!query) { showFeedbackStatus(ui.statusEl, 'Enter an address.', true); return; }
+      showFeedbackStatus(ui.statusEl, 'Looking up address…', false);
+      const place = await geocodePlace(query);
+      if (!place) { showFeedbackStatus(ui.statusEl, 'No place found for that address.', true); return; }
+      body = { listing_id: item.mls, person_id: state.activePerson,
+               new_place: { type: ui.typeSel.value, label: place.label, lat: place.lat, lng: place.lng } };
+    } else {
+      const poiId = Number(ui.poiSel.value);
+      if (!poiId) { showFeedbackStatus(ui.statusEl, 'Pin a place on the map first, or use New address.', true); return; }
+      body = { listing_id: item.mls, person_id: state.activePerson, poi_id: poiId };
+    }
+    showFeedbackStatus(ui.statusEl, 'Attaching and computing drive time…', false);
+    const res = await fetch('/api/place-attachments', {
+      method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || data.error || 'Attach failed');
+    await reloadAfterAttachmentChange(item);
+  } catch (err) {
+    showFeedbackStatus(ui.statusEl, err.message, true);
+  } finally {
+    ui.confirmBtn.disabled = false;
+  }
+}
+
+async function removeAttachment(item, id) {
+  try {
+    const res = await fetch('/api/place-attachments', {
+      method: 'DELETE', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ id }),
+    });
+    if (!res.ok) throw new Error('remove failed');
+    await reloadAfterAttachmentChange(item);
+  } catch (err) { console.error(err); alert('Could not remove the place. Try again.'); }
+}
+
+async function recomputeAttachment(item, id) {
+  try {
+    const res = await fetch('/api/place-attachments/recompute', {
+      method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ id }),
+    });
+    if (!res.ok) throw new Error('recompute failed');
+    await reloadAfterAttachmentChange(item);
+  } catch (err) { console.error(err); alert('Could not recompute the drive time. Try again.'); }
+}
+
+// Refetch attachments (and POI, since a new address adds a pin) for the loaded
+// listings, then re-render, keeping the map view and re-showing the open card.
+async function reloadAfterAttachmentChange(item) {
+  const openMlsBeforeReload = state.openMapItem?.mls;
+  state.placeAttachments = await fetchPlaceAttachments(state.rawListings.map(x => x.mls));
+  await loadPoi();
+  applyFiltersAndRender();
+  if (openMlsBeforeReload) {
+    const refreshed = findListing(openMlsBeforeReload);
+    if (refreshed) showMapCard(refreshed);
+  }
+}
+
 // Rejected status must come from the ACTIVE actor's live feedback
 // (listing_feedback), not item.status -- for POC listings that field is a
 // static historical snapshot (pre-multi-actor) and can say "Rejected" for a
@@ -1868,6 +2034,9 @@ function populateCard(node, item) {
     else el.style.display = 'none';
   }
 
+  // Per-property place attachments (shared, progressive add, cached drive time)
+  buildPlaceAttachments(node, item);
+
   // Feedback actions (D7/D12): shared control set for List cards and Map popups
   buildFeedbackActions(node, item);
 
@@ -2015,7 +2184,9 @@ async function load() {
   state.source = source;
   state.sourceCount = data.sourceCount;
   state.clusters = data.clusters || [];
-  state.feedback = await fetchFeedback(state.rawListings.map(x => x.mls));
+  const listingIds = state.rawListings.map(x => x.mls);
+  state.feedback = await fetchFeedback(listingIds);
+  state.placeAttachments = await fetchPlaceAttachments(listingIds);
   if (source === 'poc') state.map?.jumpTo({ center: [-79.5, 44.0], zoom: 9 });
   else state.map?.jumpTo({ center: [-87.6298, 41.8781], zoom: 10 });
   applyFiltersAndRender();

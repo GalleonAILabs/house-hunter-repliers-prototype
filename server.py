@@ -116,8 +116,11 @@ HOUSEHOLD_SETTING_DEFAULTS: dict[str, str] = {
 
 # D10: known POC listing ids, loaded once at startup (see load_poc_listing_ids).
 # Repliers-sourced ids are format-checked only, not existence-checked against
-# this set. See validate_listing_id.
+# this set. See validate_listing_id. POC_LISTING_COORDS maps each POC id to
+# its (lat, lon) so place attachments can compute distance/drive time from a
+# listing without re-reading the data file per request.
 POC_LISTING_IDS: set[str] = set()
+POC_LISTING_COORDS: dict[str, tuple[float, float]] = {}
 
 # Demo participants (buyer_group_id stub column stays null until a real
 # buyer_groups table exists, see PROJECT_BRIEF.md commercial path). Anees
@@ -329,6 +332,28 @@ def init_db() -> None:
                 updated_by INTEGER REFERENCES people(id),
                 updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             );
+
+            -- Per-property place attachments (T-attach). A buyer attaches a
+            -- place (always a POI pin, one source of truth for places) to a
+            -- specific listing. Shared across the whole group like notes;
+            -- created_by is attribution, not a privacy boundary. straight_km
+            -- is the crow-flies distance; drive_minutes/drive_km are the
+            -- street-routed Mapbox Directions result, computed once on attach
+            -- and cached here (recomputed only on explicit request), null when
+            -- routing was unavailable. UNIQUE stops the same place being
+            -- attached to the same listing twice.
+            CREATE TABLE IF NOT EXISTS listing_place_attachments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                listing_id TEXT NOT NULL,
+                poi_id INTEGER NOT NULL REFERENCES poi_pins(id),
+                straight_km REAL,
+                drive_minutes REAL,
+                drive_km REAL,
+                computed_at TEXT,
+                created_by INTEGER NOT NULL REFERENCES people(id),
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                UNIQUE (listing_id, poi_id)
+            );
             """
         )
 
@@ -452,13 +477,60 @@ def backfill_poc_feedback() -> None:
 
 
 def load_poc_listing_ids() -> None:
-    """D10: build the in-memory set of known POC listing ids at startup."""
-    global POC_LISTING_IDS
+    """D10: build the in-memory set of known POC listing ids at startup, plus
+    a per-id (lat, lon) map for place-attachment distance/drive computation."""
+    global POC_LISTING_IDS, POC_LISTING_COORDS
     if not POC_DATA_PATH.exists():
         POC_LISTING_IDS = set()
+        POC_LISTING_COORDS = {}
         return
     raw = json.loads(POC_DATA_PATH.read_text())
     POC_LISTING_IDS = {f"POC-{row.get('row')}" for row in raw.get("properties", [])}
+    coords: dict[str, tuple[float, float]] = {}
+    for row in raw.get("properties", []):
+        lat, lon = number(row.get("lat")), number(row.get("lon"))
+        if lat is not None and lon is not None:
+            coords[f"POC-{row.get('row')}"] = (lat, lon)
+    POC_LISTING_COORDS = coords
+
+
+def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Great-circle (crow-flies) distance in km."""
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlam = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlam / 2) ** 2
+    return 2 * (EARTH_RADIUS_M / 1000.0) * math.asin(math.sqrt(a))
+
+
+def mapbox_drive(lat1: float, lon1: float, lat2: float, lon2: float) -> tuple[float | None, float | None]:
+    """Street-routed driving time (minutes) and distance (km) from the Mapbox
+    Directions API, or (None, None) if no token or the request fails. The same
+    method the existing GO drive-time figures use (real road routing, not a
+    straight-line estimate). Directions is confirmed available on the in-use
+    Mapbox plan (rate limit 300 requests / 60 s)."""
+    if not MAPBOX_TOKEN:
+        return None, None
+    coords = f"{lon1},{lat1};{lon2},{lat2}"
+    url = (
+        f"https://api.mapbox.com/directions/v5/mapbox/driving/{coords}"
+        f"?overview=false&access_token={urllib.parse.quote(MAPBOX_TOKEN, safe='')}"
+    )
+    try:
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        routes = data.get("routes") or []
+        if routes:
+            return round(routes[0]["duration"] / 60.0, 1), round(routes[0]["distance"] / 1000.0, 2)
+    except (urllib.error.URLError, TimeoutError, ValueError, KeyError):
+        pass
+    return None, None
+
+
+def listing_coords(listing_id: str) -> tuple[float, float] | None:
+    """(lat, lon) for a listing, POC only for now (Repliers sample listings
+    are out of the POC area and have no attachments)."""
+    return POC_LISTING_COORDS.get(listing_id)
 
 
 # ─── Highway distance (straight-line, as the crow flies) ────────────────────────
@@ -781,6 +853,179 @@ def handle_poi_post(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
             "SELECT id, created_at FROM poi_pins WHERE id = ?", (cursor.lastrowid,)
         ).fetchone()
         return {"ok": True, "id": row["id"], "created_at": row["created_at"]}, 200
+    finally:
+        conn.close()
+
+
+_NOW_SQL = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
+
+
+def attachments_for_listings(
+    conn: sqlite3.Connection, listing_ids: list[str]
+) -> dict[str, list[dict[str, Any]]]:
+    """Place attachments per listing, shared across the whole group. Joins the
+    POI pin (label/type/coords) and the created_by name. Every requested
+    listing gets a (possibly empty) list."""
+    result: dict[str, list[dict[str, Any]]] = {lid: [] for lid in listing_ids}
+    if not listing_ids:
+        return result
+    placeholders = ",".join("?" for _ in listing_ids)
+    rows = conn.execute(
+        f"""
+        SELECT a.id, a.listing_id, a.poi_id, a.straight_km, a.drive_minutes,
+               a.drive_km, a.computed_at, a.created_by, cb.name AS created_by_name,
+               a.created_at, p.type AS poi_type, p.label AS poi_label,
+               p.lat AS poi_lat, p.lng AS poi_lng
+        FROM listing_place_attachments a
+        JOIN poi_pins p ON p.id = a.poi_id
+        JOIN people cb ON cb.id = a.created_by
+        WHERE a.listing_id IN ({placeholders})
+        ORDER BY a.id
+        """,
+        listing_ids,
+    ).fetchall()
+    for row in rows:
+        result[row["listing_id"]].append(dict(row))
+    return result
+
+
+def handle_place_attachment_post(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """Attach a place to a specific listing. The place is either an existing
+    POI pin (poi_id) or a new one (new_place: type/label/lat/lng, created here
+    so places stay one source of truth). Distance is crow-flies; drive time is
+    street-routed via Mapbox and cached on the row. Shared across the group;
+    person_id is the buyer doing the attaching (attribution). NOT gated on any
+    star rating -- that is how the family uses it, not a software rule."""
+    listing_id = body.get("listing_id")
+    person_id = body.get("person_id")
+    poi_id = body.get("poi_id")
+    new_place = body.get("new_place")
+
+    if not isinstance(listing_id, str) or not listing_id:
+        return {"error": "invalid_request", "detail": "listing_id is required"}, 400
+
+    conn = get_db()
+    try:
+        if not person_exists(conn, person_id):
+            return {"error": "unknown_person", "detail": f"person_id {person_id!r} not found"}, 400
+        if not validate_listing_id(listing_id):
+            return {"error": "unknown_listing", "detail": f"listing_id {listing_id!r} not found"}, 400
+        coords = listing_coords(listing_id)
+        if coords is None:
+            return {"error": "no_listing_coords",
+                    "detail": "this listing has no coordinates to measure from"}, 400
+
+        # Resolve the POI: create from new_place, or validate an existing id.
+        if new_place is not None:
+            ptype = new_place.get("type")
+            label = new_place.get("label")
+            lat = new_place.get("lat")
+            lng = new_place.get("lng")
+            if ptype not in ALLOWED_POI_TYPES:
+                return {"error": "invalid_request",
+                        "detail": f"new_place.type must be one of {sorted(ALLOWED_POI_TYPES)}"}, 400
+            if not isinstance(lat, (int, float)) or isinstance(lat, bool) \
+                    or not isinstance(lng, (int, float)) or isinstance(lng, bool):
+                return {"error": "invalid_request", "detail": "new_place.lat and lng are required numbers"}, 400
+            if label is not None and not isinstance(label, str):
+                return {"error": "invalid_request", "detail": "new_place.label must be a string if present"}, 400
+            cursor = conn.execute(
+                "INSERT INTO poi_pins (type, label, lat, lng, created_by) VALUES (?, ?, ?, ?, ?)",
+                (ptype, label, float(lat), float(lng), person_id),
+            )
+            poi_id = cursor.lastrowid
+            conn.commit()
+        else:
+            if not isinstance(poi_id, int) or isinstance(poi_id, bool):
+                return {"error": "invalid_request", "detail": "poi_id or new_place is required"}, 400
+            if conn.execute("SELECT 1 FROM poi_pins WHERE id = ?", (poi_id,)).fetchone() is None:
+                return {"error": "unknown_poi", "detail": f"poi_id {poi_id!r} not found"}, 400
+
+        poi = conn.execute("SELECT lat, lng FROM poi_pins WHERE id = ?", (poi_id,)).fetchone()
+        llat, llon = coords
+        straight_km = round(haversine_km(llat, llon, poi["lat"], poi["lng"]), 2)
+        # Directions call made between transactions (POI already committed), so
+        # no write transaction is held open during the ~1s network round-trip.
+        drive_minutes, drive_km = mapbox_drive(llat, llon, poi["lat"], poi["lng"])
+        computed_sql = _NOW_SQL if drive_minutes is not None else "NULL"
+
+        try:
+            cursor = conn.execute(
+                f"""
+                INSERT INTO listing_place_attachments
+                    (listing_id, poi_id, straight_km, drive_minutes, drive_km, computed_at, created_by)
+                VALUES (?, ?, ?, ?, ?, {computed_sql}, ?)
+                """,
+                (listing_id, poi_id, straight_km, drive_minutes, drive_km, person_id),
+            )
+        except sqlite3.IntegrityError:
+            return {"error": "already_attached",
+                    "detail": "this place is already attached to this listing"}, 400
+        conn.commit()
+        attachment = next(
+            (a for a in attachments_for_listings(conn, [listing_id])[listing_id] if a["id"] == cursor.lastrowid),
+            None,
+        )
+        return {"ok": True, "attachment": attachment}, 200
+    finally:
+        conn.close()
+
+
+def handle_place_attachment_recompute(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """Recompute an attachment's straight-line distance and street-routed drive
+    time (the recompute affordance). Distances/drive are otherwise cached from
+    when the place was attached."""
+    att_id = body.get("id")
+    if not isinstance(att_id, int) or isinstance(att_id, bool):
+        return {"error": "invalid_request", "detail": "id is required"}, 400
+    conn = get_db()
+    try:
+        row = conn.execute(
+            """
+            SELECT a.listing_id, p.lat, p.lng
+            FROM listing_place_attachments a JOIN poi_pins p ON p.id = a.poi_id
+            WHERE a.id = ?
+            """,
+            (att_id,),
+        ).fetchone()
+        if row is None:
+            return {"error": "unknown_attachment", "detail": f"attachment {att_id!r} not found"}, 400
+        coords = listing_coords(row["listing_id"])
+        if coords is None:
+            return {"error": "no_listing_coords", "detail": "this listing has no coordinates"}, 400
+        llat, llon = coords
+        straight_km = round(haversine_km(llat, llon, row["lat"], row["lng"]), 2)
+        drive_minutes, drive_km = mapbox_drive(llat, llon, row["lat"], row["lng"])
+        computed_sql = _NOW_SQL if drive_minutes is not None else "NULL"
+        conn.execute(
+            f"""
+            UPDATE listing_place_attachments
+            SET straight_km = ?, drive_minutes = ?, drive_km = ?, computed_at = {computed_sql}
+            WHERE id = ?
+            """,
+            (straight_km, drive_minutes, drive_km, att_id),
+        )
+        conn.commit()
+        attachment = next(
+            (a for a in attachments_for_listings(conn, [row["listing_id"]])[row["listing_id"]] if a["id"] == att_id),
+            None,
+        )
+        return {"ok": True, "attachment": attachment}, 200
+    finally:
+        conn.close()
+
+
+def handle_place_attachment_delete(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """Remove a place attachment. Leaves the underlying POI pin in place (it is
+    shared, one source of truth, and may be attached elsewhere)."""
+    att_id = body.get("id")
+    if not isinstance(att_id, int) or isinstance(att_id, bool):
+        return {"error": "invalid_request", "detail": "id is required"}, 400
+    conn = get_db()
+    try:
+        conn.execute("DELETE FROM listing_place_attachments WHERE id = ?", (att_id,))
+        conn.commit()
+        return {"ok": True, "id": att_id}, 200
     finally:
         conn.close()
 
@@ -1790,6 +2035,18 @@ class Handler(BaseHTTPRequestHandler):
                 finally:
                     conn.close()
                 return
+            if parsed.path == "/api/place-attachments":
+                # Shared across the whole group like feedback/POI, same auth.
+                if not require_auth(self):
+                    self.send_json({"error": "unauthorized"}, 401)
+                    return
+                listing_ids = [x for x in (params.get("listing_ids") or "").split(",") if x]
+                conn = get_db()
+                try:
+                    self.send_json({"place_attachments": attachments_for_listings(conn, listing_ids)})
+                finally:
+                    conn.close()
+                return
             if parsed.path == "/api/health":
                 self.send_json({"ok": True, "hasKey": bool(API_KEY), "baseUrl": BASE_URL})
                 return
@@ -1912,6 +2169,26 @@ class Handler(BaseHTTPRequestHandler):
                 data, status = handle_person_thresholds_post(body)
                 self.send_json(data, status)
                 return
+            if parsed.path in ("/api/place-attachments", "/api/place-attachments/recompute"):
+                if not require_auth(self):
+                    self.send_json({"error": "unauthorized"}, 401)
+                    return
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                raw_body = self.rfile.read(length) if length else b""
+                try:
+                    body = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    self.send_json({"error": "invalid_request", "detail": "malformed JSON body"}, 400)
+                    return
+                if not isinstance(body, dict):
+                    self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
+                    return
+                if parsed.path == "/api/place-attachments/recompute":
+                    data, status = handle_place_attachment_recompute(body)
+                else:
+                    data, status = handle_place_attachment_post(body)
+                self.send_json(data, status)
+                return
             self.send_json({"error": "not_found"}, 404)
         except Exception as exc:  # pragma: no cover, surfaced in browser for prototype speed
             self.send_json({"error": type(exc).__name__, "detail": str(exc)}, 500)
@@ -1934,6 +2211,23 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
                     return
                 data, status = handle_potential_price_delete(body)
+                self.send_json(data, status)
+                return
+            if parsed.path == "/api/place-attachments":
+                if not require_auth(self):
+                    self.send_json({"error": "unauthorized"}, 401)
+                    return
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                raw_body = self.rfile.read(length) if length else b""
+                try:
+                    body = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    self.send_json({"error": "invalid_request", "detail": "malformed JSON body"}, 400)
+                    return
+                if not isinstance(body, dict):
+                    self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
+                    return
+                data, status = handle_place_attachment_delete(body)
                 self.send_json(data, status)
                 return
             self.send_json({"error": "not_found"}, 404)
