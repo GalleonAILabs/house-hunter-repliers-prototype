@@ -1940,7 +1940,9 @@ function buildMiniCard(item) {
     + (stat ? `<div class="mini-stat">${esc(stat)}</div>` : '')
     + (chips ? `<div class="mini-chips">${chips}</div>` : '')
     + '</div>';
-  card.addEventListener('click', () => { closeClusterPopup(); showMapCard(item); });
+  // stopPropagation so this tap does not also reach the global click-outside
+  // listener, which would otherwise immediately close the card it just opened.
+  card.addEventListener('click', e => { e.stopPropagation(); closeClusterPopup(); showMapCard(item); });
   return card;
 }
 
@@ -1991,8 +1993,11 @@ function showMapCard(item) {
   applyCardVisibility();
   $('mapCard').hidden = false;
   state.openMapItem = item;
-  // Zoom to pin
-  state.map.easeTo({ center: [item.lng, item.lat], zoom: Math.max(state.map.getZoom(), 12) });
+  // Zoom to pin (guarded: the card also opens from the list/chooser where the
+  // map may not be initialised, e.g. if WebGL is unavailable).
+  if (state.map && item.lng != null && item.lat != null) {
+    state.map.easeTo({ center: [item.lng, item.lat], zoom: Math.max(state.map.getZoom(), 12) });
+  }
 }
 
 function closeMapCard() { $('mapCard').hidden = true; state.openMapItem = null; }

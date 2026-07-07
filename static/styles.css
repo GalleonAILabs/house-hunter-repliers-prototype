@@ -99,7 +99,7 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .cluster-popup-head{display:flex;align-items:center;justify-content:space-between;padding:12px 14px 8px;flex-shrink:0}
 .cluster-popup-count{font-size:13px;font-weight:800;color:var(--muted)}
 .cluster-popup-inner{overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0 10px;display:flex;flex-direction:column;gap:8px;padding-bottom:calc(var(--bottom-bar-height) + 24px)}
-.mini-card{display:flex;gap:10px;text-align:left;align-items:center;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:8px;cursor:pointer;width:100%;min-height:0;color:var(--ink);font:inherit}
+.mini-card{display:flex;gap:10px;text-align:left;align-items:center;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:8px;cursor:pointer;width:100%;flex-shrink:0;color:var(--ink);font:inherit}
 .mini-card:hover{background:var(--panel)}
 .mini-thumb{width:72px;height:72px;object-fit:cover;border-radius:8px;flex-shrink:0;background:var(--line)}
 .mini-thumb-empty{display:flex;align-items:center;justify-content:center;font-size:26px}
