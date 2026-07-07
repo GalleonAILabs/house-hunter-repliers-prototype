@@ -446,3 +446,72 @@ session, a full `/codex` audit at the end of any substantial session)
 in its place. A future session seeing old references to "do not run
 Codex" in prior conversation history should treat this entry as
 superseding them, not reopen the question from scratch.
+
+## Per-person location thresholds + highway distance (3 commits: 779db47, 652c4cb, 731d849)
+
+**Storage: a dedicated typed `person_thresholds` table, one row per
+person, not extra columns on `people` and not the key/value
+`household_settings` shape.** The travel-time threshold is one compound
+record (minutes + optional total + mode + destination kind + destination
+ref) that must stay together and plug into the deferred travel-time
+computation without a schema change; key/value rows would scatter one
+logical setting across many rows, and `people` should stay identity-only.
+The table mirrors `potential_purchase_prices`: `updated_by`/`updated_at`
+attribution, row-level (who last edited this person's thresholds). Per
+person in structure, but shared with the whole group exactly like
+household settings: `GET`/`POST /api/person-thresholds` are auth-gated and
+not per-person filtered, so anyone edits anyone's from any device, never
+localStorage. POST carries `person_id` (target) and `actor_id` (who
+changed it, recorded as `updated_by`); it is a full replace of the row, so
+the client always sends the complete set and an omitted field clears to
+NULL (unset).
+
+**Migration of the old "nearest GO drive <= 20 min" rule.** That value
+never existed in code as a threshold. It lived only as frozen text inside
+the precomputed `fit` strings in `data/poc_listings.json` (e.g. "Nearest
+GO drive <= 20 min"), which `poc_fit()` only regex-parses into opaque
+`failedLabels`. Nothing in code branched on 20. So migration = seed each
+buyer's initial travel threshold at 20 min / drive / nearest GO station
+(plus a 5 km highway limit for Mark and Katie), and confirm nothing still
+reads a hardcoded 20 (nothing does). The gitignored data file was NOT
+edited; that "<= 20 min" fit-label text remains as a display artifact of
+the POC score, unrelated to the new editable threshold, which is now the
+single source of truth going forward. Advisors seed unset.
+
+**Highways sourced.** 400/401/410/427 mainline geometry from OpenStreetMap
+via the Overpass API (`scripts/build_highways.py`, rotates public mirrors
+on 504/429, decimates to ~150 m spacing). 413 reuses the existing
+higher-accuracy MTO/WSP layer. Distance is straight-line (crow-flies)
+point-to-polyline via a local equirectangular projection, a
+noise/pollution radius, not a drive time. All 105 listings resolve; nearest
+distribution: 400 x67, 413 x20, 401 x17, 410 x1.
+
+**Deferred, per T13 (see the T13 section above):** computing actual travel
+times against the new per-person destinations (e.g. the multi-leg drive +
+GO + subway door-to-door case) is out of scope this round. T13 established
+the GO-rail per-leg timing and fares are already in the downloaded
+Metrolinx GTFS feed, but a full multi-modal door-to-door total needs
+geocoding a home to its nearest station plus drive and TTC/subway legs,
+none of which T13 covered. The threshold record already stores destination
++ mode so that computation plugs in later without restructuring.
+
+**Flagged follow-ups, not built:** (1) an all-buyers aggregate highway
+filter (within everyone's / within anyone's limit) is left as a group
+decision, since buyers may hold different limits and the aggregate could be
+strictest, loosest, or a per-buyer breakdown; the filter shipped is the
+single-active-person view. (2) 403/404/407/QEW also run near some listings
+and can be added to `build_highways.py` + `HIGHWAY_LAYER_FILES` the same
+way if the family wants them in the nearest-highway distance. (3) 413 is a
+planned corridor, so a listing whose nearest highway is 413 reflects future
+rather than current noise; the card names the highway so this is
+transparent.
+
+**Codex review could not run this session:** the local `codex` CLI's
+native binary is missing from its vendored package
+(`@openai/codex-darwin-arm64/.../codex` returns ENOENT; even `codex
+--version` fails), so the standing end-of-session Codex audit is blocked on
+a broken install, not skipped by choice. Reinstall with `npm install -g
+@openai/codex` (or reinstall the platform package), then run `/codex
+review`. In its place this session used 100 stdlib unit tests, distance-math
+validation against the real 105-listing dataset, and a full headless-browser
+QA pass of all three features.
