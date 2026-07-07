@@ -81,6 +81,12 @@
       <label>Max commute (min)
         <input id="maxCommute" type="number" min="0" step="1" placeholder="Any" />
       </label>
+      <label>Highway distance (km)
+        <div class="range-pair">
+          <input id="minHwyKm" type="number" min="0" step="0.5" placeholder="Min" />
+          <input id="maxHwyKm" type="number" min="0" step="0.5" placeholder="Max" />
+        </div>
+      </label>
       <label>Monthly PIT
         <div class="range-pair">
           <input id="minPit" type="text" inputmode="numeric" placeholder="Min" />
@@ -113,7 +119,6 @@
       <div id="personFilters" class="contents"></div>
       <div class="filter-toggle-row">
         <label class="chip"><input type="checkbox" id="hideVetoed" /> Hide listings rejected by any buyer</label>
-        <label class="chip" title="Keeps only listings at or beyond the household's highway distance minimum (a noise/pollution radius). Too-close listings are hidden. Set the minimum in Settings, Location thresholds. No effect until it is set."><input type="checkbox" id="filterHwyWithinLimit" /> Far enough from highways</label>
       </div>
       <div class="feature-filter-block">
         <span class="feature-filter-caption">Text match only, not a confirmed feature:</span>

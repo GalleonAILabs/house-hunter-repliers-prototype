@@ -404,18 +404,30 @@ function matchesPersonFilter(listingId, personId, checkedValues) {
   return checkedValues.some(v => matchesPersonCheckValue(listingId, personId, v));
 }
 
-// Household highway-distance filter. The minimum is a household position, so
-// this is NOT scoped to the active "I am" person: it applies for everyone.
-// The threshold is a MINIMUM acceptable distance (a noise/pollution radius):
-// closer to a highway is bad, farther is good. So this keeps only listings
-// that MEET the household minimum (at or beyond it); too-close listings are
-// filtered out. A no-op until the household highway minimum is set.
-function matchesHighwayFilter(item) {
-  if (!$('filterHwyWithinLimit')?.checked) return true;
-  const limit = householdHighwayKm();
-  if (limit == null) return true; // household has no highway minimum set
-  if (item.highwayKm == null) return false; // unknown distance can't be confirmed to meet a minimum
-  return item.highwayKm >= limit; // far enough: meets or exceeds the minimum distance
+// Highway distance is a plain Min/Max range filter on the precomputed
+// straight-line highwayKm (see matchesRangeDirect call in filterByFeedback),
+// independent of the household highway minimum in settings (which still drives
+// the card badge). Set Min = the household minimum to keep only listings that
+// are far enough; blank means no constraint like every other range filter.
+
+// One-time migration of the old "Far enough from highways" checkbox: if it was
+// persisted-on, seed the new Highway distance Min field with the household
+// highway_km value (the old checkbox kept listings with highwayKm >= that
+// value, which is exactly Min = household_km). Otherwise leave both blank.
+// Runs after household settings load so householdHighwayKm() is available.
+function migrateHighwayFilterCheckbox() {
+  const saved = loadSavedFilterState();
+  const minEl = $('minHwyKm');
+  if (saved.filterHwyWithinLimit && minEl && !minEl.value) {
+    const km = householdHighwayKm();
+    if (km != null) minEl.value = km;
+  }
+  // saveFilterState rewrites the persisted object from the current fields and
+  // no longer includes filterHwyWithinLimit, so the obsolete key is dropped.
+  if ('filterHwyWithinLimit' in saved) {
+    saveFilterState();
+    applyFiltersAndRender();
+  }
 }
 
 function matchesStatusFilter(listingId, value) {
@@ -503,7 +515,7 @@ function filterByFeedback(listings) {
     if (!matchesRangeDirect(item.sqft, 'minSqft', 'maxSqft')) return false;
     if (!matchesRangeDirect(item.acres, 'minAcres', 'maxAcres')) return false;
     if (!matchesRangeDirect(item.goMin, '', 'maxCommute')) return false;
-    if (!matchesHighwayFilter(item)) return false;
+    if (!matchesRangeDirect(item.highwayKm, 'minHwyKm', 'maxHwyKm')) return false;
     if (!matchesFeatureKeywords(item)) return false;
     return personFilters.every(pf => matchesPersonFilter(item.mls, pf.id, pf.values));
   });
@@ -2193,10 +2205,10 @@ async function load() {
 }
 
 function reset() {
-  ['q','minPrice','maxPrice','minBeds','maxBeds','minBaths','maxBaths','minSqft','maxSqft','minAcres','maxAcres','maxCommute','minPit','maxPit','minDue','maxDue','minFit','filterStatus']
+  ['q','minPrice','maxPrice','minBeds','maxBeds','minBaths','maxBaths','minSqft','maxSqft','minAcres','maxAcres','maxCommute','minHwyKm','maxHwyKm','minPit','maxPit','minDue','maxDue','minFit','filterStatus']
     .forEach(id => { const el=$(id); if(el) { el.value=''; delete el.dataset.raw; } });
   $('resultsPerPage').value = '60';
-  ['featGarage','featPool','featBasement','clusterToggle','hideVetoed','filterHwyWithinLimit'].forEach(id => { const el = $(id); if (el) el.checked = false; });
+  ['featGarage','featPool','featBasement','clusterToggle','hideVetoed'].forEach(id => { const el = $(id); if (el) el.checked = false; });
   state.people.forEach(p => {
     PERSON_FILTER_OPTIONS.forEach(o => { const cb = $(personFilterCbId(p.id, o.value)); if (cb) cb.checked = false; });
   });
@@ -2222,12 +2234,12 @@ const FILTER_STATE_KEY = 'hh_filter_state_v1';
 // preference; a one-off search term is not, so it always starts empty.
 const PERSISTED_FIELD_IDS = [
   'minPrice', 'maxPrice', 'minBeds', 'maxBeds', 'minBaths', 'maxBaths',
-  'minSqft', 'maxSqft', 'minAcres', 'maxAcres', 'maxCommute',
+  'minSqft', 'maxSqft', 'minAcres', 'maxAcres', 'maxCommute', 'minHwyKm', 'maxHwyKm',
   'minPit', 'maxPit', 'minDue', 'maxDue', 'minFit', 'filterStatus',
   'resultsPerPage', 'source', 'sort',
 ];
 const PERSISTED_CHECKBOX_IDS = [
-  'featGarage', 'featPool', 'featBasement', 'clusterToggle', 'hideVetoed', 'filterHwyWithinLimit',
+  'featGarage', 'featPool', 'featBasement', 'clusterToggle', 'hideVetoed',
   'layerGoStations', 'layerGoStationsPlanned', 'layerGoLines', 'layerHwy413', 'layerPoiPins',
 ];
 
@@ -2293,7 +2305,7 @@ window.addEventListener('DOMContentLoaded', () => {
       try { initMap(); } catch (err) { console.error('Map init failed:', err); }
       loadPeople().then(() => { applyFiltersAndRender(); loadPersonThresholds(); });
       loadPoi().then(buildThresholdSettings);
-      loadHouseholdSettings();
+      loadHouseholdSettings().then(migrateHighwayFilterCheckbox);
       return load();
     })
     .catch(showError);
@@ -2329,8 +2341,8 @@ window.addEventListener('DOMContentLoaded', () => {
   $('maxPit')?.addEventListener('change', applyFiltersAndRender);
   $('minDue')?.addEventListener('change', applyFiltersAndRender);
   $('maxDue')?.addEventListener('change', applyFiltersAndRender);
-  ['minSqft','maxSqft','minAcres','maxAcres','maxCommute'].forEach(id => $(id)?.addEventListener('change', applyFiltersAndRender));
-  ['featGarage','featPool','featBasement','hideVetoed','filterHwyWithinLimit'].forEach(id => $(id)?.addEventListener('change', applyFiltersAndRender));
+  ['minSqft','maxSqft','minAcres','maxAcres','maxCommute','minHwyKm','maxHwyKm'].forEach(id => $(id)?.addEventListener('change', applyFiltersAndRender));
+  ['featGarage','featPool','featBasement','hideVetoed'].forEach(id => $(id)?.addEventListener('change', applyFiltersAndRender));
   $('source').addEventListener('change', () => { buildSettingsPanel(); updateClusterVisibility(); load().catch(showError); });
   $('clusterToggle')?.addEventListener('change', () => load().catch(showError));
   $('sort')?.addEventListener('change', e => { syncSort(e.target.value); renderCards(state.listings); refreshMap(state.listings); });
