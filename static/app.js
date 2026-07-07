@@ -79,45 +79,53 @@ function savePriceMode(value) { localStorage.setItem(PRICE_MODE_KEY, value); }
 // the card) and `itemized` (the components behind those totals,
 // collapsed by default behind a <details> disclosure) so the card
 // stays scannable without hiding the numbers that led to each total.
+// Split the itemized rows at the real cash-flow boundary: everything in
+// closingItems is one-time cash due at closing, everything in monthlyItems is
+// recurring monthly. The financial section renders a labelled dashed divider
+// between the two (see populateCard). Display grouping only; the mortgage math
+// is unchanged.
 function mortgageBreakdownRows(breakdown) {
-  const itemized = [];
+  const closingItems = [];
   const dp = breakdown.downPayment;
   const dpLabel = dp.toppedUp
     ? `Down payment (topped up to the required minimum, ${dp.enteredPct}% entered was too low for this price)`
     : `Down payment (${dp.enteredPct}%)`;
-  itemized.push([dpLabel, money(dp.amount)]);
+  closingItems.push([dpLabel, money(dp.amount)]);
 
   if (breakdown.cmhc.applies) {
-    itemized.push([`CMHC premium (${breakdown.cmhc.premiumRatePct}% of insured loan)`, money(breakdown.cmhc.premium)]);
-    itemized.push(['CMHC premium Ontario PST (8%)', money(breakdown.cmhc.pst)]);
+    closingItems.push([`CMHC premium (${breakdown.cmhc.premiumRatePct}% of insured loan)`, money(breakdown.cmhc.premium)]);
+    closingItems.push(['CMHC premium Ontario PST (8%)', money(breakdown.cmhc.pst)]);
   }
 
   const ont = breakdown.ontarioLtt;
-  itemized.push([
+  closingItems.push([
     ont.rebate > 0 ? `Ontario land transfer tax (after $${num(ont.rebate)} first-time buyer rebate)` : 'Ontario land transfer tax',
     money(ont.afterRebate),
   ]);
 
   if (breakdown.torontoLtt.applies) {
     const tor = breakdown.torontoLtt;
-    itemized.push([
+    closingItems.push([
       tor.rebate > 0 ? `Toronto municipal land transfer tax (after $${num(tor.rebate)} first-time buyer rebate)` : 'Toronto municipal land transfer tax',
       money(tor.afterRebate),
     ]);
   }
 
-  itemized.push(['Legal fees (estimate)', money(breakdown.fixedCosts.legalFees)]);
-  itemized.push(['Home inspection (estimate)', money(breakdown.fixedCosts.homeInspection)]);
-  itemized.push(['Appraisal (estimate)', money(breakdown.fixedCosts.appraisal)]);
-  itemized.push(['Title insurance (estimate)', money(breakdown.fixedCosts.titleInsurance)]);
-  itemized.push(['Monthly principal and interest', money(breakdown.monthlyPrincipalInterest)]);
-  itemized.push(['Monthly property tax (estimate)', money(breakdown.monthlyPropertyTax)]);
+  closingItems.push(['Legal fees (estimate)', money(breakdown.fixedCosts.legalFees)]);
+  closingItems.push(['Home inspection (estimate)', money(breakdown.fixedCosts.homeInspection)]);
+  closingItems.push(['Appraisal (estimate)', money(breakdown.fixedCosts.appraisal)]);
+  closingItems.push(['Title insurance (estimate)', money(breakdown.fixedCosts.titleInsurance)]);
+
+  const monthlyItems = [
+    ['Monthly principal and interest', money(breakdown.monthlyPrincipalInterest)],
+    ['Monthly property tax (estimate)', money(breakdown.monthlyPropertyTax)],
+  ];
 
   const totals = [
     ['Total cost to close (estimate)', money(breakdown.costToClose)],
     ['Monthly PIT (estimate)', money(breakdown.monthlyPit)],
   ];
-  return { itemized, totals };
+  return { closingItems, monthlyItems, totals };
 }
 
 function effectivePrice(item) {
@@ -698,12 +706,9 @@ function buildPotentialPriceEditor(node, item) {
 
   const entry = item.potentialPurchasePrice || null;
 
-  const display = document.createElement('div');
-  display.className = 'potential-price-display';
-  display.textContent = entry
-    ? `Potential purchase price: ${money(entry.price)} (${entry.updatedByName})`
-    : 'No potential purchase price entered yet';
-
+  // The entered estimate itself (value + attribution) now shows in the price
+  // block above as the "Estimate:" line, so this section is just the
+  // Add / Edit / Clear affordance, no duplicate display line.
   const btnRow = document.createElement('div');
   btnRow.className = 'feedback-btn-row';
 
@@ -778,7 +783,7 @@ function buildPotentialPriceEditor(node, item) {
     btnRow.append(clearBtn);
   }
 
-  container.append(display, btnRow, box);
+  container.append(btnRow, box);
 }
 
 function showFeedbackStatus(el, text, isError) {
@@ -1967,15 +1972,22 @@ function populateCard(node, item) {
     ? `<span class="fin-label">${esc(summary.label)}</span><span class="fin-value">${esc(summary.value)}</span>`
     : '';
 
-  // Price: list price, or potential purchase price when the toggle says
-  // so and one has actually been entered for this listing. Falls back to
-  // list price otherwise, visibly, never silently.
+  // Price: the list price, plus the entered estimate (potential purchase
+  // price) on its own line below it once one exists. Two lines, same size,
+  // List Price first, Estimate second, with the estimate's attribution. When
+  // no estimate is entered, only the List Price line shows; the Add potential
+  // price affordance lives just below in buildPotentialPriceEditor.
   {
-    const effective = effectivePrice(item);
     const priceEl = node.querySelector('.card-price');
-    priceEl.innerHTML = effective.isFallback
-      ? `${esc(money(effective.value))} <span class="price-fallback-note">(list price, no potential price entered)</span>`
-      : esc(money(effective.value));
+    const lines = [];
+    if (item.price != null) {
+      lines.push(`<div class="price-line"><span class="price-line-label">List Price:</span> <span class="price-line-amt">${esc(money(item.price))}</span></div>`);
+    }
+    const potential = item.potentialPurchasePrice;
+    if (potential != null) {
+      lines.push(`<div class="price-line"><span class="price-line-label">Estimate:</span> <span class="price-line-amt">${esc(money(potential.price))}</span> <span class="price-line-by">(${esc(potential.updatedByName)})</span></div>`);
+    }
+    priceEl.innerHTML = lines.join('');
   }
 
   // Potential purchase price editor: shared across the group, not per
@@ -2068,21 +2080,40 @@ function populateCard(node, item) {
   // anywhere in this data), so it always shows its own stored value
   // regardless of which price is active.
   if (poc) {
-    const condoFeeVal = item.isCondo && item.condoFeeNum ? money(item.condoFeeNum) + '/mo' : '';
     const financialEl = node.querySelector('.card-financial');
-    const finRow = ([label, value]) => `<div class="fin-row"><span class="fin-label">${esc(label)}</span><span class="fin-value">${esc(value)}</span></div>`;
-    const condoRow = condoFeeVal ? finRow(['Condo fee', condoFeeVal]) : '';
+    const finRow = ([label, value, cls]) => `<div class="fin-row${cls ? ' ' + cls : ''}"><span class="fin-label">${esc(label)}</span><span class="fin-value">${esc(value)}</span></div>`;
+    // Condo fees: surfaced when the listing has them. Maintenance fees: no such
+    // field exists in the POC data or schema (only condoFeeNum, from Repliers
+    // HOAFee or a future POC column), so that line is omitted, not invented.
+    const condoFee = item.isCondo && item.condoFeeNum ? item.condoFeeNum : null;
     if (item.mortgageBreakdown) {
-      const { itemized, totals } = mortgageBreakdownRows(item.mortgageBreakdown);
-      financialEl.innerHTML = totals.map(finRow).join('')
-        + `<details class="fin-details"><summary>Itemized breakdown</summary>${itemized.map(finRow).join('')}</details>`
-        + condoRow
+      const bd = item.mortgageBreakdown;
+      const { closingItems, monthlyItems, totals } = mortgageBreakdownRows(bd);
+
+      // Summary block (always visible): the two totals, then any recurring fee
+      // lines, then a computed Total monthly. Total monthly (PIT + the fees
+      // that exist) only shows when there is at least one fee beyond PIT,
+      // otherwise it would just repeat the PIT figure.
+      const summary = [...totals];
+      if (condoFee != null) summary.push(['Condo fees', money(condoFee) + '/mo']);
+      if (condoFee != null) summary.push(['Total monthly', money(bd.monthlyPit + condoFee) + '/mo', 'fin-row-total']);
+
+      // Itemized breakdown (collapsed), split at the closing/monthly boundary
+      // with a labelled dashed divider.
+      const details = '<details class="fin-details"><summary>Itemized breakdown</summary>'
+        + '<div class="fin-subhead">One-time at closing</div>'
+        + closingItems.map(finRow).join('')
+        + '<div class="fin-subhead fin-subhead-monthly">Monthly</div>'
+        + monthlyItems.map(finRow).join('')
+        + '</details>';
+
+      financialEl.innerHTML = summary.map(finRow).join('') + details
         + '<div class="fin-disclaimer">Estimates only. Confirm real figures with a mortgage professional and lawyer before closing, since rates, lender rules, and individual circumstances can change the actual numbers.</div>';
     } else {
-      // No valid price to compute against at all (no potential price
-      // entered and no list price either). Nothing computed to show;
-      // condo fee, if any, still stands on its own.
-      financialEl.innerHTML = condoRow;
+      // No valid price to compute against at all (no potential price entered
+      // and no list price either). Nothing computed to show; a condo fee, if
+      // any, still stands on its own.
+      financialEl.innerHTML = condoFee != null ? finRow(['Condo fees', money(condoFee) + '/mo']) : '';
     }
   }
 
