@@ -48,6 +48,34 @@ MAPBOX_TOKEN = os.getenv("MAPBOX_TOKEN", "")
 ALLOWED_ACTION_TYPES = {"rating", "note", "reject", "research_request"}
 ALLOWED_POI_TYPES = {"school", "hospital", "work", "worship", "other"}
 
+# Per-person location thresholds (person_thresholds table). Unlike
+# household_settings (one shared value per key for the whole group), these
+# are per person in structure: each buyer/advisor has their own row. They
+# are still stored server-side and visible to everyone, exactly like a
+# household setting -- if Katie changes her drive time on her phone, it
+# shows on Mark's device too. Anyone in the household may edit anyone's
+# thresholds, so updated_by/updated_at record who last touched a person's
+# row, the same attribution shape household_settings and
+# potential_purchase_prices use.
+#
+# travel_mode is how the person travels to their destination; the
+# destination itself references a GO station or an existing POI pin (one
+# source of truth for places), never a free-typed address. The actual
+# travel-time computation against these destinations is deferred (see
+# DECISIONS.md T13), so these fields are storage-only for now: they hold
+# enough (minutes, optional total, mode, destination) that the computation
+# can plug in later without a schema change.
+ALLOWED_TRAVEL_MODES = {"drive", "transit", "walk", "bike"}
+ALLOWED_TRAVEL_DEST_KINDS = {"go_station", "poi"}
+# Migration of the old "nearest GO drive <= 20 min" rule: it never lived in
+# code as a threshold, only as frozen text inside the precomputed POC fit
+# strings (data/poc_listings.json), so nothing in code read it. Seeding it
+# here as each buyer's initial travel-time threshold makes it a real,
+# per-person, editable value for the first time. 5 km straight-line highway
+# distance is Mark's and Katie's stated noise/pollution limit.
+MIGRATED_GO_THRESHOLD_MIN = 20
+MIGRATED_HIGHWAY_KM = 5.0
+
 # Household-level settings (household_settings table): one shared value per
 # key across the whole buyer group, not per person. Defaults apply only
 # when a key has never been set; they are not hardcoded in the sense of
@@ -176,12 +204,57 @@ def init_db() -> None:
                 updated_by INTEGER REFERENCES people(id),
                 updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             );
+
+            -- Per-person location thresholds. Per person in structure (one
+            -- row per person), but stored server-side and shared with the
+            -- whole group like household_settings, not scoped to a device.
+            -- A dedicated typed table rather than the key/value
+            -- household_settings shape because the travel-time threshold is
+            -- one compound record (minutes + optional total + mode +
+            -- destination) that must stay together and plug into the
+            -- deferred travel-time computation without restructuring;
+            -- key/value rows would scatter one logical setting across many
+            -- rows. Every threshold column is nullable: NULL means "not set
+            -- for this person". updated_by/updated_at are row-level
+            -- attribution (who last edited this person's thresholds), the
+            -- same shape as potential_purchase_prices.
+            CREATE TABLE IF NOT EXISTS person_thresholds (
+                person_id INTEGER PRIMARY KEY REFERENCES people(id),
+                travel_minutes INTEGER,
+                travel_total_minutes INTEGER,
+                travel_mode TEXT,
+                travel_dest_kind TEXT,
+                travel_dest_ref TEXT,
+                highway_km REAL,
+                updated_by INTEGER REFERENCES people(id),
+                updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
             """
         )
         existing = conn.execute("SELECT COUNT(*) FROM people").fetchone()[0]
         if existing == 0:
             conn.executemany(
                 "INSERT INTO people (name, role) VALUES (?, ?)", SEED_PEOPLE
+            )
+
+        # Migrate the old 20-minute nearest-GO rule into the structured
+        # per-person store, once. Seeded for buyers only (the 20-min rule
+        # was a buyer criterion; advisors start fully unset). Guarded on the
+        # table being empty so restarts never re-seed. updated_by is NULL:
+        # this is a migration default, not an edit any person made.
+        thresholds_seeded = conn.execute("SELECT COUNT(*) FROM person_thresholds").fetchone()[0]
+        if thresholds_seeded == 0:
+            # init_db uses a raw connection (no row_factory), so rows are
+            # plain tuples here -- id is column 0.
+            buyers = conn.execute("SELECT id FROM people WHERE role = 'buyer'").fetchall()
+            conn.executemany(
+                """
+                INSERT INTO person_thresholds
+                    (person_id, travel_minutes, travel_mode, travel_dest_kind,
+                     travel_dest_ref, highway_km, updated_by)
+                VALUES (?, ?, 'drive', 'go_station', NULL, ?, NULL)
+                """,
+                [(b[0], MIGRATED_GO_THRESHOLD_MIN, MIGRATED_HIGHWAY_KM) for b in buyers],
             )
         conn.commit()
     finally:
@@ -600,6 +673,108 @@ def handle_potential_price_delete(body: dict[str, Any]) -> tuple[dict[str, Any],
         conn.execute("DELETE FROM potential_purchase_prices WHERE listing_id = ?", (listing_id,))
         conn.commit()
         return {"ok": True, "listing_id": listing_id}, 200
+    finally:
+        conn.close()
+
+
+def person_thresholds_all(conn: sqlite3.Connection) -> dict[str, dict[str, Any]]:
+    """Every person's location thresholds, keyed by person id (as a string,
+    so it survives JSON round-tripping as an object key). Every known person
+    gets an entry even with no row yet -- all threshold fields null -- so the
+    settings UI can render the full roster (buyers and advisors) without a
+    second lookup against GET /api/people. updated_by_name resolves the
+    attribution to a display name; it and updated_at are null for a
+    person whose thresholds are still all unset or were only ever the
+    migration default (updated_by NULL)."""
+    rows = conn.execute(
+        """
+        SELECT pe.id AS person_id, pe.name AS person_name, pe.role AS role,
+               t.travel_minutes, t.travel_total_minutes, t.travel_mode,
+               t.travel_dest_kind, t.travel_dest_ref, t.highway_km,
+               t.updated_by, up.name AS updated_by_name, t.updated_at
+        FROM people pe
+        LEFT JOIN person_thresholds t ON t.person_id = pe.id
+        LEFT JOIN people up ON up.id = t.updated_by
+        ORDER BY pe.id
+        """
+    ).fetchall()
+    return {str(row["person_id"]): dict(row) for row in rows}
+
+
+def handle_person_thresholds_post(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """Upsert one person's complete threshold record. person_id is the
+    target (whose thresholds), actor_id is who is making the change (anyone
+    in the household may edit anyone's), recorded as updated_by. This is a
+    full replace of that person's row: every threshold field the client
+    omits is stored as NULL (unset), so the client always sends the whole
+    set. Nulls are how a field is cleared back to unset."""
+    person_id = body.get("person_id")
+    actor_id = body.get("actor_id")
+
+    def pos_int_or_none(value: Any, label: str) -> tuple[int | None, str | None]:
+        if value is None:
+            return None, None
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+            return None, f"{label} must be a positive number or null"
+        return int(round(value)), None
+
+    def pos_float_or_none(value: Any, label: str) -> tuple[float | None, str | None]:
+        if value is None:
+            return None, None
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+            return None, f"{label} must be a positive number or null"
+        return float(value), None
+
+    travel_minutes, err = pos_int_or_none(body.get("travel_minutes"), "travel_minutes")
+    if err:
+        return {"error": "invalid_request", "detail": err}, 400
+    travel_total_minutes, err = pos_int_or_none(body.get("travel_total_minutes"), "travel_total_minutes")
+    if err:
+        return {"error": "invalid_request", "detail": err}, 400
+    highway_km, err = pos_float_or_none(body.get("highway_km"), "highway_km")
+    if err:
+        return {"error": "invalid_request", "detail": err}, 400
+
+    travel_mode = body.get("travel_mode")
+    if travel_mode is not None and travel_mode not in ALLOWED_TRAVEL_MODES:
+        return {"error": "invalid_request",
+                "detail": f"travel_mode must be one of {sorted(ALLOWED_TRAVEL_MODES)} or null"}, 400
+    travel_dest_kind = body.get("travel_dest_kind")
+    if travel_dest_kind is not None and travel_dest_kind not in ALLOWED_TRAVEL_DEST_KINDS:
+        return {"error": "invalid_request",
+                "detail": f"travel_dest_kind must be one of {sorted(ALLOWED_TRAVEL_DEST_KINDS)} or null"}, 400
+    travel_dest_ref = body.get("travel_dest_ref")
+    if travel_dest_ref is not None and not isinstance(travel_dest_ref, str):
+        return {"error": "invalid_request", "detail": "travel_dest_ref must be a string or null"}, 400
+
+    conn = get_db()
+    try:
+        if not person_exists(conn, person_id):
+            return {"error": "unknown_person", "detail": f"person_id {person_id!r} not found"}, 400
+        if not person_exists(conn, actor_id):
+            return {"error": "unknown_person", "detail": f"actor_id {actor_id!r} not found"}, 400
+
+        conn.execute(
+            """
+            INSERT INTO person_thresholds
+                (person_id, travel_minutes, travel_total_minutes, travel_mode,
+                 travel_dest_kind, travel_dest_ref, highway_km, updated_by, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            ON CONFLICT(person_id) DO UPDATE SET
+                travel_minutes = excluded.travel_minutes,
+                travel_total_minutes = excluded.travel_total_minutes,
+                travel_mode = excluded.travel_mode,
+                travel_dest_kind = excluded.travel_dest_kind,
+                travel_dest_ref = excluded.travel_dest_ref,
+                highway_km = excluded.highway_km,
+                updated_by = excluded.updated_by,
+                updated_at = excluded.updated_at
+            """,
+            (person_id, travel_minutes, travel_total_minutes, travel_mode,
+             travel_dest_kind, travel_dest_ref, highway_km, actor_id),
+        )
+        conn.commit()
+        return {"ok": True, "threshold": person_thresholds_all(conn).get(str(person_id))}, 200
     finally:
         conn.close()
 
@@ -1351,6 +1526,19 @@ class Handler(BaseHTTPRequestHandler):
                 finally:
                     conn.close()
                 return
+            if parsed.path == "/api/person-thresholds":
+                # Per person in structure, but shared across the whole buyer
+                # group like household settings, same auth, not per-person
+                # filtered: everyone sees (and may edit) everyone's.
+                if not require_auth(self):
+                    self.send_json({"error": "unauthorized"}, 401)
+                    return
+                conn = get_db()
+                try:
+                    self.send_json({"person_thresholds": person_thresholds_all(conn)})
+                finally:
+                    conn.close()
+                return
             if parsed.path == "/api/health":
                 self.send_json({"ok": True, "hasKey": bool(API_KEY), "baseUrl": BASE_URL})
                 return
@@ -1454,6 +1642,23 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
                     return
                 data, status = handle_household_settings_post(body)
+                self.send_json(data, status)
+                return
+            if parsed.path == "/api/person-thresholds":
+                if not require_auth(self):
+                    self.send_json({"error": "unauthorized"}, 401)
+                    return
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                raw_body = self.rfile.read(length) if length else b""
+                try:
+                    body = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    self.send_json({"error": "invalid_request", "detail": "malformed JSON body"}, 400)
+                    return
+                if not isinstance(body, dict):
+                    self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
+                    return
+                data, status = handle_person_thresholds_post(body)
                 self.send_json(data, status)
                 return
             self.send_json({"error": "not_found"}, 404)

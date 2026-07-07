@@ -188,7 +188,7 @@ async function loadConfig() {
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────
-const state = { map: null, mapReady: false, rawListings: [], listings: [], activeView: 'map', people: [], activePerson: null, feedback: {}, openMapItem: null, source: 'poc', sourceCount: 0, clusters: [], poi: [], householdSettings: {} };
+const state = { map: null, mapReady: false, rawListings: [], listings: [], activeView: 'map', people: [], activePerson: null, feedback: {}, openMapItem: null, source: 'poc', sourceCount: 0, clusters: [], poi: [], householdSettings: {}, personThresholds: {} };
 let cardSettings = loadSettings();
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -274,7 +274,7 @@ function showSettingsPage(target, title) {
   $('settingsTitle').textContent = title;
   $('settingsBack').hidden = false;
 }
-function openSettings() { buildSettingsPanel(); showSettingsMain(); $('settingsDrawer').hidden = false; $('settingsOverlay').hidden = false; }
+function openSettings() { buildSettingsPanel(); buildThresholdSettings(); showSettingsMain(); $('settingsDrawer').hidden = false; $('settingsOverlay').hidden = false; }
 function closeSettings() { $('settingsDrawer').hidden = true; $('settingsOverlay').hidden = true; }
 
 // ─── People / "I am" actor selector ────────────────────────────────────────────
@@ -1176,6 +1176,182 @@ function bindHouseholdNumberInput(id, key) {
   });
 }
 
+// ─── Per-person location thresholds ────────────────────────────────────────────
+// Per person in structure (one row per person), but stored server-side and
+// shared with the whole group, exactly like household settings: if Katie
+// changes her drive time on her phone it shows on everyone's device. Never
+// localStorage, never scoped to the active "I am" person's device. The
+// destination references a GO station or an existing POI pin (one source of
+// truth for places), never a free-typed address. Computing actual travel
+// times against these destinations is deferred (see DECISIONS.md T13); for
+// now these fields are stored so that computation can plug in later, and the
+// highway_km limit is the only one wired into display/filtering this round.
+const TRAVEL_MODE_OPTIONS = [
+  { value: 'drive', label: 'Drive' },
+  { value: 'transit', label: 'Transit' },
+  { value: 'walk', label: 'Walk' },
+  { value: 'bike', label: 'Bike' },
+];
+
+async function loadPersonThresholds() {
+  try {
+    const res = await fetch('/api/person-thresholds', { headers: authHeaders() });
+    if (res.ok) {
+      const data = await res.json();
+      state.personThresholds = data.person_thresholds || {};
+    }
+  } catch (err) {
+    console.error(err);
+  }
+  buildThresholdSettings();
+}
+
+function thresholdFor(personId) {
+  return state.personThresholds[String(personId)] || null;
+}
+
+// Active-actor helpers, used by the highway-distance card indicator (Part 2)
+// and the highway-distance filter (Part 3). Both follow the active "I am"
+// person, the same way the status filter does.
+function activePersonHighwayKm() {
+  if (!state.activePerson) return null;
+  const t = thresholdFor(state.activePerson);
+  const v = t ? t.highway_km : null;
+  return v == null ? null : Number(v);
+}
+
+function el(tag, props = {}, ...children) {
+  const node = Object.assign(document.createElement(tag), props);
+  children.forEach(c => node.append(c));
+  return node;
+}
+
+function buildThresholdSettings() {
+  const container = $('thresholdSettingsList');
+  if (!container) return;
+  container.innerHTML = '';
+  if (!state.people.length) {
+    container.appendChild(el('p', { className: 'field-desc', textContent: 'No people loaded yet.' }));
+    return;
+  }
+
+  state.people.forEach(person => {
+    const t = thresholdFor(person.id) || {};
+    const advisor = person.role === 'advisor';
+
+    const block = el('div', { className: 'threshold-person-block' + (advisor ? ' threshold-advisor' : '') });
+    const nameRow = el('div', { className: 'threshold-person-name' });
+    nameRow.append(el('span', { textContent: person.name }));
+    if (advisor) nameRow.append(el('span', { className: 'threshold-role-badge', textContent: 'advisor' }));
+    block.append(nameRow);
+
+    // --- Travel time group ---
+    const travelGroup = el('div', { className: 'threshold-group' });
+    travelGroup.append(el('div', { className: 'threshold-group-label', textContent: 'Max travel time' }));
+
+    const minsInput = el('input', { type: 'number', min: '0', step: '1', placeholder: 'min',
+      className: 'threshold-input threshold-input-mins', value: t.travel_minutes ?? '' });
+    const modeSel = el('select', { className: 'threshold-select threshold-select-mode' });
+    modeSel.innerHTML = TRAVEL_MODE_OPTIONS.map(o => `<option value="${o.value}">${esc(o.label)}</option>`).join('');
+    modeSel.value = t.travel_mode || 'drive';
+
+    const destSel = el('select', { className: 'threshold-select threshold-select-destkind' });
+    destSel.innerHTML =
+      `<option value="go_station">to nearest GO station</option>` +
+      `<option value="poi">to a place</option>`;
+    destSel.value = t.travel_dest_kind || 'go_station';
+
+    // POI picker, shown only when the destination is a pinned place. Its
+    // options are the shared POI pins (one source of truth for places), so
+    // a destination is always a real pin, never free-typed text.
+    const poiSel = el('select', { className: 'threshold-select threshold-select-poi' });
+    const poiOpts = state.poi.length
+      ? state.poi.map(p => `<option value="${p.id}">${esc(p.label || (POI_TYPE_META[p.type] || POI_TYPE_META.other).label)}</option>`).join('')
+      : `<option value="">No places pinned yet, add one on the map</option>`;
+    poiSel.innerHTML = poiOpts;
+    if (t.travel_dest_ref != null) poiSel.value = String(t.travel_dest_ref);
+    poiSel.style.display = destSel.value === 'poi' ? '' : 'none';
+    destSel.addEventListener('change', () => { poiSel.style.display = destSel.value === 'poi' ? '' : 'none'; });
+
+    const totalInput = el('input', { type: 'number', min: '0', step: '1', placeholder: 'total',
+      className: 'threshold-input threshold-input-total', value: t.travel_total_minutes ?? '' });
+
+    const travelRow = el('div', { className: 'threshold-row' });
+    travelRow.append(minsInput, el('span', { className: 'threshold-unit', textContent: 'min' }),
+      modeSel, destSel, poiSel);
+    const totalRow = el('div', { className: 'threshold-row' });
+    totalRow.append(el('span', { className: 'threshold-unit', textContent: 'within a total of' }),
+      totalInput, el('span', { className: 'threshold-unit', textContent: 'min (optional)' }));
+    travelGroup.append(travelRow, totalRow);
+    block.append(travelGroup);
+
+    // --- Highway distance group ---
+    const hwyGroup = el('div', { className: 'threshold-group' });
+    hwyGroup.append(el('div', { className: 'threshold-group-label', textContent: 'Max distance to highway (straight-line)' }));
+    const kmInput = el('input', { type: 'number', min: '0', step: '0.5', placeholder: 'km',
+      className: 'threshold-input threshold-input-km', value: t.highway_km ?? '' });
+    const hwyRow = el('div', { className: 'threshold-row' });
+    hwyRow.append(kmInput, el('span', { className: 'threshold-unit', textContent: 'km' }));
+    hwyGroup.append(hwyRow);
+    block.append(hwyGroup);
+
+    // Attribution: who last edited this person's thresholds (null for the
+    // untouched migration default).
+    if (t.updated_by_name) {
+      block.append(el('div', { className: 'threshold-attribution',
+        textContent: `Last changed by ${t.updated_by_name}` }));
+    }
+
+    const save = () => saveThreshold(person.id, { minsInput, modeSel, destSel, poiSel, totalInput, kmInput });
+    [minsInput, modeSel, destSel, poiSel, totalInput, kmInput].forEach(input =>
+      input.addEventListener('change', save));
+
+    container.append(block);
+  });
+}
+
+function posNumOrNull(raw) {
+  const s = String(raw ?? '').trim();
+  if (s === '') return null;
+  const n = Number(s);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+async function saveThreshold(personId, fields) {
+  if (!state.activePerson) {
+    alert('Select who you are (top right) first, so we can record who made the change.');
+    buildThresholdSettings(); // revert UI to stored state
+    return;
+  }
+  const destKind = fields.destSel.value;
+  const payload = {
+    person_id: personId,
+    actor_id: state.activePerson,
+    travel_minutes: posNumOrNull(fields.minsInput.value),
+    travel_total_minutes: posNumOrNull(fields.totalInput.value),
+    travel_mode: fields.modeSel.value || null,
+    travel_dest_kind: destKind,
+    travel_dest_ref: destKind === 'poi' && fields.poiSel.value ? fields.poiSel.value : null,
+    highway_km: posNumOrNull(fields.kmInput.value),
+  };
+  try {
+    const res = await fetch('/api/person-thresholds', {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || data.error || 'Save failed');
+    if (data.threshold) state.personThresholds[String(personId)] = data.threshold;
+    buildThresholdSettings();       // refresh attribution line
+    applyFiltersAndRender();        // highway indicator/filter may now differ
+  } catch (err) {
+    console.error(err);
+    alert('Could not save the threshold. Try again.');
+    buildThresholdSettings();
+  }
+}
+
 // Search-then-drop, using Mapbox's Geocoding API (same token as the map
 // tiles, see DECISIONS.md T14 for why this is a new external call and why
 // it was judged low-risk enough to add directly rather than stopping to ask).
@@ -1813,8 +1989,8 @@ window.addEventListener('DOMContentLoaded', () => {
       // not take down the rest of the app -- List view has nothing to do
       // with the map and should keep working regardless.
       try { initMap(); } catch (err) { console.error('Map init failed:', err); }
-      loadPeople().then(applyFiltersAndRender);
-      loadPoi();
+      loadPeople().then(() => { applyFiltersAndRender(); loadPersonThresholds(); });
+      loadPoi().then(buildThresholdSettings);
       loadHouseholdSettings();
       return load();
     })

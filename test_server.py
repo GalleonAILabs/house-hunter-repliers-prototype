@@ -864,6 +864,133 @@ class PotentialPurchasePriceTests(ServerTestCase):
         self.assertNotIn("potentialPurchasePrice", item)
 
 
+class PersonThresholdsTests(ServerTestCase):
+    """Per-person location thresholds: per person in structure (one row per
+    person), but stored server-side and shared with the whole group like
+    household settings, editable by anyone. Buyers are seeded with the
+    migrated 20-min nearest-GO rule and a 5 km highway limit; advisors start
+    unset."""
+
+    def test_get_without_token_401(self) -> None:
+        status, _ = self.request("GET", "/api/person-thresholds")
+        self.assertEqual(status, 401)
+
+    def test_get_returns_every_person_including_unset_advisors(self) -> None:
+        status, data = self.request("GET", "/api/person-thresholds", token=self.TOKEN)
+        self.assertEqual(status, 200)
+        thresholds = data["person_thresholds"]
+        # Mark(1), Katie(2) buyers; Anees(3), Kevin(4) advisors -- all four present.
+        self.assertEqual(set(thresholds.keys()), {"1", "2", "3", "4"})
+
+    def test_buyers_seeded_with_migrated_go_and_highway(self) -> None:
+        _, data = self.request("GET", "/api/person-thresholds", token=self.TOKEN)
+        for pid in ("1", "2"):  # Mark, Katie
+            entry = data["person_thresholds"][pid]
+            self.assertEqual(entry["travel_minutes"], 20)
+            self.assertEqual(entry["travel_mode"], "drive")
+            self.assertEqual(entry["travel_dest_kind"], "go_station")
+            self.assertIsNone(entry["travel_dest_ref"])  # nearest GO station
+            self.assertEqual(entry["highway_km"], 5.0)
+            # Migration default, not an edit anyone made.
+            self.assertIsNone(entry["updated_by"])
+
+    def test_advisors_start_fully_unset(self) -> None:
+        _, data = self.request("GET", "/api/person-thresholds", token=self.TOKEN)
+        for pid in ("3", "4"):  # Anees, Kevin
+            entry = data["person_thresholds"][pid]
+            self.assertIsNone(entry["travel_minutes"])
+            self.assertIsNone(entry["highway_km"])
+            self.assertIsNone(entry["travel_dest_kind"])
+
+    def test_post_requires_known_target_person(self) -> None:
+        status, data = self.request(
+            "POST", "/api/person-thresholds", token=self.TOKEN,
+            body={"person_id": 999, "actor_id": 1, "highway_km": 3},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(data["error"], "unknown_person")
+
+    def test_post_requires_known_actor(self) -> None:
+        status, data = self.request(
+            "POST", "/api/person-thresholds", token=self.TOKEN,
+            body={"person_id": 1, "actor_id": 999, "highway_km": 3},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(data["error"], "unknown_person")
+
+    def test_post_rejects_bad_travel_mode(self) -> None:
+        status, data = self.request(
+            "POST", "/api/person-thresholds", token=self.TOKEN,
+            body={"person_id": 1, "actor_id": 1, "travel_mode": "teleport"},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(data["error"], "invalid_request")
+
+    def test_post_rejects_bad_dest_kind(self) -> None:
+        status, data = self.request(
+            "POST", "/api/person-thresholds", token=self.TOKEN,
+            body={"person_id": 1, "actor_id": 1, "travel_dest_kind": "address"},
+        )
+        self.assertEqual(status, 400)
+
+    def test_post_rejects_non_positive_highway_km(self) -> None:
+        status, data = self.request(
+            "POST", "/api/person-thresholds", token=self.TOKEN,
+            body={"person_id": 1, "actor_id": 1, "highway_km": 0},
+        )
+        self.assertEqual(status, 400)
+
+    def test_anyone_can_edit_anyone_shared_not_per_device(self) -> None:
+        # Katie (actor 2) sets Mark's (target 1) thresholds; everyone sees it.
+        status, _ = self.request(
+            "POST", "/api/person-thresholds", token=self.TOKEN,
+            body={"person_id": 1, "actor_id": 2, "travel_minutes": 30,
+                  "travel_total_minutes": 100, "travel_mode": "drive",
+                  "travel_dest_kind": "poi", "travel_dest_ref": "7", "highway_km": 4},
+        )
+        self.assertEqual(status, 200)
+        _, data = self.request("GET", "/api/person-thresholds", token=self.TOKEN)
+        mark = data["person_thresholds"]["1"]
+        self.assertEqual(mark["travel_minutes"], 30)
+        self.assertEqual(mark["travel_total_minutes"], 100)
+        self.assertEqual(mark["travel_dest_kind"], "poi")
+        self.assertEqual(mark["travel_dest_ref"], "7")
+        self.assertEqual(mark["highway_km"], 4.0)
+        # Attribution now names Katie, the actor who made the change.
+        self.assertEqual(mark["updated_by_name"], "Katie")
+
+    def test_post_is_full_replace_omitted_fields_become_null(self) -> None:
+        # Mark starts seeded (travel_minutes=20, highway_km=5). A POST that
+        # only sends highway_km clears travel_minutes back to unset.
+        self.request(
+            "POST", "/api/person-thresholds", token=self.TOKEN,
+            body={"person_id": 1, "actor_id": 1, "highway_km": 8},
+        )
+        _, data = self.request("GET", "/api/person-thresholds", token=self.TOKEN)
+        mark = data["person_thresholds"]["1"]
+        self.assertEqual(mark["highway_km"], 8.0)
+        self.assertIsNone(mark["travel_minutes"])
+        self.assertIsNone(mark["travel_mode"])
+
+    def test_post_twice_overwrites_not_appends(self) -> None:
+        self.request(
+            "POST", "/api/person-thresholds", token=self.TOKEN,
+            body={"person_id": 2, "actor_id": 1, "highway_km": 3},
+        )
+        self.request(
+            "POST", "/api/person-thresholds", token=self.TOKEN,
+            body={"person_id": 2, "actor_id": 1, "highway_km": 6},
+        )
+        conn = server.get_db()
+        try:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM person_thresholds WHERE person_id = 2"
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(count, 1)
+
+
 DEFAULT_MORTGAGE_SETTINGS = {
     "first_time_buyer": "true",
     "down_payment_pct": "10",

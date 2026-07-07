@@ -222,6 +222,13 @@
           </div>
           <span class="settings-nav-chevron">›</span>
         </button>
+        <button type="button" class="settings-row settings-nav-row" data-target="thresholds" data-title="Location thresholds">
+          <div>
+            <div>Location thresholds</div>
+            <div class="field-desc">Each person's max travel time and highway distance, shared with the whole group</div>
+          </div>
+          <span class="settings-nav-chevron">›</span>
+        </button>
         <button type="button" class="settings-row settings-nav-row" data-target="cardSections" data-title="Card sections">
           <div>
             <div>Card sections</div>
@@ -310,6 +317,13 @@
           </div>
           <input type="number" id="titleInsuranceFlatSetting" min="0" step="50" class="settings-number-input" />
         </div>
+      </div>
+    </div>
+
+    <div class="settings-page" id="settingsPage-thresholds" hidden>
+      <div class="settings-page-body">
+        <p class="settings-desc">Each person's own limits, shared with the whole group and editable from any device. Travel time uses a destination (a GO station or a place you've pinned on the map), so places have one source of truth. Highway distance is straight-line, as the crow flies, a noise and pollution radius, not a driving distance. Leave a field blank to leave it unset.</p>
+        <div id="thresholdSettingsList"></div>
       </div>
     </div>
 
