@@ -54,6 +54,47 @@ is about to get access to the app, not before.
 **Depends on:** Nothing from this plan blocks it; it's an independent
 future workstream.
 
+## Cloudflare Access gate in front of the tunnel
+
+**What:** Put Cloudflare Access (Zero Trust) in front of
+`https://househunter.galleonglobal.ai`, gating it behind an email
+one-time-PIN or allowed-email-list policy, so only approved people
+(Mark, Katie, Anees, Kevin) can reach the app at all. A network-layer
+gate at Cloudflare, in front of the app, not a change to the app's own
+auth.
+
+**Why:** The app now lives at a stable, guessable subdomain on the
+primary business domain (`galleonglobal.ai`), always-on, with only the
+shared-token deterrent (D3/D11) protecting it. That token is served
+unprotected via `GET /api/config` by design, so anyone who loads the
+page has it. A stable public URL is more discoverable than the old
+random tunnel URLs were, so a real access gate is worth more now than
+it was on the throwaway `*.loca.lt` / `*.trycloudflare.com` URLs.
+
+**Pros:** Free on the Cloudflare Zero Trust plan (up to 50 users);
+no app code change (policy lives in the Cloudflare dashboard, enforced
+at the edge before traffic reaches `server.py`); email-PIN needs no
+account setup for the people being let in; complements rather than
+replaces the in-app actor model.
+
+**Cons:** Adds a login step before the app loads (one-time PIN per
+device/session), which is friction for an in-person demo where you
+just want to hand someone the URL; requires the tunnel hostname to be
+added as an Access application in the Cloudflare Zero Trust dashboard.
+
+**Context:** Offered right after the stable named tunnel + persistence
+work landed (the URL is now always-on at `househunter.galleonglobal.ai`).
+This is the lightweight, near-term middle ground between today's
+shared-token deterrent and the full per-workspace auth in "Real access
+control" above: it controls *who can reach the app at all* without
+building the account/session/data-isolation model that real
+multi-tenancy needs. If the app stays single-workspace (one family
+group), Access may be all the protection it ever needs.
+
+**Depends on:** Nothing blocking. The tunnel is already on the
+`galleonglobal.ai` Cloudflare zone, so adding an Access policy is
+dashboard-only. Can be set up in one session on request.
+
 ## Wire the Chicago-metro query into fetch_repliers()
 
 **What:** `fetch_repliers()` in `server.py` currently sends only `pageNum`
