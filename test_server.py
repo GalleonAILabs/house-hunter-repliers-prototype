@@ -1132,5 +1132,66 @@ class MortgageMathTests(unittest.TestCase):
         self.assertAlmostEqual(result["ontarioLtt"]["afterRebate"], result["ontarioLtt"]["beforeRebate"], places=2)
 
 
+class HighwayDistanceTests(unittest.TestCase):
+    """Straight-line (crow-flies) distance from a listing to the nearest
+    400-series highway. Pure functions plus the module-level HIGHWAY_LINES
+    cache, no DB or server needed."""
+
+    def setUp(self) -> None:
+        self._saved_lines = server.HIGHWAY_LINES
+        server.nearest_highway_km.cache_clear()
+
+    def tearDown(self) -> None:
+        server.HIGHWAY_LINES = self._saved_lines
+        server.nearest_highway_km.cache_clear()
+
+    def test_point_on_segment_is_zero(self) -> None:
+        # P sits on a horizontal segment (same latitude, lon in range).
+        km = server._point_to_segment_km(43.65, -79.38, 43.65, -79.40, 43.65, -79.30)
+        self.assertAlmostEqual(km, 0.0, places=3)
+
+    def test_perpendicular_offset_matches_latitude_delta(self) -> None:
+        # 0.05 deg of latitude north of a horizontal segment is ~5.56 km.
+        km = server._point_to_segment_km(43.70, -79.38, 43.65, -79.40, 43.65, -79.30)
+        self.assertAlmostEqual(km, 5.56, delta=0.05)
+
+    def test_beyond_segment_end_uses_endpoint(self) -> None:
+        # P is west of both endpoints, so the nearest point is endpoint A,
+        # not a perpendicular foot on the infinite line.
+        km = server._point_to_segment_km(43.65, -79.50, 43.65, -79.40, 43.65, -79.30)
+        # ~0.10 deg lon at 43.65 deg lat ~= 8.05 km.
+        self.assertAlmostEqual(km, 8.05, delta=0.1)
+
+    def test_nearest_highway_none_without_coords_or_data(self) -> None:
+        server.HIGHWAY_LINES = [("Hwy TEST", [(43.65, -79.40), (43.65, -79.30)])]
+        server.nearest_highway_km.cache_clear()
+        self.assertEqual(server.nearest_highway_km(None, -79.38), (None, None))
+        server.HIGHWAY_LINES = []
+        server.nearest_highway_km.cache_clear()
+        self.assertEqual(server.nearest_highway_km(43.65, -79.38), (None, None))
+
+    def test_nearest_highway_picks_closest_line_and_label(self) -> None:
+        server.HIGHWAY_LINES = [
+            ("Hwy FAR", [(44.10, -79.40), (44.10, -79.30)]),
+            ("Hwy NEAR", [(43.66, -79.40), (43.66, -79.30)]),
+        ]
+        server.nearest_highway_km.cache_clear()
+        km, label = server.nearest_highway_km(43.65, -79.38)
+        self.assertEqual(label, "Hwy NEAR")
+        self.assertLess(km, 1.5)  # ~0.01 deg lat ~= 1.1 km
+
+    def test_load_highways_reads_real_layers(self) -> None:
+        # The committed layer files must load and yield a plausible distance
+        # for a point sitting right on Highway 401 near Toronto.
+        server.load_highways()
+        self.assertTrue(server.HIGHWAY_LINES)
+        labels = {label for label, _ in server.HIGHWAY_LINES}
+        for expected in ("Hwy 400", "Hwy 401", "Hwy 410", "Hwy 427", "Hwy 413"):
+            self.assertIn(expected, labels)
+        km, label = server.nearest_highway_km(43.7663, -79.3522)  # a 401 vertex
+        self.assertIsNotNone(km)
+        self.assertLess(km, 1.0)
+
+
 if __name__ == "__main__":
     unittest.main()

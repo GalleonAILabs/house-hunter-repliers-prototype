@@ -6,7 +6,9 @@ normalizes sample listing data, and serves a Leaflet/card UI.
 """
 from __future__ import annotations
 
+import functools
 import json
+import math
 import os
 import re
 import sqlite3
@@ -333,6 +335,106 @@ def load_poc_listing_ids() -> None:
         return
     raw = json.loads(POC_DATA_PATH.read_text())
     POC_LISTING_IDS = {f"POC-{row.get('row')}" for row in raw.get("properties", [])}
+
+
+# ─── Highway distance (straight-line, as the crow flies) ────────────────────────
+# The 400-series highways whose geometry runs near the POC listings. 413 is
+# the existing repo layer (MTO/WSP EA data); the rest are OSM-sourced by
+# scripts/build_highways.py. Loaded once at startup into HIGHWAY_LINES;
+# nearest_highway_km computes each listing's straight-line distance to the
+# nearest point on any of them. Straight-line, deliberately, not travel time
+# or road distance: this is a noise/pollution proximity radius. 403, 404,
+# 407, and the QEW also run through parts of this area and can be added to
+# scripts/build_highways.py and this list later if the family wants them
+# factored in.
+HIGHWAY_LAYER_FILES = [
+    "highway_400.geojson",
+    "highway_401.geojson",
+    "highway_410.geojson",
+    "highway_427.geojson",
+    "highway_413.geojson",
+]
+EARTH_RADIUS_M = 6_371_000.0
+# label -> list of polylines, each a list of (lat, lon) vertices.
+HIGHWAY_LINES: list[tuple[str, list[tuple[float, float]]]] = []
+
+
+def load_highways() -> None:
+    """Load the highway LineStrings once at startup. Point features (413's
+    km markers) are skipped; only LineString/MultiLineString geometry feeds
+    the distance metric. Missing files are skipped so the server still
+    starts if a layer has not been built yet."""
+    global HIGHWAY_LINES
+    lines: list[tuple[str, list[tuple[float, float]]]] = []
+    for filename in HIGHWAY_LAYER_FILES:
+        path = STATIC / "layers" / filename
+        if not path.exists():
+            continue
+        ref_match = re.search(r"(\d+)", filename)
+        label = f"Hwy {ref_match.group(1)}" if ref_match else filename
+        try:
+            fc = json.loads(path.read_text())
+        except (json.JSONDecodeError, OSError):
+            continue
+        for feature in fc.get("features", []):
+            geom = feature.get("geometry") or {}
+            gtype = geom.get("type")
+            coords = geom.get("coordinates") or []
+            parts = [coords] if gtype == "LineString" else (coords if gtype == "MultiLineString" else [])
+            for part in parts:
+                # GeoJSON order is [lon, lat]; store as (lat, lon).
+                pts = [(c[1], c[0]) for c in part if isinstance(c, (list, tuple)) and len(c) >= 2]
+                if len(pts) >= 2:
+                    lines.append((label, pts))
+    HIGHWAY_LINES = lines
+    nearest_highway_km.cache_clear()
+
+
+def _point_to_segment_km(
+    plat: float, plon: float,
+    alat: float, alon: float,
+    blat: float, blon: float,
+) -> float:
+    """Straight-line distance from point P to segment A-B, in km, using a
+    local equirectangular projection centered on P. Accurate to well under
+    1% at these distances (tens of km at ~44 deg latitude), which is far
+    finer than a noise-radius threshold needs."""
+    cos_lat = math.cos(math.radians(plat))
+    # Project A and B into meters relative to P (which sits at the origin).
+    ax = math.radians(alon - plon) * cos_lat * EARTH_RADIUS_M
+    ay = math.radians(alat - plat) * EARTH_RADIUS_M
+    bx = math.radians(blon - plon) * cos_lat * EARTH_RADIUS_M
+    by = math.radians(blat - plat) * EARTH_RADIUS_M
+    dx, dy = bx - ax, by - ay
+    seg_len_sq = dx * dx + dy * dy
+    if seg_len_sq == 0.0:
+        closest_x, closest_y = ax, ay
+    else:
+        # Projection of the origin onto the segment, clamped to [0, 1].
+        t = -(ax * dx + ay * dy) / seg_len_sq
+        t = max(0.0, min(1.0, t))
+        closest_x, closest_y = ax + t * dx, ay + t * dy
+    return math.hypot(closest_x, closest_y) / 1000.0
+
+
+@functools.lru_cache(maxsize=None)
+def nearest_highway_km(lat: float | None, lon: float | None) -> tuple[float | None, str | None]:
+    """Distance in km (rounded to 2 places) from (lat, lon) to the nearest
+    point on any loaded highway, plus that highway's label. Returns
+    (None, None) when coordinates are missing or no highway geometry is
+    loaded (e.g. in tests, or before load_highways runs)."""
+    if lat is None or lon is None or not HIGHWAY_LINES:
+        return None, None
+    best_km: float | None = None
+    best_label: str | None = None
+    for label, pts in HIGHWAY_LINES:
+        for i in range(len(pts) - 1):
+            (alat, alon), (blat, blon) = pts[i], pts[i + 1]
+            km = _point_to_segment_km(lat, lon, alat, alon, blat, blon)
+            if best_km is None or km < best_km:
+                best_km = km
+                best_label = label
+    return (round(best_km, 2), best_label) if best_km is not None else (None, None)
 
 
 def require_auth(handler: BaseHTTPRequestHandler) -> bool:
@@ -1016,6 +1118,9 @@ def normalize_poc(p: dict[str, Any]) -> dict[str, Any]:
     go_min = number(p.get("goMin") or p.get("goMinNum"))
     go_train = number(p.get("goTrain"))
     go_total = number(p.get("goTotal"))
+    lat = number(p.get("lat"))
+    lon = number(p.get("lon"))
+    highway_km, nearest_highway = nearest_highway_km(lat, lon)
     return {
         "mls": f"POC-{p.get('row')}",
         "address": p.get("address") or "Address hidden",
@@ -1052,8 +1157,14 @@ def normalize_poc(p: dict[str, Any]) -> dict[str, Any]:
         "dom": intish(p.get("goTotal")),
         "status": p.get("status") or "POC",
         "listDate": "",
-        "lat": number(p.get("lat")),
-        "lng": number(p.get("lon")),
+        "lat": lat,
+        "lng": lon,
+        # Straight-line (crow-flies) distance to the nearest 400-series
+        # highway, a noise/pollution proximity radius, not a drive time.
+        # Whether it meets a person's limit is decided client-side against
+        # the active actor's highway_km threshold.
+        "highwayKm": highway_km,
+        "nearestHighway": nearest_highway,
         "image": p.get("image") or None,
         "imageCount": None,
         # Top-level POC fields the card reads directly
@@ -1694,6 +1805,7 @@ def main() -> None:
     init_db()
     backfill_poc_feedback()
     load_poc_listing_ids()
+    load_highways()
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     print(f"House Hunter Repliers prototype running at http://127.0.0.1:{PORT}")
     server.serve_forever()

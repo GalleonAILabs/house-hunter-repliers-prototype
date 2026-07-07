@@ -151,6 +151,7 @@ const CARD_FIELDS = [
   { key: 'potentialPrice', label: 'Potential purchase price', desc: 'Shared, editable price the group is actually considering offering', defaultOn: true, pocOnly: true },
   { key: 'groupSentiment', label: 'Group sentiment',      desc: 'Who has rated, said no, or requested research, at a glance', defaultOn: true },
   { key: 'commute',   label: 'GO commute',                desc: 'Station, drive time, total to Union', defaultOn: true,  pocOnly: true },
+  { key: 'highway',   label: 'Highway distance',          desc: 'Straight-line distance to the nearest 400-series highway', defaultOn: true,  pocOnly: true },
   { key: 'stats',     label: 'Beds / baths / sqft / lot', desc: 'Key property stats',                 defaultOn: true  },
   { key: 'financial', label: 'Monthly PIT + closing',     desc: 'Monthly payment and due at closing', defaultOn: true,  pocOnly: true },
   { key: 'ratings',   label: 'Ratings',                   desc: 'Per-person star ratings',            defaultOn: true  },
@@ -1652,6 +1653,32 @@ function populateCard(node, item) {
     node.querySelector('.card-commute').innerHTML =
       `<span class="commute-station">${esc(goStation)}</span>` +
       (parts.length ? `<span class="commute-detail">${esc(parts.join(' · '))}</span>` : '');
+  }
+
+  // Highway distance (straight-line to the nearest 400-series highway).
+  // Always shows the distance; when the active "I am" person has a highway
+  // limit set, it also flags whether this listing meets it. With no active
+  // person or no limit set, it just states the distance.
+  {
+    const hwyEl = node.querySelector('.card-highway');
+    if (hwyEl) {
+      if (poc && item.highwayKm != null) {
+        const limit = activePersonHighwayKm();
+        let badge = '';
+        if (limit != null) {
+          const within = item.highwayKm <= limit;
+          badge = `<span class="hwy-badge ${within ? 'hwy-ok' : 'hwy-over'}">`
+            + `${within ? '✓ within' : '✕ over'} your ${num(limit)} km limit</span>`;
+        }
+        hwyEl.style.display = '';
+        hwyEl.innerHTML =
+          `<span class="hwy-label">${esc(num(item.highwayKm))} km to ${esc(item.nearestHighway || 'highway')}</span>`
+          + `<span class="hwy-sub">straight-line, noise/pollution radius</span>`
+          + badge;
+      } else {
+        hwyEl.style.display = 'none';
+      }
+    }
   }
 
   // Stats
