@@ -132,9 +132,6 @@
         <label class="chip"><input type="checkbox" id="featPool" /> Mentions pool</label>
         <label class="chip"><input type="checkbox" id="featBasement" /> Mentions basement</label>
       </div>
-      <div class="filter-toggle-row" id="clusterFilterRow" hidden>
-        <label class="chip"><input type="checkbox" id="clusterToggle" /> Group nearby pins (cluster)</label>
-      </div>
       <label>Data source
         <select id="source">
           <option value="poc" selected>My POC data</option>
@@ -202,6 +199,17 @@
       <button class="map-card-close" id="mapCardClose">✕</button>
       <div class="map-card-inner" id="mapCardInner"></div>
     </div>
+
+    <!-- Cluster / stacked-pin chooser: a scrollable list of mini-cards for the
+         listings under a clicked cluster bubble or a stack of overlapping pins.
+         Tapping a mini-card opens the full property card. -->
+    <div id="clusterPopup" class="cluster-popup" hidden>
+      <div class="cluster-popup-head">
+        <span class="cluster-popup-count" id="clusterPopupCount"></span>
+        <button class="map-card-close" id="clusterPopupClose">✕</button>
+      </div>
+      <div class="cluster-popup-inner" id="clusterPopupInner"></div>
+    </div>
   </div>
 
   <!-- 5. LIST VIEW, flex: 1 1 0, scrollable -->
@@ -264,6 +272,24 @@
             <div>Theme</div>
             <div class="field-desc">Follows system by default, tap to cycle auto / light / dark</div>
           </div>
+        </div>
+        <label class="settings-row">
+          <input type="checkbox" id="mapClusterToggle" />
+          <div>
+            <div>Map clustering</div>
+            <div class="field-desc">Group nearby map pins into count bubbles that split as you zoom in, and click a bubble to list the properties under it. Applies to Sample Data (the Repliers feed) only; POC data always shows individual pins (clicking a stacked pin still lists them).</div>
+          </div>
+        </label>
+        <div class="settings-row settings-number-row">
+          <div>
+            <div>Cluster granularity</div>
+            <div class="field-desc">How finely clusters split as you zoom</div>
+          </div>
+          <select id="mapClusterGranSelect" class="settings-number-input" style="width:auto">
+            <option value="coarse">Coarse</option>
+            <option value="medium">Medium</option>
+            <option value="fine">Fine</option>
+          </select>
         </div>
       </div>
     </div>

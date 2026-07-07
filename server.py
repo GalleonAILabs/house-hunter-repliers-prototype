@@ -1419,16 +1419,30 @@ def fetch_repliers(params: dict[str, str]) -> dict[str, Any]:
         "pageNum": str(page),
         "resultsPerPage": str(per_page),
     }
-    # Repliers supports server-side map clustering (cluster=true, plus
-    # clusterPrecision/clusterLimit) for showing density instead of thousands
-    # of individual pins. Confirmed live: the flat "listings" array is
-    # unaffected by cluster mode -- clusters show up separately under
-    # aggregates.map.clusters, so the rest of this pipeline (normalize,
-    # local filters) doesn't need to change either way.
+    # Repliers server-side map clustering (cluster=true). clusterPrecision
+    # (1-29, higher = finer) is driven by the map zoom from the client so
+    # clusters split as the user zooms. clusterListingsThreshold=5 makes small
+    # clusters carry their listing details in-line (a "listings" array per
+    # cluster), so a single-listing cluster opens the card with no extra round
+    # trip. The flat "listings" array still returns a page alongside the
+    # clusters. Meaningful splitting comes from clustering WITHIN the viewport,
+    # so the client also passes `map` (the viewport rectangle, or drawn areas).
     if (params.get("cluster") or "").lower() in ("1", "true", "yes"):
         query["cluster"] = "true"
-        query["clusterPrecision"] = "10"
-        query["clusterLimit"] = "50"
+        try:
+            precision = max(1, min(29, int(float(params.get("clusterPrecision", "10") or "10"))))
+        except (TypeError, ValueError):
+            precision = 10
+        query["clusterPrecision"] = str(precision)
+        query["clusterListingsThreshold"] = "5"
+        query["clusterLimit"] = "100"
+    # Geo-spatial polygon filter (draw-an-area) and viewport-scoped clustering
+    # both use the `map` parameter: a JSON array of [lng,lat] closed-ring
+    # polygons. mapOperator OR (default) returns listings inside ANY polygon.
+    if params.get("map"):
+        query["map"] = params["map"]
+        if params.get("mapOperator"):
+            query["mapOperator"] = params["mapOperator"]
     # Keep API-side filtering conservative until live Ontario data is available.
     url = f"{BASE_URL}/listings?{urllib.parse.urlencode(query)}"
     req = urllib.request.Request(url, headers={"REPLIERS-API-KEY": API_KEY})
@@ -1928,6 +1942,10 @@ class Handler(BaseHTTPRequestHandler):
                         "lat": (c.get("location") or {}).get("latitude"),
                         "lng": (c.get("location") or {}).get("longitude"),
                         "bounds": c.get("bounds"),
+                        # Present only for clusters at/under clusterListingsThreshold;
+                        # a single-listing cluster carries the one listing so the
+                        # card can open directly. Normalized like any other listing.
+                        "listings": [normalize(l) for l in (c.get("listings") or [])],
                     }
                     for c in raw_clusters
                 ]

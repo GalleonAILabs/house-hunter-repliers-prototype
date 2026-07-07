@@ -92,6 +92,21 @@ button.secondary { background:var(--bg); color:var(--ink); }
    z-index. Reserving space is the only fix. */
 .map-card-inner { padding-bottom: calc(var(--bottom-bar-height) + 24px); }
 @media (min-width:700px){ .map-card{bottom:20px; left:auto; right:20px; width:380px; border-radius:18px; max-height:80vh;} .map-card::before{display:none;} }
+/* Cluster / stacked-pin chooser: a scrollable mini-card list as a bottom sheet
+   (desktop: a right-side panel), same placement language as the map card. */
+.cluster-popup{position:fixed;bottom:0;left:0;right:0;z-index:720;background:var(--panel);border-radius:20px 20px 0 0;box-shadow:0 -4px 32px rgba(0,0,0,.22);max-height:64vh;display:flex;flex-direction:column}
+.cluster-popup[hidden]{display:none}
+.cluster-popup-head{display:flex;align-items:center;justify-content:space-between;padding:12px 14px 8px;flex-shrink:0}
+.cluster-popup-count{font-size:13px;font-weight:800;color:var(--muted)}
+.cluster-popup-inner{overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0 10px;display:flex;flex-direction:column;gap:8px;padding-bottom:calc(var(--bottom-bar-height) + 24px)}
+.mini-card{display:flex;gap:10px;text-align:left;align-items:center;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:8px;cursor:pointer;width:100%;min-height:0;color:var(--ink);font:inherit}
+.mini-card:hover{background:var(--panel)}
+.mini-thumb{width:72px;height:72px;object-fit:cover;border-radius:8px;flex-shrink:0;background:var(--line)}
+.mini-thumb-empty{display:flex;align-items:center;justify-content:center;font-size:26px}
+.mini-body{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.mini-price{font-weight:900;font-size:15px}.mini-addr{font-size:13px;line-height:1.25;overflow-wrap:break-word}.mini-stat{font-size:12px;color:var(--muted)}
+.mini-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:2px}
+@media (min-width:700px){ .cluster-popup{bottom:20px; left:auto; right:20px; width:400px; border-radius:18px; max-height:80vh;} .cluster-popup-inner{padding-bottom:12px} }
 
 /* Bottom padding clears the fixed .status-bar: its own 12px bottom offset
    plus a 12px clearance gap, both on the 2px spacing scale, on top of

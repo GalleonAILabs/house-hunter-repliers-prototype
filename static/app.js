@@ -20,6 +20,35 @@ function cycleTheme() {
   if (btn) { btn.title = 'Theme: ' + next; btn.textContent = themeEmoji[next]; }
 }
 
+// ─── Map clustering (Appearance preference) ─────────────────────────────────────
+// Stored in localStorage alongside the theme (an appearance preference per
+// device, same place theme lives). Applies to Sample Data (the Repliers feed)
+// only: POC is a local static file with no server-side clustering to delegate
+// to (batch2 T19 confirmed the clustering is Repliers-vendor-specific), so POC
+// always shows individual pins. Granularity maps coarse/medium/fine to a
+// clusterPrecision offset rather than exposing the raw 1-29 number.
+const MAP_CLUSTER_KEY = 'hh_map_clustering';
+const MAP_CLUSTER_GRAN_KEY = 'hh_map_cluster_gran';
+const CLUSTER_GRANULARITIES = [
+  { value: 'coarse', label: 'Coarse', offset: -2 },
+  { value: 'medium', label: 'Medium', offset: 1 },
+  { value: 'fine',   label: 'Fine',   offset: 4 },
+];
+function mapClusteringOn() { return localStorage.getItem(MAP_CLUSTER_KEY) === 'on'; }
+function setMapClustering(on) { localStorage.setItem(MAP_CLUSTER_KEY, on ? 'on' : 'off'); }
+function mapClusterGranularity() {
+  const g = localStorage.getItem(MAP_CLUSTER_GRAN_KEY);
+  return CLUSTER_GRANULARITIES.some(o => o.value === g) ? g : 'medium';
+}
+function setMapClusterGranularity(g) { localStorage.setItem(MAP_CLUSTER_GRAN_KEY, g); }
+// Clustering is only meaningful for the Repliers Sample Data source.
+function clusteringActive() { return currentSource() === 'repliers' && mapClusteringOn(); }
+function clusterPrecisionForZoom() {
+  const z = state.map ? state.map.getZoom() : 9;
+  const offset = (CLUSTER_GRANULARITIES.find(o => o.value === mapClusterGranularity()) || {}).offset || 0;
+  return Math.max(1, Math.min(29, Math.round(z) + offset));
+}
+
 
 // T18: a single, user-chosen headline value (Price / Cost to close / PIT),
 // distinct from the always-detailed "Monthly PIT + closing" block below.
@@ -219,7 +248,7 @@ async function loadConfig() {
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────
-const state = { map: null, mapReady: false, rawListings: [], listings: [], activeView: 'map', people: [], activePerson: null, feedback: {}, openMapItem: null, source: 'poc', sourceCount: 0, clusters: [], poi: [], householdSettings: {}, personThresholds: {}, personThresholdsError: false, placeAttachments: {} };
+const state = { map: null, mapReady: false, rawListings: [], listings: [], activeView: 'map', people: [], activePerson: null, feedback: {}, openMapItem: null, source: 'poc', sourceCount: 0, clusters: [], poi: [], householdSettings: {}, personThresholds: {}, personThresholdsError: false, placeAttachments: {}, clusterPopupOpen: false };
 let cardSettings = loadSettings();
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -1023,13 +1052,25 @@ function setupMapSources() {
   });
   map.on('click', 'listings-circles', e => {
     // Stops this click from also reaching the global click-outside-to-
-    // dismiss listener, which would otherwise immediately close the map
-    // card this same click just opened.
+    // dismiss listener, which would otherwise immediately close whatever
+    // this same click just opened.
     e.originalEvent?.stopPropagation();
-    const item = findListing(e.features[0].properties.mls);
-    // Closes Filters/Layers/Legend the same as any other outside click
-    // would, but never mapCard, since this click is the one opening it.
-    if (item) { showMapCard(item); closeOutsideDetailsPanels(document.body); }
+    closeOutsideDetailsPanels(document.body);
+    // Gather every listing pin stacked within a few pixels of the click, so
+    // multiple listings at close coordinates (some POC pins overlap) open the
+    // chooser popup instead of silently showing only the topmost pin.
+    const r = 14;
+    const near = state.map.queryRenderedFeatures(
+      [[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]],
+      { layers: ['listings-circles'] });
+    const seen = new Set();
+    const items = [];
+    [e.features[0], ...near].forEach(f => {
+      const mls = f.properties.mls;
+      if (mls && !seen.has(mls)) { seen.add(mls); const it = findListing(mls); if (it) items.push(it); }
+    });
+    if (items.length === 1) showMapCard(items[0]);
+    else if (items.length > 1) openListingChooser(items);
   });
   map.on('mouseenter', 'listings-circles', () => { map.getCanvas().style.cursor = 'pointer'; });
   map.on('mouseleave', 'listings-circles', () => { map.getCanvas().style.cursor = ''; });
@@ -1060,13 +1101,18 @@ function setupMapSources() {
   });
   map.on('click', 'clusters-circles', e => {
     e.originalEvent?.stopPropagation();
+    closeOutsideDetailsPanels(document.body);
     const p = e.features[0].properties;
-    if (p.swLng != null) {
-      map.fitBounds([[p.swLng, p.swLat], [p.neLng, p.neLat]], { padding: 20 });
-    }
+    const c = state.clusters[Number(p.clusterIdx)];
+    if (c) handleClusterClick(c, p);
   });
   map.on('mouseenter', 'clusters-circles', () => { map.getCanvas().style.cursor = 'pointer'; });
   map.on('mouseleave', 'clusters-circles', () => { map.getCanvas().style.cursor = ''; });
+
+  // Recompute clusters for the new viewport (and precision) after any pan/zoom,
+  // so bubbles split as the user zooms in. Debounced; a no-op unless clustering
+  // is active (Sample Data + toggle on).
+  map.on('moveend', () => { if (clusteringActive()) scheduleClusterRefetch(); });
 
   // GO Stations + GO Lines + Highway 413 -- off by default (layer toggle panel).
   // Stations and lines are DELIBERATELY separate sources/files (go-stations.geojson
@@ -1773,48 +1819,159 @@ function clusterRadius(count) {
   return Math.min(40, 12 + Math.log2(count + 1) * 5);
 }
 
+// ─── Dynamic clustering (Repliers, viewport-scoped) ─────────────────────────────
+// The viewport rectangle (or the drawn areas, if any) as the Repliers `map`
+// polygon so clusters are computed for what's in view; recomputed with a
+// zoom-driven precision on every pan/zoom, so bubbles split as you zoom in.
+function viewportPolygonParam() {
+  if (!state.map) return null;
+  const b = state.map.getBounds();
+  const w = b.getWest(), s = b.getSouth(), e = b.getEast(), n = b.getNorth();
+  return JSON.stringify([[[w, s], [w, n], [e, n], [e, s], [w, s]]]);
+}
+
+let _clusterTimer = null;
+function scheduleClusterRefetch() {
+  clearTimeout(_clusterTimer);
+  _clusterTimer = setTimeout(() => { refetchClustersForViewport(); }, 300);
+}
+async function refetchClustersForViewport() {
+  if (!clusteringActive() || !state.mapReady) return;
+  const p = new URLSearchParams();
+  p.set('cluster', 'true');
+  p.set('clusterPrecision', String(clusterPrecisionForZoom()));
+  // Cluster within the drawn areas when a draw-area filter is active (Part 2),
+  // else within the current viewport.
+  const poly = (typeof drawnPolygonsParam === 'function' && drawnPolygonsParam()) || viewportPolygonParam();
+  if (poly) p.set('map', poly);
+  try {
+    const res = await fetch('/api/listings?' + p);
+    const data = await res.json();
+    if (!res.ok) return;
+    state.clusters = data.clusters || [];
+    if (clusteringActive()) renderClusterLayer();
+  } catch (err) { console.error(err); }
+}
+
+function renderClusterLayer() {
+  if (!state.mapReady) return;
+  const fc = emptyFC();
+  state.clusters.forEach((c, idx) => {
+    if (c.lat == null || c.lng == null) return;
+    const b = c.bounds;
+    fc.features.push({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [c.lng, c.lat] },
+      properties: {
+        count: c.count, radius: clusterRadius(c.count), clusterIdx: idx,
+        swLng: b ? b.top_left.longitude : null, swLat: b ? b.bottom_right.latitude : null,
+        neLng: b ? b.bottom_right.longitude : null, neLat: b ? b.top_left.latitude : null,
+      },
+    });
+  });
+  state.map.getSource('clusters').setData(fc);
+}
+
+// Above this count, a cluster zooms to split rather than listing its members
+// (avoids a popup with thousands of entries). Small "won't-split" clusters
+// (a few homes on one street) are well under this and open the chooser.
+const CLUSTER_POPUP_MAX = 50;
+async function handleClusterClick(c, p) {
+  if (c.count > CLUSTER_POPUP_MAX) {
+    if (p.swLng != null) state.map.fitBounds([[p.swLng, p.swLat], [p.neLng, p.neLat]], { padding: 30, maxZoom: 17 });
+    return;
+  }
+  // Inline listings come free for clusters at/under clusterListingsThreshold;
+  // above that, fetch this cluster's listings within its bounds (one request).
+  let listings = c.listings || [];
+  if (listings.length < c.count) listings = await fetchListingsInBounds(c.bounds, c.count);
+  if (c.count === 1 && listings[0]) { showMapCard(listings[0]); return; }
+  if (listings.length) openListingChooser(listings);
+  else if (p.swLng != null) state.map.fitBounds([[p.swLng, p.swLat], [p.neLng, p.neLat]], { padding: 30, maxZoom: 17 });
+}
+
+async function fetchListingsInBounds(bounds, count) {
+  if (!bounds) return [];
+  const w = bounds.top_left.longitude, e = bounds.bottom_right.longitude;
+  const s = bounds.bottom_right.latitude, n = bounds.top_left.latitude;
+  const poly = JSON.stringify([[[w, s], [w, n], [e, n], [e, s], [w, s]]]);
+  const p = new URLSearchParams();
+  p.set('map', poly);
+  p.set('resultsPerPage', String(Math.min(count || 50, 100)));
+  try {
+    const res = await fetch('/api/listings?' + p);
+    const data = await res.json();
+    return res.ok ? (data.listings || []) : [];
+  } catch (err) { console.error(err); return []; }
+}
+
+// ─── Cluster / stacked-pin chooser popup (realtor.ca-style mini-card list) ──────
+// A scrollable list of mini-cards for the listings under a cluster or a stack
+// of overlapping pins. Each mini-card shows thumbnail, price, address, a
+// beds/baths/sqft line, and the group sentiment chips (the at-a-glance
+// element); tapping opens the full property card. Closes on click-outside.
+async function openListingChooser(listings) {
+  closeMapCard();
+  try { Object.assign(state.feedback, await fetchFeedback(listings.map(l => l.mls))); } catch (err) { console.error(err); }
+  const inner = $('clusterPopupInner');
+  inner.innerHTML = '';
+  listings.forEach(item => inner.appendChild(buildMiniCard(item)));
+  const cnt = $('clusterPopupCount');
+  if (cnt) cnt.textContent = `${listings.length} listings here`;
+  $('clusterPopup').hidden = false;
+  state.clusterPopupOpen = true;
+}
+function closeClusterPopup() { const p = $('clusterPopup'); if (p) { p.hidden = true; } state.clusterPopupOpen = false; }
+function buildMiniCard(item) {
+  const card = document.createElement('button');
+  card.type = 'button';
+  card.className = 'mini-card';
+  const thumb = item.image
+    ? `<img class="mini-thumb" src="${esc(item.image)}" alt="" loading="lazy" />`
+    : `<div class="mini-thumb mini-thumb-empty">🏠</div>`;
+  const stat = [item.beds && item.beds + ' bd', item.baths != null && num(item.baths) + ' ba', item.sqft && num(item.sqft) + ' sqft'].filter(Boolean).join(' · ');
+  const feedbackList = state.feedback[item.mls] || [];
+  const byPerson = new Map(feedbackList.map(f => [f.person_id, f]));
+  const chips = state.people.length ? state.people.map(p => groupSentimentChip(p, byPerson.get(p.id) || null)).join('') : '';
+  card.innerHTML = thumb
+    + '<div class="mini-body">'
+    + `<div class="mini-price">${esc(money(item.price) || 'Price n/a')}</div>`
+    + `<div class="mini-addr">${esc(item.address || '')}</div>`
+    + (stat ? `<div class="mini-stat">${esc(stat)}</div>` : '')
+    + (chips ? `<div class="mini-chips">${chips}</div>` : '')
+    + '</div>';
+  card.addEventListener('click', () => { closeClusterPopup(); showMapCard(item); });
+  return card;
+}
+
 function refreshMap(list) {
   if (!state.mapReady) return;
   closeMapCard();
-  const useClusters = currentSource() === 'repliers' && $('clusterToggle')?.checked && (state.clusters || []).length;
-
-  const listingsFC = emptyFC();
-  const clustersFC = emptyFC();
-  const bounds = [];
-
-  if (useClusters) {
-    state.clusters.forEach(c => {
-      if (c.lat == null || c.lng == null) return;
-      const b = c.bounds;
-      clustersFC.features.push({
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [c.lng, c.lat] },
-        properties: {
-          count: c.count,
-          radius: clusterRadius(c.count),
-          swLng: b ? b.top_left.longitude : null,
-          swLat: b ? b.bottom_right.latitude : null,
-          neLng: b ? b.bottom_right.longitude : null,
-          neLat: b ? b.top_left.latitude : null,
-        },
-      });
-      bounds.push([c.lng, c.lat]);
-    });
-  } else {
-    list.forEach(item => {
-      if (item.lat == null || item.lng == null) return;
-      const myRating = personFeedbackFor(item.mls, state.activePerson)?.rating;
-      listingsFC.features.push({
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [item.lng, item.lat] },
-        properties: { mls: item.mls, color: markerColor(item), ratingLabel: myRating != null ? String(myRating) : '' },
-      });
-      bounds.push([item.lng, item.lat]);
-    });
+  closeClusterPopup();
+  if (clusteringActive()) {
+    // Viewport-driven server clusters: no flat pins, no auto-fit (that would
+    // fight the user's zoom). Render current clusters, then refetch this view.
+    state.map.getSource('listings').setData(emptyFC());
+    renderClusterLayer();
+    refetchClustersForViewport();
+    requestAnimationFrame(() => state.map?.resize());
+    return;
   }
-
+  // Individual pins (POC always; Sample Data when clustering is off).
+  state.map.getSource('clusters').setData(emptyFC());
+  const listingsFC = emptyFC();
+  const bounds = [];
+  list.forEach(item => {
+    if (item.lat == null || item.lng == null) return;
+    const myRating = personFeedbackFor(item.mls, state.activePerson)?.rating;
+    listingsFC.features.push({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [item.lng, item.lat] },
+      properties: { mls: item.mls, color: markerColor(item), ratingLabel: myRating != null ? String(myRating) : '' },
+    });
+    bounds.push([item.lng, item.lat]);
+  });
   state.map.getSource('listings').setData(listingsFC);
-  state.map.getSource('clusters').setData(clustersFC);
   const b = lngLatBoundsOf(bounds);
   if (b) state.map.fitBounds(b, { padding: 40, maxZoom: 15 });
   requestAnimationFrame(() => state.map?.resize());
@@ -1822,6 +1979,7 @@ function refreshMap(list) {
 
 // ─── Map card popup ───────────────────────────────────────────────────────────
 function showMapCard(item) {
+  closeClusterPopup();
   const inner = $('mapCardInner');
   inner.innerHTML = '';
   const tpl = $('cardTemplate');
@@ -1859,6 +2017,8 @@ function closeOutsidePanels(clickTarget) {
   closeOutsideDetailsPanels(clickTarget);
   const mapCard = $('mapCard');
   if (mapCard && !mapCard.hidden && !mapCard.contains(clickTarget)) closeMapCard();
+  const clusterPopup = $('clusterPopup');
+  if (clusterPopup && !clusterPopup.hidden && !clusterPopup.contains(clickTarget)) closeClusterPopup();
 }
 
 // ─── Card builder ─────────────────────────────────────────────────────────────
@@ -2288,18 +2448,14 @@ function filterParams() {
     const v = numericFieldValue(id);
     if (v) p.set(id, v);
   });
-  if (currentSource() === 'repliers' && $('clusterToggle')?.checked) p.set('cluster', 'true');
+  // Clustering is no longer a filter-panel toggle; it is an Appearance
+  // preference applied viewport-side (see refetchClustersForViewport), so the
+  // main list load does not carry cluster params.
   return p;
-}
-
-function updateClusterVisibility() {
-  const row = $('clusterFilterRow');
-  if (row) row.hidden = currentSource() !== 'repliers';
 }
 
 async function load() {
   const source = currentSource();
-  updateClusterVisibility();
   $('summary').textContent = source === 'poc' ? 'Loading your POC data…' : 'Loading Sample Data…';
   $('sourcePill').textContent = source === 'poc' ? 'POC' : 'Sample Data';
   const res = await fetch((source === 'poc' ? '/api/poc-listings' : '/api/listings') + '?' + filterParams());
@@ -2321,7 +2477,7 @@ function reset() {
   ['q','minPrice','maxPrice','minBeds','maxBeds','minBaths','maxBaths','minSqft','maxSqft','minAcres','maxAcres','maxCommute','minHwyKm','maxHwyKm','minAttachDrive','maxAttachDrive','minPit','maxPit','minDue','maxDue','minFit','filterStatus']
     .forEach(id => { const el=$(id); if(el) { el.value=''; delete el.dataset.raw; } });
   $('resultsPerPage').value = '60';
-  ['featGarage','featPool','featBasement','clusterToggle','hideVetoed'].forEach(id => { const el = $(id); if (el) el.checked = false; });
+  ['featGarage','featPool','featBasement','hideVetoed'].forEach(id => { const el = $(id); if (el) el.checked = false; });
   state.people.forEach(p => {
     PERSON_FILTER_OPTIONS.forEach(o => { const cb = $(personFilterCbId(p.id, o.value)); if (cb) cb.checked = false; });
   });
@@ -2353,7 +2509,7 @@ const PERSISTED_FIELD_IDS = [
   'resultsPerPage', 'source', 'sort',
 ];
 const PERSISTED_CHECKBOX_IDS = [
-  'featGarage', 'featPool', 'featBasement', 'clusterToggle', 'hideVetoed',
+  'featGarage', 'featPool', 'featBasement', 'hideVetoed',
   'layerGoStations', 'layerGoStationsPlanned', 'layerGoLines', 'layerHwy413', 'layerPoiPins',
 ];
 
@@ -2457,8 +2613,20 @@ window.addEventListener('DOMContentLoaded', () => {
   $('maxDue')?.addEventListener('change', applyFiltersAndRender);
   ['minSqft','maxSqft','minAcres','maxAcres','maxCommute','minHwyKm','maxHwyKm','minAttachDrive','maxAttachDrive'].forEach(id => $(id)?.addEventListener('change', applyFiltersAndRender));
   ['featGarage','featPool','featBasement','hideVetoed'].forEach(id => $(id)?.addEventListener('change', applyFiltersAndRender));
-  $('source').addEventListener('change', () => { buildSettingsPanel(); updateClusterVisibility(); load().catch(showError); });
-  $('clusterToggle')?.addEventListener('change', () => load().catch(showError));
+  $('source').addEventListener('change', () => { buildSettingsPanel(); load().catch(showError); });
+  // Map clustering (Appearance): toggle switches the map between count bubbles
+  // and individual pins immediately; granularity re-fetches at a new precision.
+  const clusterCb = $('mapClusterToggle');
+  if (clusterCb) {
+    clusterCb.checked = mapClusteringOn();
+    clusterCb.addEventListener('change', e => { setMapClustering(e.target.checked); refreshMap(state.listings); });
+  }
+  const granSel = $('mapClusterGranSelect');
+  if (granSel) {
+    granSel.value = mapClusterGranularity();
+    granSel.addEventListener('change', e => { setMapClusterGranularity(e.target.value); if (clusteringActive()) refetchClustersForViewport(); });
+  }
+  $('clusterPopupClose')?.addEventListener('click', closeClusterPopup);
   $('sort')?.addEventListener('change', e => { syncSort(e.target.value); renderCards(state.listings); refreshMap(state.listings); });
   $('sortList')?.addEventListener('change', e => { syncSort(e.target.value); renderCards(state.listings); });
   $('btnMap').addEventListener('click', () => switchView('map'));
