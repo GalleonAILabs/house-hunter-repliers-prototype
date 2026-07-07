@@ -238,41 +238,52 @@ function fieldVisible(key) {
 }
 
 // ─── Settings panel ───────────────────────────────────────────────────────────
+// The card-section toggles are grouped under the same four workflow headings
+// (plus Actions), in the same CARD_GROUPS / CARD_FIELDS order as the card, so
+// the settings drawer visually echoes the card and the two cannot drift.
 function buildSettingsPanel() {
   const container = $('settingsFields');
   container.innerHTML = '';
-  CARD_FIELDS.filter(f => !f.pocOnly || currentSource() === 'poc').forEach(f => {
-    const label = document.createElement('label');
-    label.className = 'settings-row';
-    const cb = Object.assign(document.createElement('input'), { type: 'checkbox', checked: cardSettings[f.key] !== false });
-    cb.dataset.key = f.key;
-    cb.addEventListener('change', () => { cardSettings[f.key] = cb.checked; saveSettings(); applyCardVisibility(); });
-    const text = document.createElement('div');
-    text.innerHTML = `<div>${esc(f.label)}</div><div class="field-desc">${esc(f.desc)}</div>`;
-    label.append(cb, text);
-    container.appendChild(label);
-    if (f.key === 'summaryValue') {
-      const choiceRow = document.createElement('div');
-      choiceRow.className = 'settings-row settings-subrow';
-      const select = document.createElement('select');
-      select.id = 'summaryValueChoice';
-      select.innerHTML = SUMMARY_VALUE_OPTIONS.map(o => `<option value="${o.value}">${esc(o.label)}</option>`).join('');
-      select.value = loadSummaryValueChoice();
-      select.addEventListener('change', () => { saveSummaryValueChoice(select.value); applyCardVisibility(); renderCards(state.listings); });
-      choiceRow.appendChild(select);
-      container.appendChild(choiceRow);
-    }
-    if (f.key === 'price') {
-      const choiceRow = document.createElement('div');
-      choiceRow.className = 'settings-row settings-subrow';
-      const select = document.createElement('select');
-      select.id = 'priceModeChoice';
-      select.innerHTML = PRICE_MODE_OPTIONS.map(o => `<option value="${o.value}">${esc(o.label)}</option>`).join('');
-      select.value = loadPriceMode();
-      select.addEventListener('change', () => { savePriceMode(select.value); renderCards(state.listings); });
-      choiceRow.appendChild(select);
-      container.appendChild(choiceRow);
-    }
+  CARD_GROUPS.forEach(g => {
+    const fields = CARD_FIELDS.filter(f => f.group === g.key && (!f.pocOnly || currentSource() === 'poc'));
+    if (!fields.length) return; // e.g. a group whose only fields are POC-only, on Sample Data
+    const heading = document.createElement('div');
+    heading.className = 'settings-group-heading';
+    heading.textContent = g.label;
+    container.appendChild(heading);
+    fields.forEach(f => {
+      const label = document.createElement('label');
+      label.className = 'settings-row';
+      const cb = Object.assign(document.createElement('input'), { type: 'checkbox', checked: cardSettings[f.key] !== false });
+      cb.dataset.key = f.key;
+      cb.addEventListener('change', () => { cardSettings[f.key] = cb.checked; saveSettings(); applyCardVisibility(); });
+      const text = document.createElement('div');
+      text.innerHTML = `<div>${esc(f.label)}</div><div class="field-desc">${esc(f.desc)}</div>`;
+      label.append(cb, text);
+      container.appendChild(label);
+      if (f.key === 'summaryValue') {
+        const choiceRow = document.createElement('div');
+        choiceRow.className = 'settings-row settings-subrow';
+        const select = document.createElement('select');
+        select.id = 'summaryValueChoice';
+        select.innerHTML = SUMMARY_VALUE_OPTIONS.map(o => `<option value="${o.value}">${esc(o.label)}</option>`).join('');
+        select.value = loadSummaryValueChoice();
+        select.addEventListener('change', () => { saveSummaryValueChoice(select.value); applyCardVisibility(); renderCards(state.listings); });
+        choiceRow.appendChild(select);
+        container.appendChild(choiceRow);
+      }
+      if (f.key === 'price') {
+        const choiceRow = document.createElement('div');
+        choiceRow.className = 'settings-row settings-subrow';
+        const select = document.createElement('select');
+        select.id = 'priceModeChoice';
+        select.innerHTML = PRICE_MODE_OPTIONS.map(o => `<option value="${o.value}">${esc(o.label)}</option>`).join('');
+        select.value = loadPriceMode();
+        select.addEventListener('change', () => { savePriceMode(select.value); renderCards(state.listings); });
+        choiceRow.appendChild(select);
+        container.appendChild(choiceRow);
+      }
+    });
   });
 }
 
