@@ -52,7 +52,8 @@ ALLOWED_POI_TYPES = {"school", "hospital", "work", "worship", "other"}
 
 # Per-person location thresholds (person_thresholds table). Unlike
 # household_settings (one shared value per key for the whole group), these
-# are per person in structure: each buyer/advisor has their own row. They
+# are per person in structure: each buyer has their own row (realtors are
+# excluded, see person_thresholds_all). They
 # are still stored server-side and visible to everyone, exactly like a
 # household setting -- if Katie changes her drive time on her phone, it
 # shows on Mark's device too. Anyone in the household may edit anyone's
@@ -113,29 +114,17 @@ POC_LISTING_IDS: set[str] = set()
 
 # Demo participants (buyer_group_id stub column stays null until a real
 # buyer_groups table exists, see PROJECT_BRIEF.md commercial path). Anees
-# and Kevin are advisors in-app even though they are also co-investors in
-# House Hunter as a product, per PROJECT_BRIEF.md.
+# and Kevin are realtors in-app even though they are also co-investors in
+# House Hunter as a product, per PROJECT_BRIEF.md. "realtor" is the stored
+# role token AND the displayed value, one source of truth (an earlier
+# display-time mapping from a stored "advisor" token was replaced by a real
+# schema migration, see migrate_role_advisor_to_realtor).
 SEED_PEOPLE = [
     ("Mark", "buyer"),
     ("Katie", "buyer"),
-    ("Anees", "advisor"),
-    ("Kevin", "advisor"),
+    ("Anees", "realtor"),
+    ("Kevin", "realtor"),
 ]
-
-# The household calls the non-buyer participants "realtors", so every API
-# response and UI surface says realtor. "advisor" stays the stored token in
-# people.role (and its CHECK constraint) and is mapped to "realtor" only on
-# the way out. This was chosen over renaming the stored value because that
-# needs a full SQLite table rebuild (a CHECK constraint cannot be altered in
-# place) on the live people table that anchors every feedback/POI/threshold
-# row by id; mapping at the API boundary gives all clients one "realtor"
-# value with no migration risk. Buyer-vs-not logic keys off the stored token
-# ('buyer'), never off the display name.
-PUBLIC_ROLE = {"advisor": "realtor"}
-
-
-def display_role(role: str | None) -> str | None:
-    return PUBLIC_ROLE.get(role, role)
 
 
 def get_db() -> sqlite3.Connection:
@@ -151,6 +140,64 @@ def get_db() -> sqlite3.Connection:
     return conn
 
 
+def migrate_role_advisor_to_realtor(conn: sqlite3.Connection) -> dict[str, Any] | None:
+    """One-time, idempotent rename of the stored people.role value 'advisor'
+    to 'realtor', including its CHECK constraint. SQLite cannot alter a CHECK
+    in place, so this rebuilds the people table, preserving every id -- and
+    therefore every foreign reference from listing_feedback, poi_pins,
+    person_thresholds, and potential_purchase_prices, all of which key off
+    people.id, never off role. Runs inside a transaction. Returns before/after
+    verification counts, or None when the table is already migrated (a no-op,
+    detected by the CHECK no longer mentioning 'advisor')."""
+    schema = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='people'"
+    ).fetchone()
+    if not schema or "'advisor'" not in schema[0]:
+        return None  # already migrated, or a fresh DB created with the new schema
+
+    def snapshot() -> dict[str, Any]:
+        return {
+            "people_total": conn.execute("SELECT COUNT(*) FROM people").fetchone()[0],
+            "roles": dict(conn.execute("SELECT role, COUNT(*) FROM people GROUP BY role").fetchall()),
+            "people_ids": [r[0] for r in conn.execute("SELECT id FROM people ORDER BY id").fetchall()],
+            "listing_feedback": conn.execute("SELECT COUNT(*) FROM listing_feedback").fetchone()[0],
+            "poi_pins": conn.execute("SELECT COUNT(*) FROM poi_pins").fetchone()[0],
+            "person_thresholds": conn.execute("SELECT COUNT(*) FROM person_thresholds").fetchone()[0],
+            "potential_purchase_prices": conn.execute(
+                "SELECT COUNT(*) FROM potential_purchase_prices"
+            ).fetchone()[0],
+        }
+
+    before = snapshot()
+    # FKs are not enforced in this app anyway; OFF is belt-and-suspenders so the
+    # DROP TABLE cannot cascade. Set outside the transaction (PRAGMA fk is a
+    # no-op inside one).
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.executescript(
+        """
+        BEGIN;
+        CREATE TABLE people_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            role TEXT NOT NULL CHECK (role IN ('buyer', 'realtor')),
+            buyer_group_id INTEGER,
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        );
+        INSERT INTO people_new (id, name, role, buyer_group_id, created_at)
+            SELECT id, name,
+                   CASE role WHEN 'advisor' THEN 'realtor' ELSE role END,
+                   buyer_group_id, created_at
+            FROM people;
+        DROP TABLE people;
+        ALTER TABLE people_new RENAME TO people;
+        COMMIT;
+        """
+    )
+    conn.execute("PRAGMA foreign_keys = ON")
+    after = snapshot()
+    return {"before": before, "after": after}
+
+
 def init_db() -> None:
     """Create the schema (if missing) and seed the four demo participants."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -162,7 +209,7 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS people (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
-                role TEXT NOT NULL CHECK (role IN ('buyer', 'advisor')),
+                role TEXT NOT NULL CHECK (role IN ('buyer', 'realtor')),
                 buyer_group_id INTEGER,
                 created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             );
@@ -248,6 +295,15 @@ def init_db() -> None:
             );
             """
         )
+
+        # Rename any stored role 'advisor' -> 'realtor' (rebuilds people,
+        # preserving ids and all foreign references). No-op once migrated or
+        # on a fresh DB. Runs before the seed/count below so everything after
+        # sees the final schema and values.
+        migration = migrate_role_advisor_to_realtor(conn)
+        if migration is not None:
+            print(f"people.role migration advisor->realtor: {migration}")
+
         existing = conn.execute("SELECT COUNT(*) FROM people").fetchone()[0]
         if existing == 0:
             conn.executemany(
@@ -256,7 +312,7 @@ def init_db() -> None:
 
         # Migrate the old 20-minute nearest-GO rule into the structured
         # per-person store, once. Seeded for buyers only (the 20-min rule
-        # was a buyer criterion; advisors start fully unset). Guarded on the
+        # was a buyer criterion; realtors get no thresholds). Guarded on the
         # table being empty so restarts never re-seed. updated_by is NULL:
         # this is a migration default, not an edit any person made.
         thresholds_seeded = conn.execute("SELECT COUNT(*) FROM person_thresholds").fetchone()[0]
@@ -527,7 +583,7 @@ def latest_feedback_for_listings(
             entries[(listing_id, person["id"])] = {
                 "person_id": person["id"],
                 "person_name": person["name"],
-                "role": display_role(person["role"]),
+                "role": person["role"],
                 "rating": None,
                 "status": None,
                 "note": None,
@@ -1626,11 +1682,7 @@ class Handler(BaseHTTPRequestHandler):
                 conn = get_db()
                 try:
                     rows = conn.execute("SELECT id, name, role FROM people ORDER BY id").fetchall()
-                    people = [
-                        {"id": r["id"], "name": r["name"], "role": display_role(r["role"])}
-                        for r in rows
-                    ]
-                    self.send_json({"people": people})
+                    self.send_json({"people": [dict(row) for row in rows]})
                 finally:
                     conn.close()
                 return

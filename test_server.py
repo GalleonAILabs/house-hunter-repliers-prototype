@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import sqlite3
 import tempfile
 import threading
 import unittest
@@ -173,7 +174,7 @@ class SchemaTests(ServerTestCase):
             conn.close()
         self.assertEqual(
             [(r["name"], r["role"]) for r in rows],
-            [("Mark", "buyer"), ("Katie", "buyer"), ("Anees", "advisor"), ("Kevin", "advisor")],
+            [("Mark", "buyer"), ("Katie", "buyer"), ("Anees", "realtor"), ("Kevin", "realtor")],
         )
         server.init_db()
         server.init_db()
@@ -222,20 +223,23 @@ class PeopleEndpointTests(ServerTestCase):
         self.assertEqual(status, 200)
         self.assertEqual([p["name"] for p in data["people"]], ["Mark", "Katie", "Anees", "Kevin"])
 
-    def test_get_people_maps_advisor_role_to_realtor(self) -> None:
-        # The stored token is 'advisor'; the API surfaces it as 'realtor'.
+    def test_realtor_role_is_stored_not_mapped(self) -> None:
+        # 'realtor' is now the stored value AND the displayed value, one
+        # source of truth (no display-time mapping).
         _, data = self.request("GET", "/api/people", token=self.TOKEN)
         by_name = {p["name"]: p["role"] for p in data["people"]}
         self.assertEqual(by_name["Mark"], "buyer")
         self.assertEqual(by_name["Anees"], "realtor")
         self.assertEqual(by_name["Kevin"], "realtor")
-        # The stored value is unchanged.
         conn = server.get_db()
         try:
             stored = conn.execute("SELECT role FROM people WHERE name = 'Anees'").fetchone()[0]
+            # No 'advisor' token survives in storage.
+            legacy = conn.execute("SELECT COUNT(*) FROM people WHERE role = 'advisor'").fetchone()[0]
         finally:
             conn.close()
-        self.assertEqual(stored, "advisor")
+        self.assertEqual(stored, "realtor")
+        self.assertEqual(legacy, 0)
 
 
 class FeedbackReadTests(ServerTestCase):
@@ -894,8 +898,8 @@ class PersonThresholdsTests(ServerTestCase):
     """Per-person location thresholds: per person in structure (one row per
     person), but stored server-side and shared with the whole group like
     household settings, editable by anyone. Buyers are seeded with the
-    migrated 20-min nearest-GO rule and a 5 km highway limit; advisors start
-    unset."""
+    migrated 20-min nearest-GO rule and a 5 km highway limit; realtors get
+    no thresholds."""
 
     def test_get_without_token_401(self) -> None:
         status, _ = self.request("GET", "/api/person-thresholds")
@@ -1216,6 +1220,95 @@ class MortgageMathTests(unittest.TestCase):
         self.assertEqual(result["ontarioLtt"]["rebate"], 0.0)
         self.assertEqual(result["torontoLtt"]["rebate"], 0.0)
         self.assertAlmostEqual(result["ontarioLtt"]["afterRebate"], result["ontarioLtt"]["beforeRebate"], places=2)
+
+
+class RoleMigrationTests(unittest.TestCase):
+    """The advisor -> realtor storage migration: rebuilds people, converts the
+    role value and CHECK, and preserves every id and foreign reference."""
+
+    def setUp(self) -> None:
+        self.tmpdir = tempfile.mkdtemp()
+        self.db_path = Path(self.tmpdir) / "old.db"
+        self._orig = server.DB_PATH
+        server.DB_PATH = self.db_path
+        # Build a database on the OLD schema (CHECK allows 'advisor'), with
+        # people and foreign-referencing rows in the other tables.
+        conn = sqlite3.connect(self.db_path)
+        conn.executescript(
+            """
+            CREATE TABLE people (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                role TEXT NOT NULL CHECK (role IN ('buyer', 'advisor')),
+                buyer_group_id INTEGER,
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+            CREATE TABLE listing_feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                person_id INTEGER NOT NULL REFERENCES people(id),
+                listing_id TEXT NOT NULL, action_type TEXT NOT NULL,
+                rating INTEGER, status TEXT, note TEXT, reason TEXT,
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+            CREATE TABLE poi_pins (id INTEGER PRIMARY KEY, type TEXT, label TEXT,
+                lat REAL, lng REAL, created_by INTEGER REFERENCES people(id),
+                created_at TEXT);
+            CREATE TABLE person_thresholds (person_id INTEGER PRIMARY KEY REFERENCES people(id),
+                travel_minutes INTEGER, travel_total_minutes INTEGER, travel_mode TEXT,
+                travel_dest_kind TEXT, travel_dest_ref TEXT, highway_km REAL,
+                updated_by INTEGER, updated_at TEXT);
+            CREATE TABLE potential_purchase_prices (listing_id TEXT PRIMARY KEY, price REAL,
+                updated_by INTEGER REFERENCES people(id), updated_at TEXT);
+            INSERT INTO people (id, name, role) VALUES
+                (1,'Mark','buyer'), (2,'Katie','buyer'), (3,'Anees','advisor'), (4,'Kevin','advisor');
+            INSERT INTO listing_feedback (person_id, listing_id, action_type, rating)
+                VALUES (3, 'POC-2', 'rating', 5);
+            INSERT INTO poi_pins (id, type, label, lat, lng, created_by) VALUES (1,'work','x',43.6,-79.4,4);
+            """
+        )
+        conn.commit()
+        conn.close()
+
+    def tearDown(self) -> None:
+        server.DB_PATH = self._orig
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_migration_converts_role_preserves_ids_and_refs(self) -> None:
+        conn = server.get_db()
+        try:
+            result = server.migrate_role_advisor_to_realtor(conn)
+            conn.commit()
+            self.assertIsNotNone(result)
+            # Counts unchanged; ids preserved; advisors became realtors.
+            self.assertEqual(result["before"]["people_total"], result["after"]["people_total"])
+            self.assertEqual(result["before"]["people_ids"], result["after"]["people_ids"])
+            self.assertEqual(result["before"]["roles"], {"buyer": 2, "advisor": 2})
+            self.assertEqual(result["after"]["roles"], {"buyer": 2, "realtor": 2})
+            # No advisor token left; CHECK now allows realtor.
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM people WHERE role='advisor'").fetchone()[0], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM people WHERE role='realtor'").fetchone()[0], 2)
+            schema = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='people'"
+            ).fetchone()[0]
+            self.assertIn("'realtor'", schema)
+            self.assertNotIn("'advisor'", schema)
+            # Foreign references still resolve to the same people ids.
+            fb = conn.execute("SELECT person_id FROM listing_feedback WHERE listing_id='POC-2'").fetchone()[0]
+            self.assertEqual(fb, 3)
+            self.assertEqual(conn.execute("SELECT name FROM people WHERE id=3").fetchone()[0], "Anees")
+            poi_owner = conn.execute("SELECT created_by FROM poi_pins WHERE id=1").fetchone()[0]
+            self.assertEqual(poi_owner, 4)
+        finally:
+            conn.close()
+
+    def test_migration_idempotent_second_run_is_noop(self) -> None:
+        conn = server.get_db()
+        try:
+            self.assertIsNotNone(server.migrate_role_advisor_to_realtor(conn))
+            conn.commit()
+            self.assertIsNone(server.migrate_role_advisor_to_realtor(conn))
+        finally:
+            conn.close()
 
 
 class HighwayDistanceTests(unittest.TestCase):
