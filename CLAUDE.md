@@ -82,6 +82,37 @@ an interstitial "friendly reminder" page that blocked external phones)
 and a Cloudflare quick tunnel (`cloudflared tunnel --url ...`, worked
 but minted a fresh random `*.trycloudflare.com` URL every restart).
 
+## Deploy
+
+**After changing server.py or any static/ asset, deploy with
+`bash scripts/deploy.sh`. Do not just edit files and assume the live site
+updates.** Two failure modes make that assumption wrong, and the script
+handles both, then verifies the live domain actually serves the new code
+instead of trusting that the reload worked:
+
+1. **Stale process.** The server runs as a LaunchAgent that does NOT
+   hot-reload code. A `server.py` change is only live after the agent is
+   reloaded (`launchctl unload -w && load -w` on the plist). An unreloaded
+   process keeps serving the old code from memory: new API routes 404 even
+   though disk has them. This is the failure that made a shipped feature's
+   endpoint 404 on the live site while every local test passed.
+2. **Cache-pinned assets.** Cloudflare's zone Browser Cache TTL (~4h)
+   overrides the origin `Cache-Control: no-cache`, so browsers can run an
+   old `app.js`/`styles.css` for hours after a deploy. The fix is a
+   cache-bust `?v=<token>` query on the asset URLs in `index.html` (which is
+   served `no-cache` and is not edge-cached, so it always picks up the new
+   token). `scripts/deploy.sh` bumps that token every run.
+
+`scripts/deploy.sh` bumps the token, commits + pushes it, reloads the
+LaunchAgent, then verifies: local `/api/health` up, local
+`/api/person-thresholds` == 200 (proves the new code is the running
+process, not a stale one), live `index.html` references the new token, live
+`/api/person-thresholds` == 200, and live `app.js?v=<token>` returns the
+same bytes as the origin. Exit codes: `0` verified live, `1` local server
+broken after reload, `2` deployed locally but the live domain is
+unreachable (usually the on-demand tunnel is down: run
+`cloudflared tunnel run house-hunter`).
+
 ## Constraints
 - No em dashes in any output or comments
 - No Flask/FastAPI/pip deps
