@@ -1617,12 +1617,34 @@ function sortListings(list) {
   const mode = currentSort();
   const s = [...list];
   const cmp = (a, b, g, dir = 1) => { const av = g(a), bv = g(b); if (av == null && bv == null) return 0; if (av == null) return 1; if (bv == null) return -1; return (av - bv) * dir; };
+  // beds falls back to the always-numeric bedsNum first: POC's own "beds"
+  // can be a composite display string like "3+1" (see passes_local_filters
+  // in server.py for the same fallback, server-side). Repliers listings
+  // have no bedsNum key at all, so ?? correctly falls through to their
+  // already-numeric beds.
+  const bedsVal = x => x.bedsNum ?? x.beds;
   if (mode === 'fit-desc')      s.sort((a,b) => cmp(a,b, x => x.fit.met, -1));
+  if (mode === 'fit-asc')       s.sort((a,b) => cmp(a,b, x => x.fit.met, 1));
   if (mode === 'price-asc')     s.sort((a,b) => cmp(a,b, x => x.price, 1));
   if (mode === 'price-desc')    s.sort((a,b) => cmp(a,b, x => x.price, -1));
-  if (mode === 'go-asc')        s.sort((a,b) => cmp(a,b, x => x.poc?.goTotal ?? x.dom, 1));
+  if (mode === 'beds-desc')     s.sort((a,b) => cmp(a,b, bedsVal, -1));
+  if (mode === 'beds-asc')      s.sort((a,b) => cmp(a,b, bedsVal, 1));
+  if (mode === 'baths-desc')    s.sort((a,b) => cmp(a,b, x => x.baths, -1));
+  if (mode === 'baths-asc')     s.sort((a,b) => cmp(a,b, x => x.baths, 1));
   if (mode === 'sqft-desc')     s.sort((a,b) => cmp(a,b, x => x.sqft, -1));
+  if (mode === 'sqft-asc')      s.sort((a,b) => cmp(a,b, x => x.sqft, 1));
   if (mode === 'lot-desc')      s.sort((a,b) => cmp(a,b, x => x.acres, -1));
+  if (mode === 'lot-asc')       s.sort((a,b) => cmp(a,b, x => x.acres, 1));
+  if (mode === 'go-asc')        s.sort((a,b) => cmp(a,b, x => x.poc?.goTotal ?? x.dom, 1));
+  if (mode === 'go-desc')       s.sort((a,b) => cmp(a,b, x => x.poc?.goTotal ?? x.dom, -1));
+  // Monthly PIT / Due at closing sort by the same computed-breakdown
+  // figure the card and the filter panel already use (effectivePitNum/
+  // effectiveDueNum), never the original flat pitNum/dueNum, so sorting
+  // can't disagree with what's filtered or displayed.
+  if (mode === 'pit-asc')       s.sort((a,b) => cmp(a,b, effectivePitNum, 1));
+  if (mode === 'pit-desc')      s.sort((a,b) => cmp(a,b, effectivePitNum, -1));
+  if (mode === 'due-asc')       s.sort((a,b) => cmp(a,b, effectiveDueNum, 1));
+  if (mode === 'due-desc')      s.sort((a,b) => cmp(a,b, effectiveDueNum, -1));
   if (mode === 'myrating-desc') s.sort((a,b) => cmp(a,b, x => personFeedbackFor(x.mls, state.activePerson)?.rating ?? null, -1));
   return s;
 }
