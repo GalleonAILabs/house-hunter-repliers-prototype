@@ -629,3 +629,12 @@ browser window-size flag / headed window resize: that resizes the OS window, not
 the emulated device, and gives false positives where the layout looks fine but
 never actually hit the mobile breakpoint. Verified this change at 390x844
 (mobile) and 1280x800 (desktop), on both list cards and the map popup.
+
+**Codex review this session: blocked.** The standing periodic `/codex review`
+was attempted on the two card/settings commits but returned "Quota exceeded.
+Check your plan and billing details" (an OpenAI billing/quota limit, not a code
+problem). Stood in for it with: 118 stdlib tests, live verification at 390x844
+and 1280x800 (CDP device-metrics, not a window flag) on both list cards and the
+map popup, per-toggle hide/show checks, group-collapse checks, and a
+settings-order-equals-card-order check. Re-run `/codex review` when quota
+resets.
