@@ -122,6 +122,21 @@ SEED_PEOPLE = [
     ("Kevin", "advisor"),
 ]
 
+# The household calls the non-buyer participants "realtors", so every API
+# response and UI surface says realtor. "advisor" stays the stored token in
+# people.role (and its CHECK constraint) and is mapped to "realtor" only on
+# the way out. This was chosen over renaming the stored value because that
+# needs a full SQLite table rebuild (a CHECK constraint cannot be altered in
+# place) on the live people table that anchors every feedback/POI/threshold
+# row by id; mapping at the API boundary gives all clients one "realtor"
+# value with no migration risk. Buyer-vs-not logic keys off the stored token
+# ('buyer'), never off the display name.
+PUBLIC_ROLE = {"advisor": "realtor"}
+
+
+def display_role(role: str | None) -> str | None:
+    return PUBLIC_ROLE.get(role, role)
+
 
 def get_db() -> sqlite3.Connection:
     """Open a short-lived per-request connection.
@@ -512,7 +527,7 @@ def latest_feedback_for_listings(
             entries[(listing_id, person["id"])] = {
                 "person_id": person["id"],
                 "person_name": person["name"],
-                "role": person["role"],
+                "role": display_role(person["role"]),
                 "rating": None,
                 "status": None,
                 "note": None,
@@ -1611,7 +1626,11 @@ class Handler(BaseHTTPRequestHandler):
                 conn = get_db()
                 try:
                     rows = conn.execute("SELECT id, name, role FROM people ORDER BY id").fetchall()
-                    self.send_json({"people": [dict(row) for row in rows]})
+                    people = [
+                        {"id": r["id"], "name": r["name"], "role": display_role(r["role"])}
+                        for r in rows
+                    ]
+                    self.send_json({"people": people})
                 finally:
                     conn.close()
                 return

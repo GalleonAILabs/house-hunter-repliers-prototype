@@ -222,6 +222,21 @@ class PeopleEndpointTests(ServerTestCase):
         self.assertEqual(status, 200)
         self.assertEqual([p["name"] for p in data["people"]], ["Mark", "Katie", "Anees", "Kevin"])
 
+    def test_get_people_maps_advisor_role_to_realtor(self) -> None:
+        # The stored token is 'advisor'; the API surfaces it as 'realtor'.
+        _, data = self.request("GET", "/api/people", token=self.TOKEN)
+        by_name = {p["name"]: p["role"] for p in data["people"]}
+        self.assertEqual(by_name["Mark"], "buyer")
+        self.assertEqual(by_name["Anees"], "realtor")
+        self.assertEqual(by_name["Kevin"], "realtor")
+        # The stored value is unchanged.
+        conn = server.get_db()
+        try:
+            stored = conn.execute("SELECT role FROM people WHERE name = 'Anees'").fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(stored, "advisor")
+
 
 class FeedbackReadTests(ServerTestCase):
     def test_batch_feedback_returns_all_people_per_listing(self) -> None:

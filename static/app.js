@@ -1591,12 +1591,15 @@ function groupSentimentChip(person, f) {
     stateClass = 'chip-research';
     label = `🔍 ${esc(person.name)}`;
   }
-  // Advisor input must never silently read as buyer sentiment (design-spec
+  // Realtor input must never silently read as buyer sentiment (design-spec
   // Section 6) -- a dashed border plus a hollow-diamond prefix mark every
-  // advisor chip, on top of the same reject/rated/research/none states.
-  const advisor = person.role === 'advisor';
-  const mark = advisor ? '<span class="chip-advisor-mark">◇</span>' : '';
-  return `<span class="chip group-chip ${stateClass}${advisor ? ' chip-advisor' : ''}" title="${esc(person.name)} (${esc(person.role)})">${mark}${label}</span>`;
+  // realtor chip, on top of the same reject/rated/research/none states. The
+  // .chip-advisor* class names are kept as internal identifiers; only the
+  // user-facing wording is "realtor" (role comes through as 'realtor' from
+  // the API, see display_role in server.py).
+  const realtor = person.role === 'realtor';
+  const mark = realtor ? '<span class="chip-advisor-mark">◇</span>' : '';
+  return `<span class="chip group-chip ${stateClass}${realtor ? ' chip-advisor' : ''}" title="${esc(person.name)} (${esc(person.role)})">${mark}${label}</span>`;
 }
 
 function firstName(name) {

@@ -129,9 +129,10 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .chip-reject{background:#fff0ee;border-color:#ffc8c1;color:var(--red)}
 .chip-rated{background:#eaf5ec;border-color:#bfe2c7;color:var(--green)}
 .chip-research{background:#e8f0fe;border-color:#b0c8f8;color:var(--blue)}
-/* Advisor input must never silently read as buyer sentiment: dashed border
-   plus a hollow-diamond prefix mark every advisor chip, independent of its
-   reject/rated/research/none state colour. */
+/* Realtor input must never silently read as buyer sentiment: dashed border
+   plus a hollow-diamond prefix mark every realtor chip, independent of its
+   reject/rated/research/none state colour. (.chip-advisor is kept as an
+   internal class name; the user-facing role word is "realtor".) */
 .chip-advisor{border-style:dashed}
 .chip-advisor-mark{margin-right:2px;opacity:.7}
 .card-commute{display:flex;flex-direction:column;gap:2px;padding:10px 12px;background:var(--bg);border-radius:10px}.commute-station{font-weight:800;font-size:13px}.commute-detail{font-size:12px;color:var(--muted)}
@@ -176,7 +177,6 @@ button.secondary { background:var(--bg); color:var(--ink); }
 /* Per-person location thresholds settings page */
 #thresholdSettingsList{padding:6px 16px 12px;display:flex;flex-direction:column;gap:14px}
 .threshold-person-block{border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:10px}
-.threshold-advisor{border-style:dashed}
 .threshold-person-name{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:800}
 .threshold-role-badge{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);border:1px dashed var(--line);border-radius:999px;padding:1px 7px}
 .threshold-group{display:flex;flex-direction:column;gap:6px}

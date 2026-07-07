@@ -410,7 +410,7 @@
             <span class="step">gates all writes</span>
           </div>
           <div class="touches"><span class="lbl">Touches</span><div class="row">
-            <code>setActivePerson</code><code>advisors labelled ◇ distinctly</code>
+            <code>setActivePerson</code><code>realtors labelled ◇ distinctly</code>
           </div></div>
         </article>
 
@@ -619,7 +619,7 @@
             <span class="step">else → Waiting on …</span>
           </div>
           <div class="touches"><span class="lbl">Touches</span><div class="row">
-            <code>buyerHeadline</code><code>advisors excluded from the word</code>
+            <code>buyerHeadline</code><code>realtors excluded from the word</code>
           </div></div>
         </article>
 
@@ -653,7 +653,7 @@
             <tr><td><span class="m get">GET</span></td><td><code>/api/config</code></td><td><span class="lock n">open*</span></td><td>Bootstrap: hands the app its auth token + Mapbox token</td></tr>
             <tr><td><span class="m get">GET</span></td><td><code>/api/poc-listings</code></td><td><span class="lock n">open</span></td><td>105 local listings, enriched with breakdown + potential price</td></tr>
             <tr><td><span class="m get">GET</span></td><td><code>/api/listings</code></td><td><span class="lock n">open</span></td><td>Repliers proxy: normalized listings + vendor clusters</td></tr>
-            <tr><td><span class="m get">GET</span></td><td><code>/api/people</code></td><td><span class="lock y">token</span></td><td>Buyer-group roster (buyers + advisors)</td></tr>
+            <tr><td><span class="m get">GET</span></td><td><code>/api/people</code></td><td><span class="lock y">token</span></td><td>Buyer-group roster (buyers + realtors)</td></tr>
             <tr><td><span class="m get">GET</span></td><td><code>/api/feedback</code></td><td><span class="lock y">token</span></td><td>Latest rating/note/reject/research per person per listing</td></tr>
             <tr><td><span class="m get">GET</span></td><td><code>/api/potential-purchase-prices</code></td><td><span class="lock y">token</span></td><td>Shared per-listing price (absent when never set)</td></tr>
             <tr><td><span class="m get">GET</span></td><td><code>/api/poi</code></td><td><span class="lock y">token</span></td><td>Shared map pins</td></tr>
@@ -675,7 +675,7 @@
         <table>
           <thead><tr><th>Table</th><th>Shape</th><th>Scope</th><th>Notes</th></tr></thead>
           <tbody>
-            <tr><td><code>people</code></td><td class="muted-cell">id, name, role, buyer_group_id</td><td>roster</td><td>Seeded: Mark &amp; Katie (buyers), Anees &amp; Kevin (advisors)</td></tr>
+            <tr><td><code>people</code></td><td class="muted-cell">id, name, role, buyer_group_id</td><td>roster</td><td>Seeded: Mark &amp; Katie (buyers), Anees &amp; Kevin (realtors)</td></tr>
             <tr><td><code>listing_feedback</code></td><td class="muted-cell">person_id, listing_id, action_type, rating, status, note, reason, created_at</td><td>per person</td><td>Append-only event log; the read takes the latest of each type</td></tr>
             <tr><td><code>potential_purchase_prices</code></td><td class="muted-cell">listing_id (PK), price, updated_by, updated_at</td><td>shared</td><td>One offer figure per listing; absent means never set</td></tr>
             <tr><td><code>household_settings</code></td><td class="muted-cell">key (PK), value, updated_by, updated_at</td><td>shared</td><td>One value per assumption for the whole group</td></tr>
