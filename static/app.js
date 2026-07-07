@@ -403,6 +403,26 @@ function matchesPersonFilter(listingId, personId, checkedValues) {
   return checkedValues.some(v => matchesPersonCheckValue(listingId, personId, v));
 }
 
+// Per-person highway-distance filter (Part 3). Applied via the active "I am"
+// person, the same pattern as matchesStatusFilter: a no-op unless someone is
+// selected and that person has a highway limit set. When both hold, keep only
+// listings whose straight-line distance to the nearest 400-series highway is
+// at or under that person's limit.
+//
+// This is deliberately the single-active-person view, not an all-buyers
+// aggregate (e.g. "within everyone's limit" or "within anyone's limit").
+// That aggregate is a follow-up decision, flagged in the report, not built
+// here: different buyers may hold different limits and the group has not
+// decided whether the aggregate should be the strictest, the loosest, or a
+// per-buyer breakdown.
+function matchesHighwayFilter(item) {
+  if (!$('filterHwyWithinLimit')?.checked) return true;
+  const limit = activePersonHighwayKm();
+  if (limit == null) return true; // no active person, or that person has no limit set
+  if (item.highwayKm == null) return false; // unknown distance can't be confirmed within a limit
+  return item.highwayKm <= limit;
+}
+
 function matchesStatusFilter(listingId, value) {
   if (!value || !state.activePerson) return true; // no-op without an active actor
   const f = personFeedbackFor(listingId, state.activePerson);
@@ -488,6 +508,7 @@ function filterByFeedback(listings) {
     if (!matchesRangeDirect(item.sqft, 'minSqft', 'maxSqft')) return false;
     if (!matchesRangeDirect(item.acres, 'minAcres', 'maxAcres')) return false;
     if (!matchesRangeDirect(item.goMin, '', 'maxCommute')) return false;
+    if (!matchesHighwayFilter(item)) return false;
     if (!matchesFeatureKeywords(item)) return false;
     return personFilters.every(pf => matchesPersonFilter(item.mls, pf.id, pf.values));
   });
@@ -1921,7 +1942,7 @@ function reset() {
   ['q','minPrice','maxPrice','minBeds','maxBeds','minBaths','maxBaths','minSqft','maxSqft','minAcres','maxAcres','maxCommute','minPit','maxPit','minDue','maxDue','minFit','filterStatus']
     .forEach(id => { const el=$(id); if(el) { el.value=''; delete el.dataset.raw; } });
   $('resultsPerPage').value = '60';
-  ['featGarage','featPool','featBasement','clusterToggle','hideVetoed'].forEach(id => { const el = $(id); if (el) el.checked = false; });
+  ['featGarage','featPool','featBasement','clusterToggle','hideVetoed','filterHwyWithinLimit'].forEach(id => { const el = $(id); if (el) el.checked = false; });
   state.people.forEach(p => {
     PERSON_FILTER_OPTIONS.forEach(o => { const cb = $(personFilterCbId(p.id, o.value)); if (cb) cb.checked = false; });
   });
@@ -1952,7 +1973,7 @@ const PERSISTED_FIELD_IDS = [
   'resultsPerPage', 'source', 'sort',
 ];
 const PERSISTED_CHECKBOX_IDS = [
-  'featGarage', 'featPool', 'featBasement', 'clusterToggle', 'hideVetoed',
+  'featGarage', 'featPool', 'featBasement', 'clusterToggle', 'hideVetoed', 'filterHwyWithinLimit',
   'layerGoStations', 'layerGoStationsPlanned', 'layerGoLines', 'layerHwy413', 'layerPoiPins',
 ];
 
@@ -2055,7 +2076,7 @@ window.addEventListener('DOMContentLoaded', () => {
   $('minDue')?.addEventListener('change', applyFiltersAndRender);
   $('maxDue')?.addEventListener('change', applyFiltersAndRender);
   ['minSqft','maxSqft','minAcres','maxAcres','maxCommute'].forEach(id => $(id)?.addEventListener('change', applyFiltersAndRender));
-  ['featGarage','featPool','featBasement','hideVetoed'].forEach(id => $(id)?.addEventListener('change', applyFiltersAndRender));
+  ['featGarage','featPool','featBasement','hideVetoed','filterHwyWithinLimit'].forEach(id => $(id)?.addEventListener('change', applyFiltersAndRender));
   $('source').addEventListener('change', () => { buildSettingsPanel(); updateClusterVisibility(); load().catch(showError); });
   $('clusterToggle')?.addEventListener('change', () => load().catch(showError));
   $('sort')?.addEventListener('change', e => { syncSort(e.target.value); renderCards(state.listings); refreshMap(state.listings); });
