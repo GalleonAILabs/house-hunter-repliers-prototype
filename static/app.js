@@ -1351,15 +1351,23 @@ async function saveThreshold(personId, fields) {
     buildThresholdSettings(); // revert UI to stored state
     return;
   }
+  // The mode/destination selects always carry a value (they default to
+  // drive / nearest GO station), so only persist them when there is an
+  // actual per-leg travel threshold. Otherwise editing only highway_km would
+  // stamp drive/go_station onto an otherwise-unset row, violating the
+  // "NULL means not set" model. No travel_minutes => the whole travel
+  // threshold is unset => null the mode, destination, and total too.
+  const travelMinutes = posNumOrNull(fields.minsInput.value);
+  const travelSet = travelMinutes != null;
   const destKind = fields.destSel.value;
   const payload = {
     person_id: personId,
     actor_id: state.activePerson,
-    travel_minutes: posNumOrNull(fields.minsInput.value),
-    travel_total_minutes: posNumOrNull(fields.totalInput.value),
-    travel_mode: fields.modeSel.value || null,
-    travel_dest_kind: destKind,
-    travel_dest_ref: destKind === 'poi' && fields.poiSel.value ? fields.poiSel.value : null,
+    travel_minutes: travelMinutes,
+    travel_total_minutes: travelSet ? posNumOrNull(fields.totalInput.value) : null,
+    travel_mode: travelSet ? (fields.modeSel.value || null) : null,
+    travel_dest_kind: travelSet ? destKind : null,
+    travel_dest_ref: travelSet && destKind === 'poi' && fields.poiSel.value ? fields.poiSel.value : null,
     highway_km: posNumOrNull(fields.kmInput.value),
   };
   try {
