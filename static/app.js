@@ -405,22 +405,24 @@ function matchesPersonFilter(listingId, personId, checkedValues) {
 
 // Per-person highway-distance filter (Part 3). Applied via the active "I am"
 // person, the same pattern as matchesStatusFilter: a no-op unless someone is
-// selected and that person has a highway limit set. When both hold, keep only
-// listings whose straight-line distance to the nearest 400-series highway is
-// at or under that person's limit.
+// selected and that person has a highway minimum set. The threshold is a
+// MINIMUM acceptable distance (a noise/pollution radius): closer to a highway
+// is bad, farther is good. So this keeps only listings that MEET the minimum,
+// i.e. are at or beyond that person's minimum distance from the nearest
+// highway. Too-close listings are filtered out.
 //
 // This is deliberately the single-active-person view, not an all-buyers
-// aggregate (e.g. "within everyone's limit" or "within anyone's limit").
+// aggregate (e.g. "meets everyone's minimum" or "meets anyone's minimum").
 // That aggregate is a follow-up decision, flagged in the report, not built
-// here: different buyers may hold different limits and the group has not
+// here: different buyers may hold different minimums and the group has not
 // decided whether the aggregate should be the strictest, the loosest, or a
 // per-buyer breakdown.
 function matchesHighwayFilter(item) {
   if (!$('filterHwyWithinLimit')?.checked) return true;
   const limit = activePersonHighwayKm();
-  if (limit == null) return true; // no active person, or that person has no limit set
-  if (item.highwayKm == null) return false; // unknown distance can't be confirmed within a limit
-  return item.highwayKm <= limit;
+  if (limit == null) return true; // no active person, or that person has no minimum set
+  if (item.highwayKm == null) return false; // unknown distance can't be confirmed to meet a minimum
+  return item.highwayKm >= limit; // far enough: meets or exceeds the minimum distance
 }
 
 function matchesStatusFilter(listingId, value) {
@@ -1714,9 +1716,11 @@ function populateCard(node, item) {
   }
 
   // Highway distance (straight-line to the nearest 400-series highway).
-  // Always shows the distance; when the active "I am" person has a highway
-  // limit set, it also flags whether this listing meets it. With no active
-  // person or no limit set, it just states the distance.
+  // The person's threshold is a MINIMUM acceptable distance (a noise/
+  // pollution radius): closer to a highway is bad, farther is good. So a
+  // listing closer than the minimum is a negative (red, "too close"), and
+  // one at or beyond it is a positive (green, "clears"). With no active
+  // person or no minimum set, it just states the distance.
   {
     const hwyEl = node.querySelector('.card-highway');
     if (hwyEl) {
@@ -1724,9 +1728,12 @@ function populateCard(node, item) {
         const limit = activePersonHighwayKm();
         let badge = '';
         if (limit != null) {
-          const within = item.highwayKm <= limit;
-          badge = `<span class="hwy-badge ${within ? 'hwy-ok' : 'hwy-over'}">`
-            + `${within ? '✓ within' : '✕ over'} your ${num(limit)} km limit</span>`;
+          const tooClose = item.highwayKm < limit;
+          badge = `<span class="hwy-badge ${tooClose ? 'hwy-bad' : 'hwy-good'}">`
+            + (tooClose
+                ? `✕ closer than your ${num(limit)} km minimum`
+                : `✓ clears your ${num(limit)} km minimum`)
+            + `</span>`;
         }
         hwyEl.style.display = '';
         hwyEl.innerHTML =
