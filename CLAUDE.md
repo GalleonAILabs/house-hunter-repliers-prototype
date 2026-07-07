@@ -56,7 +56,17 @@ Running on port 8787 (python3.11 server.py)
 Endpoints: /api/health, /api/config, /api/listings, /api/poc-listings,
 /api/people, /api/feedback, /layers/go-stations.geojson,
 /layers/highway-413.geojson
-Phone test tunnel: https://house-hunter-repliers-mark.loca.lt
+Phone test tunnel: Cloudflare quick tunnel, started with
+`cloudflared tunnel --url http://localhost:8787`. It prints a fresh
+`https://<random>.trycloudflare.com` URL on each start (also in the
+process log). No login, no interstitial page. Replaced localtunnel,
+which forced an interstitial "friendly reminder" page that blocked
+external phones and 503'd often; its old URLs
+(`repliers-mark.loca.lt` / `house-hunter-repliers-mark.loca.lt`) are
+dead. The quick-tunnel URL is ephemeral: it changes every restart, so
+grab the current one from the start output rather than hardcoding it.
+The server binds 127.0.0.1 only (server.py), so a tunnel is required;
+direct LAN access would need binding 0.0.0.0.
 
 ## Constraints
 - No em dashes in any output or comments
