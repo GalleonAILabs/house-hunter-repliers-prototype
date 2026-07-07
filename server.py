@@ -1536,6 +1536,14 @@ class Handler(BaseHTTPRequestHandler):
         body = path.read_bytes()
         self.send_response(200)
         self.send_header("Content-Type", content_type)
+        # no-cache (revalidate before reuse), not no-store, so the browser
+        # and the Cloudflare edge never serve a stale index.html/app.js/
+        # styles.css after a deploy. Without this the origin sent no
+        # Cache-Control and the edge applied its own multi-hour max-age, so
+        # a client could run an app.js from before a feature shipped (this
+        # is exactly how the Location thresholds section rendered with no
+        # inputs on the live domain while working locally).
+        self.send_header("Cache-Control", "no-cache")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)

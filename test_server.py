@@ -864,6 +864,17 @@ class PotentialPurchasePriceTests(ServerTestCase):
         self.assertNotIn("potentialPurchasePrice", item)
 
 
+class StaticCacheHeaderTests(ServerTestCase):
+    """Static assets must be sent no-cache so a deploy is never masked by a
+    stale browser/edge copy of index.html/app.js/styles.css."""
+
+    def test_static_asset_sent_no_cache(self) -> None:
+        req = urllib.request.Request(self.url("/styles.css"))
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            self.assertEqual(resp.status, 200)
+            self.assertEqual(resp.headers.get("Cache-Control"), "no-cache")
+
+
 class PersonThresholdsTests(ServerTestCase):
     """Per-person location thresholds: per person in structure (one row per
     person), but stored server-side and shared with the whole group like

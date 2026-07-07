@@ -189,7 +189,7 @@ async function loadConfig() {
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────
-const state = { map: null, mapReady: false, rawListings: [], listings: [], activeView: 'map', people: [], activePerson: null, feedback: {}, openMapItem: null, source: 'poc', sourceCount: 0, clusters: [], poi: [], householdSettings: {}, personThresholds: {} };
+const state = { map: null, mapReady: false, rawListings: [], listings: [], activeView: 'map', people: [], activePerson: null, feedback: {}, openMapItem: null, source: 'poc', sourceCount: 0, clusters: [], poi: [], householdSettings: {}, personThresholds: {}, personThresholdsError: false };
 let cardSettings = loadSettings();
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -1221,9 +1221,18 @@ async function loadPersonThresholds() {
     if (res.ok) {
       const data = await res.json();
       state.personThresholds = data.person_thresholds || {};
+      state.personThresholdsError = false;
+    } else {
+      // A non-OK response (e.g. a stale server with no /api/person-thresholds
+      // route yet) must not fail silently: the roster would render with blank
+      // inputs, indistinguishable from "everyone genuinely unset". Flag it so
+      // buildThresholdSettings can show a visible error instead.
+      console.error('person-thresholds fetch failed:', res.status);
+      state.personThresholdsError = true;
     }
   } catch (err) {
     console.error(err);
+    state.personThresholdsError = true;
   }
   buildThresholdSettings();
   // Thresholds feed the highway-distance card badge and the per-person
@@ -1258,6 +1267,20 @@ function buildThresholdSettings() {
   const container = $('thresholdSettingsList');
   if (!container) return;
   container.innerHTML = '';
+
+  // Visible error state, never a silently-blank section: if the thresholds
+  // fetch failed, saved values (including the seeded defaults) are missing,
+  // so the inputs below would misleadingly read as "all unset". Say so, with
+  // a Retry.
+  if (state.personThresholdsError) {
+    const banner = el('div', { className: 'threshold-error' });
+    banner.append(el('span', { textContent: 'Could not load saved thresholds, so the values below may be missing or incomplete. Your changes may not save until this loads.' }));
+    const retry = el('button', { type: 'button', className: 'secondary', textContent: 'Retry' });
+    retry.addEventListener('click', () => loadPersonThresholds());
+    banner.append(retry);
+    container.append(banner);
+  }
+
   if (!state.people.length) {
     container.appendChild(el('p', { className: 'field-desc', textContent: 'No people loaded yet.' }));
     return;
