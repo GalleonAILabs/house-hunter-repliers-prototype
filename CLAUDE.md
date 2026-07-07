@@ -56,17 +56,23 @@ Running on port 8787 (python3.11 server.py)
 Endpoints: /api/health, /api/config, /api/listings, /api/poc-listings,
 /api/people, /api/feedback, /layers/go-stations.geojson,
 /layers/highway-413.geojson
-Phone test tunnel: Cloudflare quick tunnel, started with
-`cloudflared tunnel --url http://localhost:8787`. It prints a fresh
-`https://<random>.trycloudflare.com` URL on each start (also in the
-process log). No login, no interstitial page. Replaced localtunnel,
-which forced an interstitial "friendly reminder" page that blocked
-external phones and 503'd often; its old URLs
-(`repliers-mark.loca.lt` / `house-hunter-repliers-mark.loca.lt`) are
-dead. The quick-tunnel URL is ephemeral: it changes every restart, so
-grab the current one from the start output rather than hardcoding it.
-The server binds 127.0.0.1 only (server.py), so a tunnel is required;
+Phone test tunnel: stable named Cloudflare Tunnel at
+`https://househunter.galleonglobal.ai` (permanent URL, does not change
+on restart). Tunnel name `house-hunter`, UUID
+`cd2a79c3-145f-4c17-8702-c56b18554230`, config in `~/.cloudflared/
+config.yml` mapping that hostname to `http://localhost:8787`, DNS is a
+proxied CNAME on the `galleonglobal.ai` Cloudflare zone. Start/stop the
+forwarder with `cloudflared tunnel run house-hunter` (currently run
+on demand, not yet a launchd service, so it stops when the Mac
+restarts; run `cloudflared service install` to make it always-on). The
+server binds 127.0.0.1 only (server.py), so the tunnel is required;
 direct LAN access would need binding 0.0.0.0.
+
+Replaced two earlier tunnel setups: localtunnel (dead URLs
+`repliers-mark.loca.lt` / `house-hunter-repliers-mark.loca.lt`, forced
+an interstitial "friendly reminder" page that blocked external phones)
+and a Cloudflare quick tunnel (`cloudflared tunnel --url ...`, worked
+but minted a fresh random `*.trycloudflare.com` URL every restart).
 
 ## Constraints
 - No em dashes in any output or comments

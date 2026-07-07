@@ -143,7 +143,7 @@ The core product flow, in order:
 
 - GitHub: `https://github.com/GalleonAILabs/house-hunter-repliers-prototype`
 - Server: `python3.11 server.py`, port 8787
-- Phone test tunnel: Cloudflare quick tunnel (`cloudflared tunnel --url http://localhost:8787`), fresh `*.trycloudflare.com` URL each start, no interstitial. Replaced localtunnel, whose interstitial page blocked external phones.
+- Phone test tunnel: stable named Cloudflare Tunnel at `https://househunter.galleonglobal.ai` (permanent, does not change on restart). Run the forwarder with `cloudflared tunnel run house-hunter`. Replaced localtunnel (interstitial page blocked external phones) and an earlier quick tunnel (random URL each start).
 
 ## Reference docs
 

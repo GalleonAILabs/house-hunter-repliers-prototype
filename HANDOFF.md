@@ -8,7 +8,7 @@ Repository:
 
 - `/Users/markgarrett/Galleon/house-hunter-repliers-prototype`
 - GitHub: `https://github.com/GalleonAILabs/house-hunter-repliers-prototype`
-- Live phone tunnel: Cloudflare quick tunnel (`cloudflared tunnel --url http://localhost:8787`), fresh `*.trycloudflare.com` URL each start, no interstitial. Replaced flaky localtunnel.
+- Live phone tunnel: stable named Cloudflare Tunnel at `https://househunter.galleonglobal.ai` (permanent URL). Start the forwarder with `cloudflared tunnel run house-hunter`. Replaced flaky localtunnel and an earlier random-URL quick tunnel.
 - Local server: `python3.11 server.py` on port `8787`
 - POC data export: `data/poc_listings.json`, gitignored, do not commit
 
