@@ -1226,6 +1226,12 @@ async function loadPersonThresholds() {
     console.error(err);
   }
   buildThresholdSettings();
+  // Thresholds feed the highway-distance card badge and the per-person
+  // highway filter. They load asynchronously, after the first render, so a
+  // reload with the highway filter checkbox persisted-on (and a person
+  // selected) would otherwise leave the filter no-op'd until the next user
+  // interaction. Re-run filters/render now that the thresholds exist.
+  applyFiltersAndRender();
 }
 
 function thresholdFor(personId) {
