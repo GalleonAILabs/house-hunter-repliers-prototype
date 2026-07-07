@@ -350,9 +350,13 @@ def load_poc_listing_ids() -> None:
 HIGHWAY_LAYER_FILES = [
     "highway_400.geojson",
     "highway_401.geojson",
+    "highway_403.geojson",
+    "highway_404.geojson",
+    "highway_407.geojson",
     "highway_410.geojson",
     "highway_427.geojson",
     "highway_413.geojson",
+    "highway_QEW.geojson",
 ]
 EARTH_RADIUS_M = 6_371_000.0
 # label -> list of polylines, each a list of (lat, lon) vertices.
@@ -370,8 +374,9 @@ def load_highways() -> None:
         path = STATIC / "layers" / filename
         if not path.exists():
             continue
-        ref_match = re.search(r"(\d+)", filename)
-        label = f"Hwy {ref_match.group(1)}" if ref_match else filename
+        # "highway_401.geojson" -> "Hwy 401"; "highway_QEW.geojson" -> "QEW".
+        stem = filename.removeprefix("highway_").removesuffix(".geojson")
+        label = f"Hwy {stem}" if stem.isdigit() else stem.upper()
         try:
             fc = json.loads(path.read_text())
         except (json.JSONDecodeError, OSError):

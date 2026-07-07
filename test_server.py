@@ -1219,7 +1219,9 @@ class HighwayDistanceTests(unittest.TestCase):
         server.load_highways()
         self.assertTrue(server.HIGHWAY_LINES)
         labels = {label for label, _ in server.HIGHWAY_LINES}
-        for expected in ("Hwy 400", "Hwy 401", "Hwy 410", "Hwy 427", "Hwy 413"):
+        # Numeric refs read "Hwy N"; the QEW keeps its name (non-numeric stem).
+        for expected in ("Hwy 400", "Hwy 401", "Hwy 403", "Hwy 404", "Hwy 407",
+                         "Hwy 410", "Hwy 427", "Hwy 413", "QEW"):
             self.assertIn(expected, labels)
         km, label = server.nearest_highway_km(43.7663, -79.3522)  # a 401 vertex
         self.assertIsNotNone(km)

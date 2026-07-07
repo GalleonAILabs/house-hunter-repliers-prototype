@@ -515,3 +515,45 @@ a broken install, not skipped by choice. Reinstall with `npm install -g
 review`. In its place this session used 100 stdlib unit tests, distance-math
 validation against the real 105-listing dataset, and a full headless-browser
 QA pass of all three features.
+
+## Codex audit fixes + highway set expanded (commits eaf05b9, 62fa7f1, c1d62bb, +this)
+
+The Codex audit ran cleanly on the reinstalled CLI (0.142.5). Four fixes,
+committed separately:
+
+- **P1 #2 (correctness):** `loadPersonThresholds` re-renders now
+  (`applyFiltersAndRender`), so a reload with the highway filter
+  persisted-on no longer silently no-ops until the next interaction.
+- **P2 #6 (validation):** numeric threshold validators reject non-finite
+  numbers (`json` parses `Infinity`/`NaN`; `Infinity` had leaked into
+  storage, `travel_minutes:Infinity` 500-ed), and `person_exists` now
+  rejects `bool` (a `True` id was accepted as person 1).
+- **P2 #8 (data model):** the settings UI no longer stamps the default
+  `drive`/`go_station` onto a row when only `highway_km` is edited; the
+  travel mode/destination/total are nulled when there is no
+  `travel_minutes`.
+
+Audit findings deliberately NOT actioned, with reasons: the `/api/config`
+token exposure (P1 #1) and last-writer-wins on concurrent edits (P1 #3) are
+the app's existing, documented shared-secret and shared-settings tradeoffs
+(same as every other person-data endpoint / `household_settings`), not new
+holes; `travel_dest_ref` validation (P2 #5), FK/CHECK constraints (P2 #7),
+and `lru_cache` immutability (P2 #9) are reasonable hardening with no live
+consumer yet and consistent with the existing schema.
+
+**Highway set expanded from 5 to 9 (P1 #4).** Added 403, 404, 407, and the
+QEW (all real freeways running through the POC area) via
+`scripts/build_highways.py` (now accepts refs as CLI args to fetch a
+subset). The metric exists to catch highway noise, so a nearby corridor
+missing from the set defeats its purpose. Effect on the 105 listings:
+
+- Nearest-highway split: 400 67->59, 401 17->11, plus new 404 x8, 403 x5,
+  407 x1 (410 x1 and 413 x20 unchanged).
+- Mark's 5 km within/over: 19/86 -> **24/81**.
+- 14 listings changed nearest highway; 5 flipped from over to within 5 km,
+  all real corrections the old set missed, e.g. two Burlington listings that
+  read "22-23 km to Hwy 401" are actually 1.7-2.9 km from Hwy 403, and a
+  Newmarket listing that read "13.5 km to Hwy 400" is 1.2 km from Hwy 404.
+
+Still deferred (unchanged from prior entry): real multi-modal travel-time
+computation (T13), and the all-buyers aggregate highway filter.

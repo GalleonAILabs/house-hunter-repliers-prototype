@@ -44,11 +44,12 @@ OVERPASS_URLS = [
     "https://overpass.private.coffee/api/interpreter",
 ]
 
-# 400-series highways to source. 413 is excluded on purpose (its file is
-# built from more accurate EA design data, not OSM). Others near the POC
-# area (403, 404, 407, QEW) can be added here later the same way if the
-# family wants them factored into the nearest-highway distance.
-HIGHWAY_REFS = ["400", "401", "410", "427"]
+# 400-series highways (plus the QEW, a 400-series-class freeway) to source.
+# 413 is excluded on purpose (its file is built from more accurate EA design
+# data, not OSM). Pass refs as CLI args to fetch a subset, e.g.
+# `python3 scripts/build_highways.py 403 404 407 QEW`, which leaves the
+# other committed layers untouched instead of re-fetching them.
+HIGHWAY_REFS = ["400", "401", "403", "404", "407", "410", "427", "QEW"]
 
 # Bounding box covering the 105 POC listings (lat 43.25-45.33, lon
 # -81.15 to -79.01) padded by ~0.3 deg, so a highway just outside the
@@ -155,7 +156,8 @@ def build_feature_collection(ref: str, ways: list[list[tuple[float, float]]]) ->
 
 def main() -> None:
     LAYERS.mkdir(parents=True, exist_ok=True)
-    for ref in HIGHWAY_REFS:
+    refs = sys.argv[1:] or HIGHWAY_REFS
+    for ref in refs:
         print(f"Fetching Highway {ref} ...", flush=True)
         ways = fetch_ref(ref)
         total_points = sum(len(w) for w in ways)
