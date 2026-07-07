@@ -258,6 +258,16 @@ def init_db() -> None:
                 """,
                 [(b[0], MIGRATED_GO_THRESHOLD_MIN, MIGRATED_HIGHWAY_KM) for b in buyers],
             )
+
+        # Location thresholds are buyer-only. Remove any rows keyed to a
+        # non-buyer that may have been stored before that rule was enforced.
+        # Idempotent: a no-op once none exist.
+        conn.execute(
+            """
+            DELETE FROM person_thresholds
+            WHERE person_id IN (SELECT id FROM people WHERE role != 'buyer')
+            """
+        )
         conn.commit()
     finally:
         conn.close()
@@ -787,14 +797,15 @@ def handle_potential_price_delete(body: dict[str, Any]) -> tuple[dict[str, Any],
 
 
 def person_thresholds_all(conn: sqlite3.Connection) -> dict[str, dict[str, Any]]:
-    """Every person's location thresholds, keyed by person id (as a string,
-    so it survives JSON round-tripping as an object key). Every known person
-    gets an entry even with no row yet -- all threshold fields null -- so the
-    settings UI can render the full roster (buyers and advisors) without a
-    second lookup against GET /api/people. updated_by_name resolves the
-    attribution to a display name; it and updated_at are null for a
-    person whose thresholds are still all unset or were only ever the
-    migration default (updated_by NULL)."""
+    """Every BUYER's location thresholds, keyed by person id (as a string, so
+    it survives JSON round-tripping as an object key). Travel time and highway
+    distance are buyer preferences only, so realtors are excluded entirely:
+    they never appear in the roster, are never seeded, and are not storable
+    (see handle_person_thresholds_post). Every buyer gets an entry even with
+    no row yet -- all threshold fields null. updated_by_name resolves the
+    attribution to a display name; it and updated_at are null for a buyer
+    whose thresholds are still all unset or were only ever the migration
+    default (updated_by NULL)."""
     rows = conn.execute(
         """
         SELECT pe.id AS person_id, pe.name AS person_name, pe.role AS role,
@@ -804,6 +815,7 @@ def person_thresholds_all(conn: sqlite3.Connection) -> dict[str, dict[str, Any]]
         FROM people pe
         LEFT JOIN person_thresholds t ON t.person_id = pe.id
         LEFT JOIN people up ON up.id = t.updated_by
+        WHERE pe.role = 'buyer'
         ORDER BY pe.id
         """
     ).fetchall()
@@ -867,6 +879,12 @@ def handle_person_thresholds_post(body: dict[str, Any]) -> tuple[dict[str, Any],
             return {"error": "unknown_person", "detail": f"person_id {person_id!r} not found"}, 400
         if not person_exists(conn, actor_id):
             return {"error": "unknown_person", "detail": f"actor_id {actor_id!r} not found"}, 400
+        # Location thresholds are buyer preferences only; a realtor is never a
+        # valid target. The actor (who makes the edit) may be anyone.
+        target_role = conn.execute("SELECT role FROM people WHERE id = ?", (person_id,)).fetchone()
+        if target_role is None or target_role["role"] != "buyer":
+            return {"error": "not_a_buyer",
+                    "detail": "location thresholds can only be set for buyers"}, 400
 
         conn.execute(
             """

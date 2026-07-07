@@ -886,12 +886,13 @@ class PersonThresholdsTests(ServerTestCase):
         status, _ = self.request("GET", "/api/person-thresholds")
         self.assertEqual(status, 401)
 
-    def test_get_returns_every_person_including_unset_advisors(self) -> None:
+    def test_get_returns_buyers_only_not_realtors(self) -> None:
         status, data = self.request("GET", "/api/person-thresholds", token=self.TOKEN)
         self.assertEqual(status, 200)
         thresholds = data["person_thresholds"]
-        # Mark(1), Katie(2) buyers; Anees(3), Kevin(4) advisors -- all four present.
-        self.assertEqual(set(thresholds.keys()), {"1", "2", "3", "4"})
+        # Mark(1), Katie(2) are buyers; Anees(3), Kevin(4) are realtors and
+        # must be absent -- thresholds are a buyer-only concept.
+        self.assertEqual(set(thresholds.keys()), {"1", "2"})
 
     def test_buyers_seeded_with_migrated_go_and_highway(self) -> None:
         _, data = self.request("GET", "/api/person-thresholds", token=self.TOKEN)
@@ -905,13 +906,39 @@ class PersonThresholdsTests(ServerTestCase):
             # Migration default, not an edit anyone made.
             self.assertIsNone(entry["updated_by"])
 
-    def test_advisors_start_fully_unset(self) -> None:
+    def test_realtors_absent_and_not_storable(self) -> None:
+        # Realtors (Anees=3, Kevin=4) never appear in the roster...
         _, data = self.request("GET", "/api/person-thresholds", token=self.TOKEN)
-        for pid in ("3", "4"):  # Anees, Kevin
-            entry = data["person_thresholds"][pid]
-            self.assertIsNone(entry["travel_minutes"])
-            self.assertIsNone(entry["highway_km"])
-            self.assertIsNone(entry["travel_dest_kind"])
+        self.assertNotIn("3", data["person_thresholds"])
+        self.assertNotIn("4", data["person_thresholds"])
+        # ...and thresholds cannot be stored for one.
+        status, data = self.request(
+            "POST", "/api/person-thresholds", token=self.TOKEN,
+            body={"person_id": 3, "actor_id": 1, "highway_km": 4},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(data["error"], "not_a_buyer")
+
+    def test_init_db_removes_any_seeded_realtor_rows(self) -> None:
+        # A row keyed to a realtor (e.g. stored before the buyer-only rule)
+        # is cleaned out by init_db and never surfaces.
+        conn = server.get_db()
+        try:
+            conn.execute(
+                "INSERT INTO person_thresholds (person_id, highway_km, updated_by) VALUES (3, 9, 1)"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        server.init_db()  # idempotent; must delete the realtor row
+        conn = server.get_db()
+        try:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM person_thresholds WHERE person_id = 3"
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(count, 0)
 
     def test_post_requires_known_target_person(self) -> None:
         status, data = self.request(

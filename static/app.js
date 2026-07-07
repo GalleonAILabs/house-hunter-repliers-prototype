@@ -1283,19 +1283,22 @@ function buildThresholdSettings() {
     container.append(banner);
   }
 
-  if (!state.people.length) {
-    container.appendChild(el('p', { className: 'field-desc', textContent: 'No people loaded yet.' }));
+  // Travel time and highway distance are buyer preferences only; realtors
+  // are never shown here (and the server refuses to store thresholds for
+  // them). The server's GET already returns buyers only, but filter here too
+  // so the roster is correct regardless of what the endpoint returns.
+  const buyers = state.people.filter(p => p.role === 'buyer');
+  if (!buyers.length) {
+    container.appendChild(el('p', { className: 'field-desc', textContent: 'No buyers loaded yet.' }));
     return;
   }
 
-  state.people.forEach(person => {
+  buyers.forEach(person => {
     const t = thresholdFor(person.id) || {};
-    const advisor = person.role === 'advisor';
 
-    const block = el('div', { className: 'threshold-person-block' + (advisor ? ' threshold-advisor' : '') });
+    const block = el('div', { className: 'threshold-person-block' });
     const nameRow = el('div', { className: 'threshold-person-name' });
     nameRow.append(el('span', { textContent: person.name }));
-    if (advisor) nameRow.append(el('span', { className: 'threshold-role-badge', textContent: 'advisor' }));
     block.append(nameRow);
 
     // --- Travel time group ---
