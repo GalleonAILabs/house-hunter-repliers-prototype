@@ -430,6 +430,25 @@ function migrateHighwayFilterCheckbox() {
   }
 }
 
+// Attached-place drive-time range filter (minutes). A listing passes if at
+// least one of its place attachments has a cached street-routed drive time
+// within [min, max]. Inherently acts on the ATTACHED SUBSET: when either field
+// has a value, listings with no attachments (or none with a computed drive
+// time in range) are excluded, since the filter can only evaluate listings
+// that have one. Both blank => inactive, everything passes.
+function matchesAttachDriveFilter(item) {
+  const minRaw = ($('minAttachDrive')?.value || '').trim();
+  const maxRaw = ($('maxAttachDrive')?.value || '').trim();
+  if (!minRaw && !maxRaw) return true; // inactive
+  const atts = state.placeAttachments[item.mls] || [];
+  return atts.some(a => {
+    if (a.drive_minutes == null) return false; // routing unavailable, can't evaluate
+    if (minRaw && a.drive_minutes < Number(minRaw)) return false;
+    if (maxRaw && a.drive_minutes > Number(maxRaw)) return false;
+    return true;
+  });
+}
+
 function matchesStatusFilter(listingId, value) {
   if (!value || !state.activePerson) return true; // no-op without an active actor
   const f = personFeedbackFor(listingId, state.activePerson);
@@ -516,6 +535,7 @@ function filterByFeedback(listings) {
     if (!matchesRangeDirect(item.acres, 'minAcres', 'maxAcres')) return false;
     if (!matchesRangeDirect(item.goMin, '', 'maxCommute')) return false;
     if (!matchesRangeDirect(item.highwayKm, 'minHwyKm', 'maxHwyKm')) return false;
+    if (!matchesAttachDriveFilter(item)) return false;
     if (!matchesFeatureKeywords(item)) return false;
     return personFilters.every(pf => matchesPersonFilter(item.mls, pf.id, pf.values));
   });
@@ -2205,7 +2225,7 @@ async function load() {
 }
 
 function reset() {
-  ['q','minPrice','maxPrice','minBeds','maxBeds','minBaths','maxBaths','minSqft','maxSqft','minAcres','maxAcres','maxCommute','minHwyKm','maxHwyKm','minPit','maxPit','minDue','maxDue','minFit','filterStatus']
+  ['q','minPrice','maxPrice','minBeds','maxBeds','minBaths','maxBaths','minSqft','maxSqft','minAcres','maxAcres','maxCommute','minHwyKm','maxHwyKm','minAttachDrive','maxAttachDrive','minPit','maxPit','minDue','maxDue','minFit','filterStatus']
     .forEach(id => { const el=$(id); if(el) { el.value=''; delete el.dataset.raw; } });
   $('resultsPerPage').value = '60';
   ['featGarage','featPool','featBasement','clusterToggle','hideVetoed'].forEach(id => { const el = $(id); if (el) el.checked = false; });
@@ -2235,6 +2255,7 @@ const FILTER_STATE_KEY = 'hh_filter_state_v1';
 const PERSISTED_FIELD_IDS = [
   'minPrice', 'maxPrice', 'minBeds', 'maxBeds', 'minBaths', 'maxBaths',
   'minSqft', 'maxSqft', 'minAcres', 'maxAcres', 'maxCommute', 'minHwyKm', 'maxHwyKm',
+  'minAttachDrive', 'maxAttachDrive',
   'minPit', 'maxPit', 'minDue', 'maxDue', 'minFit', 'filterStatus',
   'resultsPerPage', 'source', 'sort',
 ];
@@ -2341,7 +2362,7 @@ window.addEventListener('DOMContentLoaded', () => {
   $('maxPit')?.addEventListener('change', applyFiltersAndRender);
   $('minDue')?.addEventListener('change', applyFiltersAndRender);
   $('maxDue')?.addEventListener('change', applyFiltersAndRender);
-  ['minSqft','maxSqft','minAcres','maxAcres','maxCommute','minHwyKm','maxHwyKm'].forEach(id => $(id)?.addEventListener('change', applyFiltersAndRender));
+  ['minSqft','maxSqft','minAcres','maxAcres','maxCommute','minHwyKm','maxHwyKm','minAttachDrive','maxAttachDrive'].forEach(id => $(id)?.addEventListener('change', applyFiltersAndRender));
   ['featGarage','featPool','featBasement','hideVetoed'].forEach(id => $(id)?.addEventListener('change', applyFiltersAndRender));
   $('source').addEventListener('change', () => { buildSettingsPanel(); updateClusterVisibility(); load().catch(showError); });
   $('clusterToggle')?.addEventListener('change', () => load().catch(showError));
