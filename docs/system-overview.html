@@ -1,0 +1,713 @@
+<title>House Hunter · System Processes</title>
+<style>
+  :root {
+    --paper:#f5f3ec; --panel:#ffffff; --panel-2:#faf9f4;
+    --ink:#18211f; --muted:#5c665f; --line:#ddd8ca; --line-soft:#e9e5da;
+    --forest:#14221f; --forest-ink:#dfeae3;
+    --nat-read:#2b67d6; --nat-write:#16803a; --nat-compute:#a9720a;
+    --nat-infra:#3c574b; --nat-danger:#b3261e;
+    --read-wash:#eaf1fc; --write-wash:#e8f4ec; --compute-wash:#f7efdd;
+    --infra-wash:#eaefec; --danger-wash:#fbebe9;
+    --shadow:0 1px 2px rgba(20,34,31,.05), 0 6px 22px rgba(20,34,31,.06);
+    --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper:#131817; --panel:#1c2321; --panel-2:#20302b;
+      --ink:#e4ede9; --muted:#93a49e; --line:#2c3733; --line-soft:#28322e;
+      --forest:#0b100e; --forest-ink:#dfeae3;
+      --nat-read:#6ea2f2; --nat-write:#57c07c; --nat-compute:#e0a838;
+      --nat-infra:#8fb0a2; --nat-danger:#e8776f;
+      --read-wash:#182634; --write-wash:#152a1f; --compute-wash:#2a2413;
+      --infra-wash:#1a231f; --danger-wash:#2c1917;
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 26px rgba(0,0,0,.28);
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:#131817; --panel:#1c2321; --panel-2:#20302b;
+    --ink:#e4ede9; --muted:#93a49e; --line:#2c3733; --line-soft:#28322e;
+    --forest:#0b100e; --forest-ink:#dfeae3;
+    --nat-read:#6ea2f2; --nat-write:#57c07c; --nat-compute:#e0a838;
+    --nat-infra:#8fb0a2; --nat-danger:#e8776f;
+    --read-wash:#182634; --write-wash:#152a1f; --compute-wash:#2a2413;
+    --infra-wash:#1a231f; --danger-wash:#2c1917;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 26px rgba(0,0,0,.28);
+  }
+  :root[data-theme="light"] {
+    --paper:#f5f3ec; --panel:#ffffff; --panel-2:#faf9f4;
+    --ink:#18211f; --muted:#5c665f; --line:#ddd8ca; --line-soft:#e9e5da;
+    --forest:#14221f; --forest-ink:#dfeae3;
+    --nat-read:#2b67d6; --nat-write:#16803a; --nat-compute:#a9720a;
+    --nat-infra:#3c574b; --nat-danger:#b3261e;
+    --read-wash:#eaf1fc; --write-wash:#e8f4ec; --compute-wash:#f7efdd;
+    --infra-wash:#eaefec; --danger-wash:#fbebe9;
+    --shadow:0 1px 2px rgba(20,34,31,.05), 0 6px 22px rgba(20,34,31,.06);
+  }
+
+  * { box-sizing:border-box; }
+  html { scroll-behavior:smooth; scroll-padding-top:84px; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior:auto; } * { animation:none !important; transition:none !important; } }
+  body {
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:var(--sans); font-size:16px; line-height:1.62;
+    -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  }
+  a { color:inherit; }
+  h1,h2,h3,h4 { text-wrap:balance; margin:0; }
+
+  /* ── Top bar ── */
+  .topbar {
+    position:sticky; top:0; z-index:50;
+    display:flex; align-items:center; gap:14px;
+    padding:11px clamp(16px,4vw,40px);
+    background:color-mix(in srgb, var(--paper) 86%, transparent);
+    backdrop-filter:saturate(1.3) blur(8px);
+    border-bottom:1px solid var(--line);
+  }
+  .brand { display:flex; align-items:baseline; gap:10px; font-weight:800; letter-spacing:-.01em; }
+  .brand .mark { font-size:18px; }
+  .brand .sub { font-family:var(--mono); font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.14em; color:var(--muted); }
+  .topnav { margin-left:auto; display:flex; gap:2px; overflow-x:auto; scrollbar-width:none; }
+  .topnav::-webkit-scrollbar { display:none; }
+  .topnav a {
+    font-family:var(--mono); font-size:11px; text-transform:uppercase; letter-spacing:.08em;
+    text-decoration:none; color:var(--muted); padding:6px 9px; border-radius:7px; white-space:nowrap;
+  }
+  .topnav a:hover { color:var(--ink); background:var(--panel-2); }
+  .themebtn {
+    flex:0 0 auto; font-family:var(--mono); font-size:11px; letter-spacing:.06em; text-transform:uppercase;
+    background:var(--panel); color:var(--ink); border:1px solid var(--line);
+    border-radius:8px; padding:6px 11px; cursor:pointer; margin-left:6px;
+  }
+  .themebtn:hover { border-color:var(--muted); }
+  .themebtn:focus-visible, .topnav a:focus-visible, .toc a:focus-visible { outline:2px solid var(--nat-read); outline-offset:2px; }
+
+  .wrap { max-width:1120px; margin:0 auto; padding:0 clamp(16px,4vw,40px); }
+
+  /* ── Hero ── */
+  .hero { padding:46px 0 30px; border-bottom:1px solid var(--line-soft); }
+  .eyebrow { font-family:var(--mono); font-size:12px; text-transform:uppercase; letter-spacing:.16em; color:var(--nat-write); font-weight:600; }
+  .hero h1 { font-size:clamp(30px,5.2vw,50px); line-height:1.04; letter-spacing:-.025em; margin:14px 0 12px; }
+  .hero p.lede { font-size:clamp(16px,2vw,19px); color:var(--muted); max-width:60ch; margin:0; }
+
+  .status { display:flex; flex-wrap:wrap; gap:10px; margin-top:26px; }
+  .chip {
+    display:inline-flex; align-items:center; gap:8px;
+    background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:8px 12px; font-family:var(--mono); font-size:12.5px; box-shadow:var(--shadow);
+  }
+  .chip .k { color:var(--muted); text-transform:uppercase; letter-spacing:.07em; font-size:10.5px; }
+  .chip .v { font-weight:600; font-variant-numeric:tabular-nums; }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--nat-write); box-shadow:0 0 0 3px var(--write-wash); }
+
+  /* ── Legend ── */
+  .legend { display:flex; flex-wrap:wrap; gap:8px 18px; margin:24px 0 4px; padding:14px 16px; background:var(--panel-2); border:1px solid var(--line-soft); border-radius:12px; }
+  .legend .li { display:inline-flex; align-items:center; gap:8px; font-size:13px; }
+  .swatch { width:11px; height:11px; border-radius:3px; }
+
+  /* ── Section ── */
+  main { padding-bottom:60px; }
+  .section { padding:44px 0 6px; }
+  .section > .head { display:flex; align-items:baseline; gap:14px; margin-bottom:6px; }
+  .section > .head .idx { font-family:var(--mono); font-size:13px; font-weight:700; color:var(--muted); }
+  .section > .head h2 { font-size:clamp(21px,3vw,27px); letter-spacing:-.02em; }
+  .section > .intro { color:var(--muted); max-width:70ch; margin:0 0 22px; }
+
+  /* ── Process grid ── */
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:16px; }
+  .proc {
+    position:relative; background:var(--panel); border:1px solid var(--line);
+    border-radius:14px; padding:18px 18px 18px 22px; box-shadow:var(--shadow); overflow:hidden;
+  }
+  .proc::before { content:""; position:absolute; left:0; top:0; bottom:0; width:5px; background:var(--nat, var(--nat-infra)); }
+  .proc.read { --nat:var(--nat-read); --wash:var(--read-wash); }
+  .proc.write { --nat:var(--nat-write); --wash:var(--write-wash); }
+  .proc.compute { --nat:var(--nat-compute); --wash:var(--compute-wash); }
+  .proc.infra { --nat:var(--nat-infra); --wash:var(--infra-wash); }
+  .proc.danger { --nat:var(--nat-danger); --wash:var(--danger-wash); }
+  .proc .phead { display:flex; align-items:center; gap:10px; margin-bottom:11px; flex-wrap:wrap; }
+  .proc h3 { font-size:16.5px; letter-spacing:-.01em; }
+  .tag {
+    font-family:var(--mono); font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.09em;
+    color:var(--nat); background:var(--wash); border:1px solid color-mix(in srgb, var(--nat) 26%, transparent);
+    padding:2.5px 7px; border-radius:999px; white-space:nowrap;
+  }
+  .trigger { font-size:13.5px; color:var(--muted); margin:0 0 12px; }
+  .trigger b { color:var(--ink); font-weight:600; }
+
+  .flow { display:flex; flex-wrap:wrap; align-items:stretch; gap:6px; margin:0 0 12px; }
+  .flow .step {
+    font-family:var(--mono); font-size:11.5px; line-height:1.35;
+    background:var(--panel-2); border:1px solid var(--line-soft); border-radius:8px;
+    padding:5px 9px; color:var(--ink); position:relative;
+  }
+  .flow .step + .step::before {
+    content:"→"; position:absolute; left:-11px; top:50%; transform:translateY(-50%);
+    color:var(--nat); font-size:12px; font-family:var(--sans);
+  }
+  .flow.seq { counter-reset:st; }
+  .flow.seq .step { padding-left:24px; }
+  .flow.seq .step::after {
+    counter-increment:st; content:counter(st); position:absolute; left:6px; top:50%; transform:translateY(-50%);
+    font-size:9.5px; font-weight:700; color:var(--nat);
+    width:13px; height:13px; border-radius:50%; background:var(--wash);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .flow.seq .step + .step::before { display:none; }
+
+  .touches { border-top:1px dashed var(--line); padding-top:10px; margin-top:2px; }
+  .touches .lbl { font-family:var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); }
+  .touches code { font-family:var(--mono); font-size:12px; color:var(--ink); background:var(--panel-2); border:1px solid var(--line-soft); border-radius:5px; padding:1px 5px; }
+  .touches .row { display:flex; flex-wrap:wrap; gap:5px; margin-top:5px; }
+
+  /* ── Tables ── */
+  .tablewrap { overflow-x:auto; border:1px solid var(--line); border-radius:12px; box-shadow:var(--shadow); background:var(--panel); }
+  table { border-collapse:collapse; width:100%; min-width:640px; font-size:13.5px; }
+  th, td { text-align:left; padding:10px 14px; border-bottom:1px solid var(--line-soft); vertical-align:top; }
+  thead th { font-family:var(--mono); font-size:10.5px; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); background:var(--panel-2); position:sticky; top:0; }
+  tbody tr:last-child td { border-bottom:none; }
+  td code, th code { font-family:var(--mono); font-size:12.5px; }
+  .m { font-family:var(--mono); font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; padding:1.5px 6px; border-radius:5px; }
+  .m.get { color:var(--nat-read); background:var(--read-wash); }
+  .m.post { color:var(--nat-write); background:var(--write-wash); }
+  .m.del { color:var(--nat-danger); background:var(--danger-wash); }
+  .lock { font-family:var(--mono); font-size:11px; }
+  .lock.y { color:var(--nat-danger); }
+  .lock.n { color:var(--muted); }
+  .muted-cell { color:var(--muted); }
+
+  .note { margin-top:14px; font-size:13px; color:var(--muted); max-width:74ch; }
+  .note code { font-family:var(--mono); font-size:12px; background:var(--panel-2); border:1px solid var(--line-soft); border-radius:5px; padding:1px 5px; }
+
+  footer { border-top:1px solid var(--line); margin-top:40px; padding:26px 0 60px; color:var(--muted); font-size:13px; }
+  footer .mono { font-family:var(--mono); font-size:12px; }
+
+  @media (max-width:640px) {
+    .brand .sub { display:none; }
+    .section > .head { gap:8px; }
+  }
+</style>
+
+<div class="topbar">
+  <div class="brand"><span class="mark">🏡 House Hunter</span><span class="sub">System&nbsp;Processes</span></div>
+  <nav class="topnav" aria-label="Sections">
+    <a href="#infra">Infrastructure</a>
+    <a href="#sources">Data sources</a>
+    <a href="#reads">Reads</a>
+    <a href="#writes">Writes</a>
+    <a href="#views">Views</a>
+    <a href="#compute">Computation</a>
+    <a href="#reference">Reference</a>
+  </nav>
+  <button class="themebtn" id="themebtn" aria-label="Toggle light or dark theme">Theme</button>
+</div>
+
+<div class="wrap">
+  <header class="hero">
+    <div class="eyebrow">Prototype · Ontario buyer group</div>
+    <h1>Every process that runs the house search.</h1>
+    <p class="lede">A mobile-first tool that lets a family shortlist homes together: shared ratings and notes, live GO-commute and mortgage math, and a map, all served from one small stdlib Python server behind a Cloudflare tunnel. This is the complete map of how it runs, end to end.</p>
+
+    <div class="status">
+      <span class="chip"><span class="dot"></span><span class="k">Live at</span><span class="v">househunter.galleonglobal.ai</span></span>
+      <span class="chip"><span class="k">Server</span><span class="v">server.py · :8787</span></span>
+      <span class="chip"><span class="k">Listings</span><span class="v">105 POC</span></span>
+      <span class="chip"><span class="k">Endpoints</span><span class="v">13 GET · 4 POST · 1 DEL</span></span>
+      <span class="chip"><span class="k">Tables</span><span class="v">5</span></span>
+      <span class="chip"><span class="k">Tests</span><span class="v">82 passing</span></span>
+    </div>
+
+    <div class="legend" aria-label="Process nature legend">
+      <span class="li"><span class="swatch" style="background:var(--nat-infra)"></span>Infrastructure &amp; lifecycle</span>
+      <span class="li"><span class="swatch" style="background:var(--nat-read)"></span>Read (data in)</span>
+      <span class="li"><span class="swatch" style="background:var(--nat-write)"></span>Write (attributed to a person)</span>
+      <span class="li"><span class="swatch" style="background:var(--nat-compute)"></span>Computation (money &amp; scores)</span>
+      <span class="li"><span class="swatch" style="background:var(--nat-danger)"></span>Destructive / access</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- ══ A. INFRASTRUCTURE ══ -->
+    <section class="section" id="infra">
+      <div class="head"><span class="idx">A</span><h2>Infrastructure &amp; lifecycle</h2></div>
+      <p class="intro">How the system comes up, stays up, and takes a request from a phone on the far side of the internet down to the server on the Mac.</p>
+      <div class="grid">
+
+        <article class="proc infra">
+          <div class="phead"><h3>Boot &amp; login startup</h3><span class="tag">launchd</span></div>
+          <p class="trigger">Trigger: <b>Mac boots / user logs in</b>. Two independent services start on their own, no terminal needed.</p>
+          <div class="flow">
+            <span class="step">LaunchDaemon → cloudflared</span>
+            <span class="step">LaunchAgent → server.py</span>
+            <span class="step">both RunAtLoad</span>
+          </div>
+          <div class="touches"><span class="lbl">Touches</span><div class="row">
+            <code>/Library/LaunchDaemons/com.cloudflare.cloudflared.plist</code>
+            <code>~/Library/LaunchAgents/ai.galleonglobal.househunter-server.plist</code>
+          </div></div>
+        </article>
+
+        <article class="proc infra">
+          <div class="phead"><h3>Server boot sequence</h3><span class="tag">server.py · main()</span></div>
+          <p class="trigger">Trigger: <b>server.py process starts</b>. Prepares state before it accepts a single request.</p>
+          <div class="flow seq">
+            <span class="step">load .env</span>
+            <span class="step">init 5 tables</span>
+            <span class="step">backfill POC feedback</span>
+            <span class="step">load POC id set</span>
+            <span class="step">serve :8787</span>
+          </div>
+          <div class="touches"><span class="lbl">Touches</span><div class="row">
+            <code>load_env</code><code>init_db</code><code>backfill_poc_feedback</code><code>load_poc_listing_ids</code>
+          </div></div>
+        </article>
+
+        <article class="proc infra">
+          <div class="phead"><h3>Request path (phone → server)</h3><span class="tag">edge → tunnel</span></div>
+          <p class="trigger">Trigger: <b>any browser hit</b> to the public URL. The server itself binds only to localhost; the tunnel is the sole way in.</p>
+          <div class="flow">
+            <span class="step">phone</span>
+            <span class="step">Cloudflare edge</span>
+            <span class="step">tunnel (QUIC)</span>
+            <span class="step">127.0.0.1:8787</span>
+            <span class="step">Handler.do_*</span>
+          </div>
+          <div class="touches"><span class="lbl">Touches</span><div class="row">
+            <code>ThreadingHTTPServer("127.0.0.1", 8787)</code><code>tunnel cd2a79c3…</code>
+          </div></div>
+        </article>
+
+        <article class="proc infra">
+          <div class="phead"><h3>Crash &amp; reboot recovery</h3><span class="tag">KeepAlive</span></div>
+          <p class="trigger">Trigger: <b>either service dies or the Mac restarts</b>. launchd brings it back with no human step.</p>
+          <div class="flow">
+            <span class="step">process exits</span>
+            <span class="step">launchd detects</span>
+            <span class="step">restart (5s throttle)</span>
+          </div>
+          <div class="touches"><span class="lbl">Guarantee</span><div class="row">
+            <code>KeepAlive = true</code><code>tunnel: system daemon</code><code>server: user agent (after login)</code>
+          </div></div>
+        </article>
+
+        <article class="proc danger">
+          <div class="phead"><h3>Auth check</h3><span class="tag">shared secret</span></div>
+          <p class="trigger">Trigger: <b>every person-data request</b>. A deterrent, not real access control (the token lives in browser JS).</p>
+          <div class="flow">
+            <span class="step">read X-App-Token</span>
+            <span class="step">compare to APP_AUTH_TOKEN</span>
+            <span class="step">match → proceed · else 401</span>
+          </div>
+          <div class="touches"><span class="lbl">Touches</span><div class="row">
+            <code>require_auth()</code><code>fails closed if token unset</code>
+          </div></div>
+        </article>
+
+      </div>
+    </section>
+
+    <!-- ══ B. DATA SOURCES ══ -->
+    <section class="section" id="sources">
+      <div class="head"><span class="idx">B</span><h2>Data sources</h2></div>
+      <p class="intro">Two interchangeable sources feed the same card and map UI. The family's own spreadsheet export is the default; the live vendor API is the second, for proving the pipeline.</p>
+      <div class="grid">
+
+        <article class="proc read">
+          <div class="phead"><h3>POC data (default)</h3><span class="tag">local JSON</span></div>
+          <p class="trigger">Source: <b>105 real Ontario listings</b> exported from the family's Google Sheet, served locally, never committed.</p>
+          <div class="flow">
+            <span class="step">read poc_listings.json</span>
+            <span class="step">normalize_poc</span>
+            <span class="step">parse fit score</span>
+            <span class="step">local filters</span>
+          </div>
+          <div class="touches"><span class="lbl">Touches</span><div class="row">
+            <code>fetch_poc</code><code>normalize_poc</code><code>data/poc_listings.json</code>
+          </div></div>
+        </article>
+
+        <article class="proc read">
+          <div class="phead"><h3>Repliers sample (proxy)</h3><span class="tag">vendor API</span></div>
+          <p class="trigger">Source: <b>live Repliers API</b>, key kept server-side. Adds real map clustering the vendor computes.</p>
+          <div class="flow">
+            <span class="step">GET vendor API</span>
+            <span class="step">normalize</span>
+            <span class="step">local filters</span>
+            <span class="step">reshape clusters</span>
+          </div>
+          <div class="touches"><span class="lbl">Touches</span><div class="row">
+            <code>fetch_repliers</code><code>normalize</code><code>REPLIERS_API_KEY (server only)</code>
+          </div></div>
+        </article>
+
+      </div>
+    </section>
+
+    <!-- ══ C. READS ══ -->
+    <section class="section" id="reads">
+      <div class="head"><span class="idx">C</span><h2>Read processes</h2></div>
+      <p class="intro">What happens when the app loads and when it pulls fresh data. Every listing arrives already enriched with its mortgage math and the group's latest sentiment.</p>
+      <div class="grid">
+
+        <article class="proc read">
+          <div class="phead"><h3>App bootstrap</h3><span class="tag">page load</span></div>
+          <p class="trigger">Trigger: <b>the page opens</b>. A fixed sequence wires up config, map, roster, and the first data pull.</p>
+          <div class="flow seq">
+            <span class="step">loadConfig</span>
+            <span class="step">initMap</span>
+            <span class="step">loadPeople</span>
+            <span class="step">loadHouseholdSettings</span>
+            <span class="step">load()</span>
+          </div>
+          <div class="touches"><span class="lbl">Touches</span><div class="row">
+            <code>GET /api/config</code><code>GET /api/people</code><code>GET /api/household-settings</code>
+          </div></div>
+        </article>
+
+        <article class="proc read">
+          <div class="phead"><h3>Listings fetch &amp; enrichment</h3><span class="tag">the core read</span></div>
+          <p class="trigger">Trigger: <b>load / Apply / any source or filter change</b>. Server attaches the breakdown; client attaches feedback.</p>
+          <div class="flow">
+            <span class="step">GET /api/poc-listings</span>
+            <span class="step">enrich_with_mortgage_breakdown</span>
+            <span class="step">fetch feedback batch</span>
+            <span class="step">render cards + map</span>
+          </div>
+          <div class="touches"><span class="lbl">Touches</span><div class="row">
+            <code>enrich_with_mortgage_breakdown</code><code>renderCards</code><code>refreshMap</code>
+          </div></div>
+        </article>
+
+        <article class="proc read">
+          <div class="phead"><h3>Feedback batch read</h3><span class="tag">latest-state</span></div>
+          <p class="trigger">Trigger: <b>after each listings load and every write</b>. One call returns the newest of each action per person per listing.</p>
+          <div class="flow">
+            <span class="step">GET /api/feedback?listing_ids=…</span>
+            <span class="step">latest per action_type</span>
+            <span class="step">every person gets a row</span>
+          </div>
+          <div class="touches"><span class="lbl">Touches</span><div class="row">
+            <code>latest_feedback_for_listings</code><code>rating · status · note · research</code>
+          </div></div>
+        </article>
+
+      </div>
+    </section>
+
+    <!-- ══ D. WRITES ══ -->
+    <section class="section" id="writes">
+      <div class="head"><span class="idx">D</span><h2>Write processes</h2></div>
+      <p class="intro">Every write is attributed to a specific person via the "I am" selector: the app records <em>who</em> rated, rejected, or set a price, never a shared anonymous action. Two kinds of write: personal feedback, and group-shared facts.</p>
+      <div class="grid">
+
+        <article class="proc write">
+          <div class="phead"><h3>"I am" actor selection</h3><span class="tag">identity</span></div>
+          <p class="trigger">Trigger: <b>picking a person</b> (top-right). Sets who every later action is recorded as, until changed.</p>
+          <div class="flow">
+            <span class="step">select person</span>
+            <span class="step">state.activePerson set</span>
+            <span class="step">gates all writes</span>
+          </div>
+          <div class="touches"><span class="lbl">Touches</span><div class="row">
+            <code>setActivePerson</code><code>advisors labelled ◇ distinctly</code>
+          </div></div>
+        </article>
+
+        <article class="proc write">
+          <div class="phead"><h3>Rate a listing</h3><span class="tag">rating</span></div>
+          <p class="trigger">Trigger: <b>tapping a star</b> on a card. Recorded as the active person; re-runs filters immediately.</p>
+          <div class="flow">
+            <span class="step">tap ★</span>
+            <span class="step">POST /api/feedback (rating)</span>
+            <span class="step">refetch feedback</span>
+            <span class="step">re-filter list + map</span>
+          </div>
+          <div class="touches"><span class="lbl">Touches</span><div class="row">
+            <code>submitFeedback</code><code>handle_feedback_post</code>
+          </div></div>
+        </article>
+
+        <article class="proc write">
+          <div class="phead"><h3>Note · reject · research</h3><span class="tag">feedback</span></div>
+          <p class="trigger">Trigger: <b>Add note / Say no / Request research</b>. Reject and research are independent, both can be true at once.</p>
+          <div class="flow">
+            <span class="step">action + text</span>
+            <span class="step">POST /api/feedback</span>
+            <span class="step">append to note_history</span>
+            <span class="step">re-render</span>
+          </div>
+          <div class="touches"><span class="lbl">Touches</span><div class="row">
+            <code>action_type: note · reject · research_request</code>
+          </div></div>
+        </article>
+
+        <article class="proc write">
+          <div class="phead"><h3>Potential purchase price</h3><span class="tag">shared · add / edit</span></div>
+          <p class="trigger">Trigger: <b>Add / Edit potential price</b>. One shared figure per listing (the group's offer thinking), not per person.</p>
+          <div class="flow">
+            <span class="step">enter price</span>
+            <span class="step">POST (positive only)</span>
+            <span class="step">reload preserving map</span>
+            <span class="step">breakdown rebases</span>
+          </div>
+          <div class="touches"><span class="lbl">Touches</span><div class="row">
+            <code>handle_potential_price_post</code><code>shows "(Name)"</code>
+          </div></div>
+        </article>
+
+        <article class="proc danger">
+          <div class="phead"><h3>Clear potential price</h3><span class="tag">shared · delete</span></div>
+          <p class="trigger">Trigger: <b>Clear</b>. Removes the row entirely, back to unset, never zero, since zero is not a valid price.</p>
+          <div class="flow">
+            <span class="step">Clear</span>
+            <span class="step">DELETE /api/potential-purchase-prices</span>
+            <span class="step">row removed</span>
+            <span class="step">reverts to list-price base</span>
+          </div>
+          <div class="touches"><span class="lbl">Touches</span><div class="row">
+            <code>handle_potential_price_delete</code>
+          </div></div>
+        </article>
+
+        <article class="proc write">
+          <div class="phead"><h3>Household settings change</h3><span class="tag">shared · financial</span></div>
+          <p class="trigger">Trigger: <b>editing a Financial assumption</b> (rate, down payment, first-time buyer…). One value for the whole group.</p>
+          <div class="flow">
+            <span class="step">edit field</span>
+            <span class="step">POST /api/household-settings</span>
+            <span class="step">upsert by key</span>
+            <span class="step">everyone's cards rebase on next load</span>
+          </div>
+          <div class="touches"><span class="lbl">Touches</span><div class="row">
+            <code>handle_household_settings_post</code><code>household_settings (shared)</code>
+          </div></div>
+        </article>
+
+        <article class="proc write">
+          <div class="phead"><h3>POI pin drop</h3><span class="tag">shared · map</span></div>
+          <p class="trigger">Trigger: <b>Add place</b> (school, work, hospital…). Geocoded via Mapbox, shared with the whole group on the map.</p>
+          <div class="flow">
+            <span class="step">search address</span>
+            <span class="step">Mapbox geocode</span>
+            <span class="step">POST /api/poi</span>
+            <span class="step">pin visible to all</span>
+          </div>
+          <div class="touches"><span class="lbl">Touches</span><div class="row">
+            <code>handle_poi_post</code><code>type ∈ school·hospital·work·worship·other</code>
+          </div></div>
+        </article>
+
+      </div>
+    </section>
+
+    <!-- ══ E. VIEWS ══ -->
+    <section class="section" id="views">
+      <div class="head"><span class="idx">E</span><h2>Client-side view processes</h2></div>
+      <p class="intro">Everything the browser does with data it already has: filtering, sorting, settings, persistence, and the map. No server round-trip unless the data source changes.</p>
+      <div class="grid">
+
+        <article class="proc read">
+          <div class="phead"><h3>Filtering</h3><span class="tag">live</span></div>
+          <p class="trigger">Trigger: <b>any filter control</b>, plus every feedback change (a re-rate can drop a listing instantly).</p>
+          <div class="flow">
+            <span class="step">search · ranges · per-person · hide vetoed · status</span>
+            <span class="step">filterByFeedback</span>
+            <span class="step">list + map</span>
+          </div>
+          <div class="touches"><span class="lbl">Note</span><div class="row">
+            <code>PIT/Due filter on the displayed figure</code><code>Vetoed = any buyer rejected</code>
+          </div></div>
+        </article>
+
+        <article class="proc read">
+          <div class="phead"><h3>Sorting</h3><span class="tag">19 options</span></div>
+          <p class="trigger">Trigger: <b>Sort dropdown</b>. Every numeric filter field, both directions, plus fit and My rating.</p>
+          <div class="flow">
+            <span class="step">choose field · direction</span>
+            <span class="step">sortListings</span>
+            <span class="step">nulls sort last</span>
+          </div>
+          <div class="touches"><span class="lbl">Note</span><div class="row">
+            <code>PIT/Due sort on the same computed figure the card shows</code>
+          </div></div>
+        </article>
+
+        <article class="proc write">
+          <div class="phead"><h3>Settings (two scopes)</h3><span class="tag">nested pages</span></div>
+          <p class="trigger">Trigger: <b>the settings drawer</b>. A mobile-style drill-down: Appearance · Financial · Card sections.</p>
+          <div class="flow">
+            <span class="step">Financial → shared (server)</span>
+            <span class="step">Appearance + Card sections → per-device (localStorage)</span>
+          </div>
+          <div class="touches"><span class="lbl">Touches</span><div class="row">
+            <code>showSettingsPage</code><code>household_settings vs localStorage</code>
+          </div></div>
+        </article>
+
+        <article class="proc read">
+          <div class="phead"><h3>State persistence</h3><span class="tag">localStorage</span></div>
+          <p class="trigger">Trigger: <b>any filter / layer / sort change</b>. Last-used state survives reload; Reset is the only clear.</p>
+          <div class="flow">
+            <span class="step">change control</span>
+            <span class="step">saveFilterState</span>
+            <span class="step">restore on next load</span>
+          </div>
+          <div class="touches"><span class="lbl">Note</span><div class="row">
+            <code>search box deliberately excluded</code><code>theme · card fields also persisted</code>
+          </div></div>
+        </article>
+
+        <article class="proc read">
+          <div class="phead"><h3>Map (Mapbox GL JS)</h3><span class="tag">view</span></div>
+          <p class="trigger">Trigger: <b>Map view</b>. Pins coloured by fit score, overlays, clustering for the vendor source, tap for a bottom-sheet card.</p>
+          <div class="flow">
+            <span class="step">pins by fit</span>
+            <span class="step">GO stations · lines · Hwy 413 · POI layers</span>
+            <span class="step">cluster toggle</span>
+            <span class="step">popup card</span>
+          </div>
+          <div class="touches"><span class="lbl">Touches</span><div class="row">
+            <code>initMap</code><code>/layers/*.geojson</code><code>showMapCard</code>
+          </div></div>
+        </article>
+
+      </div>
+    </section>
+
+    <!-- ══ F. COMPUTATION ══ -->
+    <section class="section" id="compute">
+      <div class="head"><span class="idx">F</span><h2>Computation processes</h2></div>
+      <p class="intro">The numbers the app derives rather than stores. Mortgage math runs against real published CMHC, Ontario, and Toronto rates; the rest turn raw data into the signals a buyer actually scans for.</p>
+      <div class="grid">
+
+        <article class="proc compute">
+          <div class="phead"><h3>Mortgage breakdown</h3><span class="tag">the money engine</span></div>
+          <p class="trigger">Runs for <b>every listing</b>, based on the potential price when set, else list price. Default display on the card.</p>
+          <div class="flow seq">
+            <span class="step">down payment (+ legal min top-up)</span>
+            <span class="step">CMHC premium + Ontario PST</span>
+            <span class="step">Ontario LTT − rebate</span>
+            <span class="step">Toronto MLTT − rebate (if Toronto)</span>
+            <span class="step">fixed closing costs</span>
+            <span class="step">cost to close + Monthly PIT</span>
+          </div>
+          <div class="touches"><span class="lbl">Touches</span><div class="row">
+            <code>compute_mortgage_breakdown</code><code>cmhc_premium_pct</code><code>marginal_bracket_tax</code><code>monthly_mortgage_payment</code>
+          </div></div>
+        </article>
+
+        <article class="proc compute">
+          <div class="phead"><h3>Fit score</h3><span class="tag">n / 8</span></div>
+          <p class="trigger">Derived from the family's own criteria in the sheet; drives pin colour and the default sort.</p>
+          <div class="flow">
+            <span class="step">parse "n/8, fails: …"</span>
+            <span class="step">met count + failed labels</span>
+            <span class="step">colour band</span>
+          </div>
+          <div class="touches"><span class="lbl">Touches</span><div class="row">
+            <code>poc_fit</code><code>fit_score</code>
+          </div></div>
+        </article>
+
+        <article class="proc compute">
+          <div class="phead"><h3>Group sentiment</h3><span class="tag">buyers only</span></div>
+          <p class="trigger">Computed client-side from feedback: a single headline word per listing, plus a chip per person.</p>
+          <div class="flow">
+            <span class="step">any buyer rejected → Vetoed</span>
+            <span class="step">all rated, none rejected → Aligned</span>
+            <span class="step">else → Waiting on …</span>
+          </div>
+          <div class="touches"><span class="lbl">Touches</span><div class="row">
+            <code>buyerHeadline</code><code>advisors excluded from the word</code>
+          </div></div>
+        </article>
+
+        <article class="proc compute">
+          <div class="phead"><h3>GO commute</h3><span class="tag">to Union</span></div>
+          <p class="trigger">Per listing: drive-to-station plus train-to-Union equals total door-to-Union time, shown on the card.</p>
+          <div class="flow">
+            <span class="step">goMin (drive)</span>
+            <span class="step">+ goTrain (rail)</span>
+            <span class="step">= goTotal</span>
+          </div>
+          <div class="touches"><span class="lbl">Data</span><div class="row">
+            <code>station · drive · train · total</code>
+          </div></div>
+        </article>
+
+      </div>
+    </section>
+
+    <!-- ══ REFERENCE ══ -->
+    <section class="section" id="reference">
+      <div class="head"><span class="idx">R</span><h2>Reference</h2></div>
+      <p class="intro">The full endpoint surface and the five-table data model underneath it.</p>
+
+      <h3 style="font-size:15px; margin:8px 0 12px; font-family:var(--mono); text-transform:uppercase; letter-spacing:.1em; color:var(--muted);">HTTP endpoints</h3>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Method</th><th>Path</th><th>Auth</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td><span class="m get">GET</span></td><td><code>/api/health</code></td><td><span class="lock n">open</span></td><td>Liveness: <code>{ok, hasKey, baseUrl}</code></td></tr>
+            <tr><td><span class="m get">GET</span></td><td><code>/api/config</code></td><td><span class="lock n">open*</span></td><td>Bootstrap: hands the app its auth token + Mapbox token</td></tr>
+            <tr><td><span class="m get">GET</span></td><td><code>/api/poc-listings</code></td><td><span class="lock n">open</span></td><td>105 local listings, enriched with breakdown + potential price</td></tr>
+            <tr><td><span class="m get">GET</span></td><td><code>/api/listings</code></td><td><span class="lock n">open</span></td><td>Repliers proxy: normalized listings + vendor clusters</td></tr>
+            <tr><td><span class="m get">GET</span></td><td><code>/api/people</code></td><td><span class="lock y">token</span></td><td>Buyer-group roster (buyers + advisors)</td></tr>
+            <tr><td><span class="m get">GET</span></td><td><code>/api/feedback</code></td><td><span class="lock y">token</span></td><td>Latest rating/note/reject/research per person per listing</td></tr>
+            <tr><td><span class="m get">GET</span></td><td><code>/api/potential-purchase-prices</code></td><td><span class="lock y">token</span></td><td>Shared per-listing price (absent when never set)</td></tr>
+            <tr><td><span class="m get">GET</span></td><td><code>/api/poi</code></td><td><span class="lock y">token</span></td><td>Shared map pins</td></tr>
+            <tr><td><span class="m get">GET</span></td><td><code>/api/household-settings</code></td><td><span class="lock y">token</span></td><td>Shared mortgage assumptions</td></tr>
+            <tr><td><span class="m get">GET</span></td><td><code>/layers/*.geojson</code></td><td><span class="lock n">open</span></td><td>GO stations, GO lines, Highway 413 overlays</td></tr>
+            <tr><td><span class="m get">GET</span></td><td><code>/ · /app.js · /styles.css</code></td><td><span class="lock n">open</span></td><td>The static app itself</td></tr>
+            <tr><td><span class="m post">POST</span></td><td><code>/api/feedback</code></td><td><span class="lock y">token</span></td><td>Record a rating / note / reject / research, attributed to a person</td></tr>
+            <tr><td><span class="m post">POST</span></td><td><code>/api/potential-purchase-prices</code></td><td><span class="lock y">token</span></td><td>Upsert the shared price (must be positive)</td></tr>
+            <tr><td><span class="m post">POST</span></td><td><code>/api/poi</code></td><td><span class="lock y">token</span></td><td>Drop a shared map pin</td></tr>
+            <tr><td><span class="m post">POST</span></td><td><code>/api/household-settings</code></td><td><span class="lock y">token</span></td><td>Upsert a shared assumption (by key)</td></tr>
+            <tr><td><span class="m del">DEL</span></td><td><code>/api/potential-purchase-prices</code></td><td><span class="lock y">token</span></td><td>Clear the shared price (row removed, not zeroed)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">* <code>/api/config</code> is deliberately open so the front end can bootstrap the token it then sends on every protected call. The token is a deterrent against a stranger finding the URL, not real security. See the <em>Cloudflare Access</em> item in <code>TODOS.md</code> for the planned gate.</p>
+
+      <h3 style="font-size:15px; margin:30px 0 12px; font-family:var(--mono); text-transform:uppercase; letter-spacing:.1em; color:var(--muted);">Data model · SQLite</h3>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Table</th><th>Shape</th><th>Scope</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td><code>people</code></td><td class="muted-cell">id, name, role, buyer_group_id</td><td>roster</td><td>Seeded: Mark &amp; Katie (buyers), Anees &amp; Kevin (advisors)</td></tr>
+            <tr><td><code>listing_feedback</code></td><td class="muted-cell">person_id, listing_id, action_type, rating, status, note, reason, created_at</td><td>per person</td><td>Append-only event log; the read takes the latest of each type</td></tr>
+            <tr><td><code>potential_purchase_prices</code></td><td class="muted-cell">listing_id (PK), price, updated_by, updated_at</td><td>shared</td><td>One offer figure per listing; absent means never set</td></tr>
+            <tr><td><code>household_settings</code></td><td class="muted-cell">key (PK), value, updated_by, updated_at</td><td>shared</td><td>One value per assumption for the whole group</td></tr>
+            <tr><td><code>poi_pins</code></td><td class="muted-cell">type, label, lat, lng, created_by, created_at</td><td>shared</td><td>School / hospital / work / worship / other</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">Shared tables (price, settings, POI) hold one value for the whole buyer group; <code>listing_feedback</code> is the only per-person store. Every write stamps <code>updated_by</code> / <code>person_id</code>, so the app always knows who did what.</p>
+    </section>
+
+  </main>
+
+  <footer>
+    <div class="mono">House Hunter Repliers prototype · stdlib Python + vanilla JS + Mapbox GL · no pip / no framework · 82 tests passing</div>
+    <div style="margin-top:8px;">Served at <strong>househunter.galleonglobal.ai</strong> via a persistent Cloudflare tunnel. Generated 2026-07-07 as a system reference. The source of truth remains the code and <code style="font-family:var(--mono);font-size:12px;">docs/design-spec.md</code>.</div>
+  </footer>
+</div>
+
+<script>
+  (function () {
+    var btn = document.getElementById('themebtn');
+    var root = document.documentElement;
+    function current() {
+      var set = root.getAttribute('data-theme');
+      if (set) return set;
+      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+    btn.addEventListener('click', function () {
+      var next = current() === 'dark' ? 'light' : 'dark';
+      root.setAttribute('data-theme', next);
+      btn.textContent = next === 'dark' ? 'Light' : 'Dark';
+    });
+    btn.textContent = current() === 'dark' ? 'Light' : 'Dark';
+  })();
+</script>
