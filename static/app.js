@@ -248,7 +248,8 @@ async function loadConfig() {
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────
-const state = { map: null, mapReady: false, rawListings: [], listings: [], activeView: 'map', people: [], activePerson: null, feedback: {}, openMapItem: null, source: 'poc', sourceCount: 0, clusters: [], poi: [], householdSettings: {}, personThresholds: {}, personThresholdsError: false, placeAttachments: {}, clusterPopupOpen: false };
+const state = { map: null, mapReady: false, rawListings: [], listings: [], activeView: 'map', people: [], activePerson: null, feedback: {}, openMapItem: null, source: 'poc', sourceCount: 0, clusters: [], poi: [], householdSettings: {}, personThresholds: {}, personThresholdsError: false, placeAttachments: {}, clusterPopupOpen: false,
+  drawMode: false, drawPolygons: [], drawCurrent: [] };
 let cardSettings = loadSettings();
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -545,6 +546,29 @@ function matchesAttachDriveFilter(item) {
   });
 }
 
+// ─── Draw-an-area filter (geoJSON polygons) ─────────────────────────────────────
+// Session-level, not persisted. Filters BOTH sources to listings inside ANY
+// drawn polygon (multi-polygon OR): Sample Data via the Repliers `map` param
+// (see filterParams), POC via this client-side point-in-polygon. AND with the
+// filter panel. Each polygon is a closed [lng,lat] ring.
+function drawnPolygonsParam() {
+  if (!state.drawPolygons.length) return null;
+  return JSON.stringify(state.drawPolygons);
+}
+function pointInRing(lng, lat, ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+    if (((yi > lat) !== (yj > lat)) && (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi)) inside = !inside;
+  }
+  return inside;
+}
+function matchesDrawArea(item) {
+  if (!state.drawPolygons.length) return true;
+  if (item.lng == null || item.lat == null) return false;
+  return state.drawPolygons.some(ring => pointInRing(item.lng, item.lat, ring));
+}
+
 function matchesStatusFilter(listingId, value) {
   if (!value || !state.activePerson) return true; // no-op without an active actor
   const f = personFeedbackFor(listingId, state.activePerson);
@@ -632,6 +656,7 @@ function filterByFeedback(listings) {
     if (!matchesRangeDirect(item.goMin, '', 'maxCommute')) return false;
     if (!matchesRangeDirect(item.highwayKm, 'minHwyKm', 'maxHwyKm')) return false;
     if (!matchesAttachDriveFilter(item)) return false;
+    if (!matchesDrawArea(item)) return false;
     if (!matchesFeatureKeywords(item)) return false;
     return personFilters.every(pf => matchesPersonFilter(item.mls, pf.id, pf.values));
   });
@@ -1051,6 +1076,7 @@ function setupMapSources() {
     },
   });
   map.on('click', 'listings-circles', e => {
+    if (state.drawMode) return; // in draw mode, the tap drops a vertex instead
     // Stops this click from also reaching the global click-outside-to-
     // dismiss listener, which would otherwise immediately close whatever
     // this same click just opened.
@@ -1100,6 +1126,7 @@ function setupMapSources() {
     paint: { 'text-color': '#18211f' },
   });
   map.on('click', 'clusters-circles', e => {
+    if (state.drawMode) return; // in draw mode, the tap drops a vertex instead
     e.originalEvent?.stopPropagation();
     closeOutsideDetailsPanels(document.body);
     const p = e.features[0].properties;
@@ -1113,6 +1140,22 @@ function setupMapSources() {
   // so bubbles split as the user zooms in. Debounced; a no-op unless clustering
   // is active (Sample Data + toggle on).
   map.on('moveend', () => { if (clusteringActive()) scheduleClusterRefetch(); });
+
+  // Draw-an-area: completed polygons (fill + outline), the in-progress ring
+  // (dashed line), and its vertices (dots).
+  map.addSource('draw', { type: 'geojson', data: emptyFC() });
+  map.addLayer({ id: 'draw-fill', type: 'fill', source: 'draw',
+    filter: ['==', '$type', 'Polygon'], paint: { 'fill-color': '#2b67d6', 'fill-opacity': 0.12 } });
+  map.addLayer({ id: 'draw-line', type: 'line', source: 'draw',
+    filter: ['in', '$type', 'Polygon', 'LineString'],
+    paint: { 'line-color': '#2b67d6', 'line-width': 2, 'line-dasharray': [2, 1] } });
+  map.addLayer({ id: 'draw-verts', type: 'circle', source: 'draw',
+    filter: ['==', '$type', 'Point'],
+    paint: { 'circle-radius': 5, 'circle-color': '#2b67d6', 'circle-stroke-width': 2, 'circle-stroke-color': '#fff' } });
+  // In draw mode every map click drops a polygon vertex (works with touch: one
+  // tap = one vertex). The listing/cluster click handlers early-return in draw
+  // mode so a tap never opens a card mid-draw.
+  map.on('click', e => { if (state.drawMode) { addDrawVertex(e.lngLat); } });
 
   // GO Stations + GO Lines + Highway 413 -- off by default (layer toggle panel).
   // Stations and lines are DELIBERATELY separate sources/files (go-stations.geojson
@@ -1946,6 +1989,95 @@ function buildMiniCard(item) {
   return card;
 }
 
+// ─── Draw-an-area map controls ──────────────────────────────────────────────────
+function renderDrawLayer() {
+  if (!state.mapReady) return;
+  const fc = emptyFC();
+  state.drawPolygons.forEach(ring => {
+    fc.features.push({ type: 'Feature', geometry: { type: 'Polygon', coordinates: [ring] }, properties: {} });
+  });
+  if (state.drawCurrent.length >= 2) {
+    fc.features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: state.drawCurrent }, properties: {} });
+  }
+  state.drawCurrent.forEach(pt => fc.features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: pt }, properties: {} }));
+  state.map.getSource('draw').setData(fc);
+}
+function addDrawVertex(lngLat) {
+  state.drawCurrent.push([lngLat.lng, lngLat.lat]);
+  renderDrawLayer();
+  updateDrawToolbar();
+}
+function undoDrawVertex() {
+  state.drawCurrent.pop();
+  renderDrawLayer();
+  updateDrawToolbar();
+}
+function finishPolygon() {
+  if (state.drawCurrent.length >= 3) {
+    const ring = state.drawCurrent.slice();
+    ring.push(ring[0]); // close the ring (first point == last)
+    state.drawPolygons.push(ring);
+    state.drawCurrent = [];
+    renderDrawLayer();
+    onDrawAreaChanged();
+  }
+  updateDrawToolbar();
+}
+function clearDrawAreas() {
+  state.drawPolygons = [];
+  state.drawCurrent = [];
+  renderDrawLayer();
+  onDrawAreaChanged();
+  updateDrawToolbar();
+}
+function toggleDrawMode() { if (state.drawMode) exitDrawMode(); else enterDrawMode(); }
+function enterDrawMode() {
+  if (!state.mapReady) { alert('The map is not available, so drawing an area is not possible here.'); return; }
+  state.drawMode = true;
+  document.body.classList.add('draw-mode');
+  if (state.map) state.map.getCanvas().style.cursor = 'crosshair';
+  updateDrawToolbar();
+}
+function exitDrawMode() {
+  // Finish the in-progress polygon if it has enough points, else discard it.
+  if (state.drawCurrent.length >= 3) finishPolygon();
+  else { state.drawCurrent = []; renderDrawLayer(); }
+  state.drawMode = false;
+  document.body.classList.remove('draw-mode');
+  if (state.map) state.map.getCanvas().style.cursor = '';
+  updateDrawToolbar();
+}
+function onDrawAreaChanged() {
+  updateDrawIndicator();
+  // Sample Data is re-fetched so the Repliers `map` param filters server-side;
+  // POC filters client-side, so a re-render is enough. Neither re-centers the
+  // map (the user drew on the current view).
+  if (currentSource() === 'repliers') reloadListingsPreservingMapView().catch(showError);
+  else applyFiltersAndRender();
+}
+function updateDrawIndicator() {
+  const ind = $('drawIndicator');
+  if (!ind) return;
+  const n = state.drawPolygons.length;
+  ind.hidden = n === 0;
+  const label = $('drawIndicatorLabel');
+  if (label) label.textContent = n === 1 ? 'Filtering to 1 drawn area' : `Filtering to ${n} drawn areas`;
+}
+function updateDrawToolbar() {
+  const btn = $('drawAreaBtn');
+  if (btn) { btn.classList.toggle('active', state.drawMode); btn.textContent = state.drawMode ? '✏️ Drawing…' : '✏️ Draw area'; }
+  const bar = $('drawToolbar');
+  if (bar) bar.hidden = !state.drawMode;
+  const finish = $('drawFinishBtn');
+  if (finish) finish.disabled = state.drawCurrent.length < 3;
+  const undo = $('drawUndoBtn');
+  if (undo) undo.disabled = state.drawCurrent.length === 0;
+  const hint = $('drawHint');
+  if (hint) hint.textContent = state.drawCurrent.length
+    ? `${state.drawCurrent.length} point${state.drawCurrent.length === 1 ? '' : 's'} placed`
+    : 'Tap the map to add points';
+}
+
 function refreshMap(list) {
   if (!state.mapReady) return;
   closeMapCard();
@@ -2456,6 +2588,10 @@ function filterParams() {
   // Clustering is no longer a filter-panel toggle; it is an Appearance
   // preference applied viewport-side (see refetchClustersForViewport), so the
   // main list load does not carry cluster params.
+  // Draw-an-area: Sample Data is filtered server-side via the Repliers `map`
+  // polygon param (POC is filtered client-side by matchesDrawArea instead).
+  const poly = drawnPolygonsParam();
+  if (poly && currentSource() === 'repliers') { p.set('map', poly); p.set('mapOperator', 'OR'); }
   return p;
 }
 
@@ -2486,6 +2622,15 @@ function reset() {
   state.people.forEach(p => {
     PERSON_FILTER_OPTIONS.forEach(o => { const cb = $(personFilterCbId(p.id, o.value)); if (cb) cb.checked = false; });
   });
+  // Reset also clears any drawn search areas (session-level, so just wipe the
+  // state and layer; the load() below refetches without the map filter).
+  state.drawMode = false;
+  state.drawPolygons = [];
+  state.drawCurrent = [];
+  document.body.classList.remove('draw-mode');
+  renderDrawLayer();
+  updateDrawIndicator();
+  updateDrawToolbar();
   // Reset stays the only reset concept (T10) -- also clears the persisted
   // last-used-state copy so a reload right after Reset doesn't bring it back.
   localStorage.removeItem(FILTER_STATE_KEY);
@@ -2632,6 +2777,12 @@ window.addEventListener('DOMContentLoaded', () => {
     granSel.addEventListener('change', e => { setMapClusterGranularity(e.target.value); if (clusteringActive()) refetchClustersForViewport(); });
   }
   $('clusterPopupClose')?.addEventListener('click', closeClusterPopup);
+  // Draw-an-area controls
+  $('drawAreaBtn')?.addEventListener('click', toggleDrawMode);
+  $('drawFinishBtn')?.addEventListener('click', finishPolygon);
+  $('drawUndoBtn')?.addEventListener('click', undoDrawVertex);
+  $('drawClearBtn')?.addEventListener('click', clearDrawAreas);
+  $('drawIndicatorClear')?.addEventListener('click', clearDrawAreas);
   $('sort')?.addEventListener('change', e => { syncSort(e.target.value); renderCards(state.listings); refreshMap(state.listings); });
   $('sortList')?.addEventListener('change', e => { syncSort(e.target.value); renderCards(state.listings); });
   $('btnMap').addEventListener('click', () => switchView('map'));

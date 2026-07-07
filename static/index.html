@@ -195,6 +195,25 @@
         <p class="legend-hint" id="legendHint">Select "I am" (top right) to see rejected status</p>
       </div>
     </details>
+
+    <!-- Draw-an-area search: tap "Draw area", tap the map to place a polygon's
+         points, Finish to close it. Multiple areas (OR). Filters both sources. -->
+    <div class="map-draw-control">
+      <button class="secondary map-draw-btn" id="drawAreaBtn" title="Draw an area on the map to search within it">✏️ Draw area</button>
+      <div class="map-draw-toolbar" id="drawToolbar" hidden>
+        <span class="draw-hint" id="drawHint">Tap the map to add points</span>
+        <div class="draw-toolbar-btns">
+          <button class="secondary" id="drawUndoBtn" disabled>Undo point</button>
+          <button id="drawFinishBtn" disabled>Finish area</button>
+          <button class="secondary" id="drawClearBtn">Clear all</button>
+        </div>
+      </div>
+    </div>
+    <div class="map-draw-indicator" id="drawIndicator" hidden>
+      <span id="drawIndicatorLabel"></span>
+      <button class="secondary" id="drawIndicatorClear">Clear</button>
+    </div>
+
     <div id="mapCard" class="map-card" hidden>
       <button class="map-card-close" id="mapCardClose">✕</button>
       <div class="map-card-inner" id="mapCardInner"></div>
