@@ -972,6 +972,39 @@ class PersonThresholdsTests(ServerTestCase):
         self.assertIsNone(mark["travel_minutes"])
         self.assertIsNone(mark["travel_mode"])
 
+    def test_post_rejects_non_finite_numbers(self) -> None:
+        # Python's json parses Infinity/NaN; the validators must reject both
+        # rather than storing infinity (highway_km) or 500-ing on
+        # int(round(inf)) (travel_minutes). Sent as raw JSON tokens.
+        for field, literal in [
+            ("highway_km", "Infinity"),
+            ("highway_km", "NaN"),
+            ("travel_minutes", "Infinity"),
+        ]:
+            raw = f'{{"person_id": 1, "actor_id": 1, "{field}": {literal}}}'
+            req = urllib.request.Request(
+                self.url("/api/person-thresholds"), data=raw.encode("utf-8"),
+                headers={"X-App-Token": self.TOKEN, "Content-Type": "application/json"},
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    status, body = resp.status, resp.read()
+            except urllib.error.HTTPError as exc:
+                with exc:
+                    status, body = exc.code, exc.read()
+            self.assertEqual(status, 400, f"{field}={literal} should be rejected")
+            self.assertEqual(json.loads(body)["error"], "invalid_request")
+
+    def test_post_rejects_boolean_person_id(self) -> None:
+        # bool is an int subclass; true must not be accepted as person id 1.
+        status, data = self.request(
+            "POST", "/api/person-thresholds", token=self.TOKEN,
+            body={"person_id": True, "actor_id": 1, "highway_km": 3},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(data["error"], "unknown_person")
+
     def test_post_twice_overwrites_not_appends(self) -> None:
         self.request(
             "POST", "/api/person-thresholds", token=self.TOKEN,

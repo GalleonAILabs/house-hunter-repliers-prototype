@@ -462,7 +462,9 @@ def validate_listing_id(listing_id: str) -> bool:
 
 
 def person_exists(conn: sqlite3.Connection, person_id: Any) -> bool:
-    if not isinstance(person_id, int):
+    # bool is a subclass of int, so True would otherwise be accepted as
+    # person id 1; reject it explicitly.
+    if not isinstance(person_id, int) or isinstance(person_id, bool):
         return False
     return conn.execute("SELECT 1 FROM people WHERE id = ?", (person_id,)).fetchone() is not None
 
@@ -813,18 +815,23 @@ def handle_person_thresholds_post(body: dict[str, Any]) -> tuple[dict[str, Any],
     person_id = body.get("person_id")
     actor_id = body.get("actor_id")
 
+    # Python's json module parses NaN/Infinity by default, so guard math.isfinite
+    # explicitly: int(round(inf)) raises (500), and infinity would otherwise be
+    # stored and echoed back. bool is a subclass of int, rejected too.
     def pos_int_or_none(value: Any, label: str) -> tuple[int | None, str | None]:
         if value is None:
             return None, None
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
-            return None, f"{label} must be a positive number or null"
+        if isinstance(value, bool) or not isinstance(value, (int, float)) \
+                or not math.isfinite(value) or value <= 0:
+            return None, f"{label} must be a positive finite number or null"
         return int(round(value)), None
 
     def pos_float_or_none(value: Any, label: str) -> tuple[float | None, str | None]:
         if value is None:
             return None, None
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
-            return None, f"{label} must be a positive number or null"
+        if isinstance(value, bool) or not isinstance(value, (int, float)) \
+                or not math.isfinite(value) or value <= 0:
+            return None, f"{label} must be a positive finite number or null"
         return float(value), None
 
     travel_minutes, err = pos_int_or_none(body.get("travel_minutes"), "travel_minutes")
