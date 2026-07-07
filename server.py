@@ -74,10 +74,10 @@ ALLOWED_TRAVEL_DEST_KINDS = {"go_station", "poi"}
 # code as a threshold, only as frozen text inside the precomputed POC fit
 # strings (data/poc_listings.json), so nothing in code read it. Seeding it
 # here as each buyer's initial travel-time threshold makes it a real,
-# per-person, editable value for the first time. 5 km straight-line highway
-# distance is Mark's and Katie's stated noise/pollution limit.
+# per-person, editable value for the first time. The 5 km straight-line
+# highway distance is the household's noise/pollution limit and lives in
+# household_settings (see HOUSEHOLD_SETTING_DEFAULTS), not per person.
 MIGRATED_GO_THRESHOLD_MIN = 20
-MIGRATED_HIGHWAY_KM = 5.0
 
 # Household-level settings (household_settings table): one shared value per
 # key across the whole buyer group, not per person. Defaults apply only
@@ -95,6 +95,12 @@ MIGRATED_HIGHWAY_KM = 5.0
 # swap in their own quoted rate or actual tax bill. The fixed closing items
 # (legal, inspection, appraisal, title insurance) are flat estimates, not
 # computed from price, same reasoning.
+#
+# highway_km is the household's minimum acceptable straight-line distance to
+# a 400-series highway (a noise/pollution radius). It is a household
+# position, not individual taste, so it lives here rather than per person;
+# it does NOT feed the mortgage estimate, it drives the card highway badge
+# and the highway-distance filter.
 HOUSEHOLD_SETTING_DEFAULTS: dict[str, str] = {
     "first_time_buyer": "true",
     "down_payment_pct": "10",
@@ -105,6 +111,7 @@ HOUSEHOLD_SETTING_DEFAULTS: dict[str, str] = {
     "home_inspection_flat": "500",
     "appraisal_flat": "350",
     "title_insurance_flat": "300",
+    "highway_km": "5",
 }
 
 # D10: known POC listing ids, loaded once at startup (see load_poc_listing_ids).
@@ -198,6 +205,36 @@ def migrate_role_advisor_to_realtor(conn: sqlite3.Connection) -> dict[str, Any] 
     return {"before": before, "after": after}
 
 
+def migrate_highway_km_to_household(conn: sqlite3.Connection) -> dict[str, Any] | None:
+    """Move the highway distance threshold from per-person to household. It is
+    a household position (a noise/pollution radius), not individual taste. If
+    household_settings has no highway_km yet, copy a representative existing
+    per-person value into it (buyers all held the same 5 km), then drop the
+    person_thresholds.highway_km column. Idempotent: returns None once the
+    column is gone. SQLite >= 3.35 supports ALTER TABLE DROP COLUMN."""
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(person_thresholds)").fetchall()]
+    if "highway_km" not in cols:
+        return None
+
+    migrated_value = None
+    has_household = conn.execute(
+        "SELECT 1 FROM household_settings WHERE key = 'highway_km'"
+    ).fetchone()
+    if has_household is None:
+        row = conn.execute(
+            "SELECT highway_km FROM person_thresholds "
+            "WHERE highway_km IS NOT NULL ORDER BY person_id LIMIT 1"
+        ).fetchone()
+        km = float(row[0]) if row and row[0] is not None else float(HOUSEHOLD_SETTING_DEFAULTS["highway_km"])
+        migrated_value = str(int(km)) if km.is_integer() else str(km)
+        conn.execute(
+            "INSERT INTO household_settings (key, value, updated_by) VALUES ('highway_km', ?, NULL)",
+            (migrated_value,),
+        )
+    conn.execute("ALTER TABLE person_thresholds DROP COLUMN highway_km")
+    return {"migrated_value": migrated_value}
+
+
 def init_db() -> None:
     """Create the schema (if missing) and seed the four demo participants."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -289,7 +326,6 @@ def init_db() -> None:
                 travel_mode TEXT,
                 travel_dest_kind TEXT,
                 travel_dest_ref TEXT,
-                highway_km REAL,
                 updated_by INTEGER REFERENCES people(id),
                 updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             );
@@ -303,6 +339,13 @@ def init_db() -> None:
         migration = migrate_role_advisor_to_realtor(conn)
         if migration is not None:
             print(f"people.role migration advisor->realtor: {migration}")
+
+        # Move the highway distance threshold from per-person to household:
+        # copy an existing 5 km value into household_settings, then drop the
+        # person_thresholds.highway_km column. No-op once the column is gone.
+        hwy_migration = migrate_highway_km_to_household(conn)
+        if hwy_migration is not None:
+            print(f"highway_km migration to household_settings: {hwy_migration}")
 
         existing = conn.execute("SELECT COUNT(*) FROM people").fetchone()[0]
         if existing == 0:
@@ -324,10 +367,10 @@ def init_db() -> None:
                 """
                 INSERT INTO person_thresholds
                     (person_id, travel_minutes, travel_mode, travel_dest_kind,
-                     travel_dest_ref, highway_km, updated_by)
-                VALUES (?, ?, 'drive', 'go_station', NULL, ?, NULL)
+                     travel_dest_ref, updated_by)
+                VALUES (?, ?, 'drive', 'go_station', NULL, NULL)
                 """,
-                [(b[0], MIGRATED_GO_THRESHOLD_MIN, MIGRATED_HIGHWAY_KM) for b in buyers],
+                [(b[0], MIGRATED_GO_THRESHOLD_MIN) for b in buyers],
             )
 
         # Location thresholds are buyer-only. Remove any rows keyed to a
@@ -881,7 +924,7 @@ def person_thresholds_all(conn: sqlite3.Connection) -> dict[str, dict[str, Any]]
         """
         SELECT pe.id AS person_id, pe.name AS person_name, pe.role AS role,
                t.travel_minutes, t.travel_total_minutes, t.travel_mode,
-               t.travel_dest_kind, t.travel_dest_ref, t.highway_km,
+               t.travel_dest_kind, t.travel_dest_ref,
                t.updated_by, up.name AS updated_by_name, t.updated_at
         FROM people pe
         LEFT JOIN person_thresholds t ON t.person_id = pe.id
@@ -914,21 +957,10 @@ def handle_person_thresholds_post(body: dict[str, Any]) -> tuple[dict[str, Any],
             return None, f"{label} must be a positive finite number or null"
         return int(round(value)), None
 
-    def pos_float_or_none(value: Any, label: str) -> tuple[float | None, str | None]:
-        if value is None:
-            return None, None
-        if isinstance(value, bool) or not isinstance(value, (int, float)) \
-                or not math.isfinite(value) or value <= 0:
-            return None, f"{label} must be a positive finite number or null"
-        return float(value), None
-
     travel_minutes, err = pos_int_or_none(body.get("travel_minutes"), "travel_minutes")
     if err:
         return {"error": "invalid_request", "detail": err}, 400
     travel_total_minutes, err = pos_int_or_none(body.get("travel_total_minutes"), "travel_total_minutes")
-    if err:
-        return {"error": "invalid_request", "detail": err}, 400
-    highway_km, err = pos_float_or_none(body.get("highway_km"), "highway_km")
     if err:
         return {"error": "invalid_request", "detail": err}, 400
 
@@ -961,20 +993,19 @@ def handle_person_thresholds_post(body: dict[str, Any]) -> tuple[dict[str, Any],
             """
             INSERT INTO person_thresholds
                 (person_id, travel_minutes, travel_total_minutes, travel_mode,
-                 travel_dest_kind, travel_dest_ref, highway_km, updated_by, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                 travel_dest_kind, travel_dest_ref, updated_by, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             ON CONFLICT(person_id) DO UPDATE SET
                 travel_minutes = excluded.travel_minutes,
                 travel_total_minutes = excluded.travel_total_minutes,
                 travel_mode = excluded.travel_mode,
                 travel_dest_kind = excluded.travel_dest_kind,
                 travel_dest_ref = excluded.travel_dest_ref,
-                highway_km = excluded.highway_km,
                 updated_by = excluded.updated_by,
                 updated_at = excluded.updated_at
             """,
             (person_id, travel_minutes, travel_total_minutes, travel_mode,
-             travel_dest_kind, travel_dest_ref, highway_km, actor_id),
+             travel_dest_kind, travel_dest_ref, actor_id),
         )
         conn.commit()
         return {"ok": True, "threshold": person_thresholds_all(conn).get(str(person_id))}, 200

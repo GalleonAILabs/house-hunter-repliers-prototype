@@ -599,6 +599,19 @@ class HouseholdSettingsTests(ServerTestCase):
         status, _ = self.request("GET", "/api/household-settings")
         self.assertEqual(status, 401)
 
+    def test_highway_km_is_a_household_setting(self) -> None:
+        # Highway distance moved from per-person to household; default 5 km,
+        # and it is editable through the household-settings endpoint.
+        _, data = self.request("GET", "/api/household-settings", token=self.TOKEN)
+        self.assertEqual(data["settings"]["highway_km"], "5")
+        status, _ = self.request(
+            "POST", "/api/household-settings", token=self.TOKEN,
+            body={"person_id": 1, "key": "highway_km", "value": "3"},
+        )
+        self.assertEqual(status, 200)
+        _, data = self.request("GET", "/api/household-settings", token=self.TOKEN)
+        self.assertEqual(data["settings"]["highway_km"], "3")
+
     def test_default_first_time_buyer_true_before_anyone_sets_it(self) -> None:
         status, data = self.request("GET", "/api/household-settings", token=self.TOKEN)
         self.assertEqual(status, 200)
@@ -913,7 +926,7 @@ class PersonThresholdsTests(ServerTestCase):
         # must be absent -- thresholds are a buyer-only concept.
         self.assertEqual(set(thresholds.keys()), {"1", "2"})
 
-    def test_buyers_seeded_with_migrated_go_and_highway(self) -> None:
+    def test_buyers_seeded_with_migrated_go_travel(self) -> None:
         _, data = self.request("GET", "/api/person-thresholds", token=self.TOKEN)
         for pid in ("1", "2"):  # Mark, Katie
             entry = data["person_thresholds"][pid]
@@ -921,7 +934,8 @@ class PersonThresholdsTests(ServerTestCase):
             self.assertEqual(entry["travel_mode"], "drive")
             self.assertEqual(entry["travel_dest_kind"], "go_station")
             self.assertIsNone(entry["travel_dest_ref"])  # nearest GO station
-            self.assertEqual(entry["highway_km"], 5.0)
+            # highway distance is a household setting now, not per person.
+            self.assertNotIn("highway_km", entry)
             # Migration default, not an edit anyone made.
             self.assertIsNone(entry["updated_by"])
 
@@ -933,7 +947,7 @@ class PersonThresholdsTests(ServerTestCase):
         # ...and thresholds cannot be stored for one.
         status, data = self.request(
             "POST", "/api/person-thresholds", token=self.TOKEN,
-            body={"person_id": 3, "actor_id": 1, "highway_km": 4},
+            body={"person_id": 3, "actor_id": 1, "travel_minutes": 20},
         )
         self.assertEqual(status, 400)
         self.assertEqual(data["error"], "not_a_buyer")
@@ -944,7 +958,7 @@ class PersonThresholdsTests(ServerTestCase):
         conn = server.get_db()
         try:
             conn.execute(
-                "INSERT INTO person_thresholds (person_id, highway_km, updated_by) VALUES (3, 9, 1)"
+                "INSERT INTO person_thresholds (person_id, travel_minutes, updated_by) VALUES (3, 20, 1)"
             )
             conn.commit()
         finally:
@@ -962,7 +976,7 @@ class PersonThresholdsTests(ServerTestCase):
     def test_post_requires_known_target_person(self) -> None:
         status, data = self.request(
             "POST", "/api/person-thresholds", token=self.TOKEN,
-            body={"person_id": 999, "actor_id": 1, "highway_km": 3},
+            body={"person_id": 999, "actor_id": 1, "travel_minutes": 20},
         )
         self.assertEqual(status, 400)
         self.assertEqual(data["error"], "unknown_person")
@@ -970,7 +984,7 @@ class PersonThresholdsTests(ServerTestCase):
     def test_post_requires_known_actor(self) -> None:
         status, data = self.request(
             "POST", "/api/person-thresholds", token=self.TOKEN,
-            body={"person_id": 1, "actor_id": 999, "highway_km": 3},
+            body={"person_id": 1, "actor_id": 999, "travel_minutes": 20},
         )
         self.assertEqual(status, 400)
         self.assertEqual(data["error"], "unknown_person")
@@ -990,20 +1004,13 @@ class PersonThresholdsTests(ServerTestCase):
         )
         self.assertEqual(status, 400)
 
-    def test_post_rejects_non_positive_highway_km(self) -> None:
-        status, data = self.request(
-            "POST", "/api/person-thresholds", token=self.TOKEN,
-            body={"person_id": 1, "actor_id": 1, "highway_km": 0},
-        )
-        self.assertEqual(status, 400)
-
     def test_anyone_can_edit_anyone_shared_not_per_device(self) -> None:
         # Katie (actor 2) sets Mark's (target 1) thresholds; everyone sees it.
         status, _ = self.request(
             "POST", "/api/person-thresholds", token=self.TOKEN,
             body={"person_id": 1, "actor_id": 2, "travel_minutes": 30,
                   "travel_total_minutes": 100, "travel_mode": "drive",
-                  "travel_dest_kind": "poi", "travel_dest_ref": "7", "highway_km": 4},
+                  "travel_dest_kind": "poi", "travel_dest_ref": "7"},
         )
         self.assertEqual(status, 200)
         _, data = self.request("GET", "/api/person-thresholds", token=self.TOKEN)
@@ -1012,31 +1019,29 @@ class PersonThresholdsTests(ServerTestCase):
         self.assertEqual(mark["travel_total_minutes"], 100)
         self.assertEqual(mark["travel_dest_kind"], "poi")
         self.assertEqual(mark["travel_dest_ref"], "7")
-        self.assertEqual(mark["highway_km"], 4.0)
         # Attribution now names Katie, the actor who made the change.
         self.assertEqual(mark["updated_by_name"], "Katie")
 
     def test_post_is_full_replace_omitted_fields_become_null(self) -> None:
-        # Mark starts seeded (travel_minutes=20, highway_km=5). A POST that
-        # only sends highway_km clears travel_minutes back to unset.
+        # Mark starts seeded (travel_minutes=20). A POST that omits
+        # travel_minutes clears it back to unset (full replace).
         self.request(
             "POST", "/api/person-thresholds", token=self.TOKEN,
-            body={"person_id": 1, "actor_id": 1, "highway_km": 8},
+            body={"person_id": 1, "actor_id": 1, "travel_total_minutes": 90},
         )
         _, data = self.request("GET", "/api/person-thresholds", token=self.TOKEN)
         mark = data["person_thresholds"]["1"]
-        self.assertEqual(mark["highway_km"], 8.0)
+        self.assertEqual(mark["travel_total_minutes"], 90)
         self.assertIsNone(mark["travel_minutes"])
         self.assertIsNone(mark["travel_mode"])
 
     def test_post_rejects_non_finite_numbers(self) -> None:
         # Python's json parses Infinity/NaN; the validators must reject both
-        # rather than storing infinity (highway_km) or 500-ing on
-        # int(round(inf)) (travel_minutes). Sent as raw JSON tokens.
+        # rather than 500-ing on int(round(inf)). Sent as raw JSON tokens.
         for field, literal in [
-            ("highway_km", "Infinity"),
-            ("highway_km", "NaN"),
             ("travel_minutes", "Infinity"),
+            ("travel_minutes", "NaN"),
+            ("travel_total_minutes", "Infinity"),
         ]:
             raw = f'{{"person_id": 1, "actor_id": 1, "{field}": {literal}}}'
             req = urllib.request.Request(
@@ -1057,7 +1062,7 @@ class PersonThresholdsTests(ServerTestCase):
         # bool is an int subclass; true must not be accepted as person id 1.
         status, data = self.request(
             "POST", "/api/person-thresholds", token=self.TOKEN,
-            body={"person_id": True, "actor_id": 1, "highway_km": 3},
+            body={"person_id": True, "actor_id": 1, "travel_minutes": 20},
         )
         self.assertEqual(status, 400)
         self.assertEqual(data["error"], "unknown_person")
@@ -1065,11 +1070,11 @@ class PersonThresholdsTests(ServerTestCase):
     def test_post_twice_overwrites_not_appends(self) -> None:
         self.request(
             "POST", "/api/person-thresholds", token=self.TOKEN,
-            body={"person_id": 2, "actor_id": 1, "highway_km": 3},
+            body={"person_id": 2, "actor_id": 1, "travel_minutes": 15},
         )
         self.request(
             "POST", "/api/person-thresholds", token=self.TOKEN,
-            body={"person_id": 2, "actor_id": 1, "highway_km": 6},
+            body={"person_id": 2, "actor_id": 1, "travel_minutes": 25},
         )
         conn = server.get_db()
         try:
@@ -1307,6 +1312,70 @@ class RoleMigrationTests(unittest.TestCase):
             self.assertIsNotNone(server.migrate_role_advisor_to_realtor(conn))
             conn.commit()
             self.assertIsNone(server.migrate_role_advisor_to_realtor(conn))
+        finally:
+            conn.close()
+
+
+class HighwayHouseholdMigrationTests(unittest.TestCase):
+    """Moving highway_km from person_thresholds to household_settings: copies
+    a representative per-person value into the household setting, then drops
+    the column."""
+
+    def setUp(self) -> None:
+        self.tmpdir = tempfile.mkdtemp()
+        self.db_path = Path(self.tmpdir) / "hwy.db"
+        self._orig = server.DB_PATH
+        server.DB_PATH = self.db_path
+        conn = sqlite3.connect(self.db_path)
+        conn.executescript(
+            """
+            CREATE TABLE household_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL,
+                updated_by INTEGER, updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+            CREATE TABLE person_thresholds (person_id INTEGER PRIMARY KEY,
+                travel_minutes INTEGER, travel_total_minutes INTEGER, travel_mode TEXT,
+                travel_dest_kind TEXT, travel_dest_ref TEXT, highway_km REAL,
+                updated_by INTEGER, updated_at TEXT);
+            INSERT INTO person_thresholds (person_id, travel_minutes, highway_km) VALUES (1, 20, 5.0), (2, 20, 5.0);
+            """
+        )
+        conn.commit()
+        conn.close()
+
+    def tearDown(self) -> None:
+        server.DB_PATH = self._orig
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_migration_copies_value_and_drops_column(self) -> None:
+        conn = server.get_db()
+        try:
+            result = server.migrate_highway_km_to_household(conn)
+            conn.commit()
+            self.assertEqual(result["migrated_value"], "5")
+            # household setting now holds it
+            hv = conn.execute("SELECT value FROM household_settings WHERE key='highway_km'").fetchone()[0]
+            self.assertEqual(hv, "5")
+            # column is gone from person_thresholds
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(person_thresholds)").fetchall()]
+            self.assertNotIn("highway_km", cols)
+            # travel data preserved
+            self.assertEqual(conn.execute("SELECT travel_minutes FROM person_thresholds WHERE person_id=1").fetchone()[0], 20)
+            # idempotent
+            self.assertIsNone(server.migrate_highway_km_to_household(conn))
+        finally:
+            conn.close()
+
+    def test_migration_does_not_clobber_existing_household_value(self) -> None:
+        conn = server.get_db()
+        try:
+            conn.execute("INSERT INTO household_settings (key, value) VALUES ('highway_km', '7')")
+            conn.commit()
+            result = server.migrate_highway_km_to_household(conn)
+            conn.commit()
+            self.assertIsNone(result["migrated_value"])  # did not overwrite
+            hv = conn.execute("SELECT value FROM household_settings WHERE key='highway_km'").fetchone()[0]
+            self.assertEqual(hv, "7")
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(person_thresholds)").fetchall()]
+            self.assertNotIn("highway_km", cols)
         finally:
             conn.close()
 

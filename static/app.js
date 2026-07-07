@@ -403,24 +403,16 @@ function matchesPersonFilter(listingId, personId, checkedValues) {
   return checkedValues.some(v => matchesPersonCheckValue(listingId, personId, v));
 }
 
-// Per-person highway-distance filter (Part 3). Applied via the active "I am"
-// person, the same pattern as matchesStatusFilter: a no-op unless someone is
-// selected and that person has a highway minimum set. The threshold is a
-// MINIMUM acceptable distance (a noise/pollution radius): closer to a highway
-// is bad, farther is good. So this keeps only listings that MEET the minimum,
-// i.e. are at or beyond that person's minimum distance from the nearest
-// highway. Too-close listings are filtered out.
-//
-// This is deliberately the single-active-person view, not an all-buyers
-// aggregate (e.g. "meets everyone's minimum" or "meets anyone's minimum").
-// That aggregate is a follow-up decision, flagged in the report, not built
-// here: different buyers may hold different minimums and the group has not
-// decided whether the aggregate should be the strictest, the loosest, or a
-// per-buyer breakdown.
+// Household highway-distance filter. The minimum is a household position, so
+// this is NOT scoped to the active "I am" person: it applies for everyone.
+// The threshold is a MINIMUM acceptable distance (a noise/pollution radius):
+// closer to a highway is bad, farther is good. So this keeps only listings
+// that MEET the household minimum (at or beyond it); too-close listings are
+// filtered out. A no-op until the household highway minimum is set.
 function matchesHighwayFilter(item) {
   if (!$('filterHwyWithinLimit')?.checked) return true;
-  const limit = activePersonHighwayKm();
-  if (limit == null) return true; // no active person, or that person has no minimum set
+  const limit = householdHighwayKm();
+  if (limit == null) return true; // household has no highway minimum set
   if (item.highwayKm == null) return false; // unknown distance can't be confirmed to meet a minimum
   return item.highwayKm >= limit; // far enough: meets or exceeds the minimum distance
 }
@@ -1249,14 +1241,15 @@ function thresholdFor(personId) {
   return state.personThresholds[String(personId)] || null;
 }
 
-// Active-actor helpers, used by the highway-distance card indicator (Part 2)
-// and the highway-distance filter (Part 3). Both follow the active "I am"
-// person, the same way the status filter does.
-function activePersonHighwayKm() {
-  if (!state.activePerson) return null;
-  const t = thresholdFor(state.activePerson);
-  const v = t ? t.highway_km : null;
-  return v == null ? null : Number(v);
+// The highway distance minimum is a HOUSEHOLD position (a noise/pollution
+// radius the whole group holds), not per person, so it comes from
+// household_settings, not the active actor's thresholds. Used by both the
+// card highway badge and the highway-distance filter. Null when unset or
+// not a positive number.
+function householdHighwayKm() {
+  const v = state.householdSettings ? state.householdSettings.highway_km : null;
+  const n = v == null ? NaN : Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 function el(tag, props = {}, ...children) {
@@ -1283,15 +1276,19 @@ function buildThresholdSettings() {
     container.append(banner);
   }
 
-  // Travel time and highway distance are buyer preferences only; realtors
-  // are never shown here (and the server refuses to store thresholds for
-  // them). The server's GET already returns buyers only, but filter here too
-  // so the roster is correct regardless of what the endpoint returns.
+  // Highway distance is a household position (rendered once, at the top).
+  buildHouseholdHighwaySection(container);
+
+  // Travel time is a buyer preference; realtors are never shown here (and the
+  // server refuses to store thresholds for them). The server's GET already
+  // returns buyers only, but filter here too so the roster is correct
+  // regardless of what the endpoint returns.
   const buyers = state.people.filter(p => p.role === 'buyer');
   if (!buyers.length) {
     container.appendChild(el('p', { className: 'field-desc', textContent: 'No buyers loaded yet.' }));
     return;
   }
+  container.append(el('div', { className: 'threshold-section-label', textContent: 'Per-buyer travel time' }));
 
   buyers.forEach(person => {
     const t = thresholdFor(person.id) || {};
@@ -1341,16 +1338,6 @@ function buildThresholdSettings() {
     travelGroup.append(travelRow, totalRow);
     block.append(travelGroup);
 
-    // --- Highway distance group ---
-    const hwyGroup = el('div', { className: 'threshold-group' });
-    hwyGroup.append(el('div', { className: 'threshold-group-label', textContent: 'Max distance to highway (straight-line)' }));
-    const kmInput = el('input', { type: 'number', min: '0', step: '0.5', placeholder: 'km',
-      className: 'threshold-input threshold-input-km', value: t.highway_km ?? '' });
-    const hwyRow = el('div', { className: 'threshold-row' });
-    hwyRow.append(kmInput, el('span', { className: 'threshold-unit', textContent: 'km' }));
-    hwyGroup.append(hwyRow);
-    block.append(hwyGroup);
-
     // Attribution: who last edited this person's thresholds (null for the
     // untouched migration default).
     if (t.updated_by_name) {
@@ -1358,12 +1345,61 @@ function buildThresholdSettings() {
         textContent: `Last changed by ${t.updated_by_name}` }));
     }
 
-    const save = () => saveThreshold(person.id, { minsInput, modeSel, destSel, poiSel, totalInput, kmInput });
-    [minsInput, modeSel, destSel, poiSel, totalInput, kmInput].forEach(input =>
+    const save = () => saveThreshold(person.id, { minsInput, modeSel, destSel, poiSel, totalInput });
+    [minsInput, modeSel, destSel, poiSel, totalInput].forEach(input =>
       input.addEventListener('change', save));
 
     container.append(block);
   });
+}
+
+// Household highway minimum: a shared, whole-group position, so it renders
+// once at the top of the thresholds page (not per buyer) and saves to
+// household_settings. Applies to the card badge and the highway filter for
+// everyone regardless of who is active.
+function buildHouseholdHighwaySection(container) {
+  const block = el('div', { className: 'threshold-household-block' });
+  block.append(el('div', { className: 'threshold-person-name', textContent: 'Whole household' }));
+  const group = el('div', { className: 'threshold-group' });
+  group.append(el('div', { className: 'threshold-group-label',
+    textContent: 'Minimum distance to a highway (straight-line)' }));
+  const kmInput = el('input', { type: 'number', min: '0', step: '0.5', placeholder: 'km',
+    className: 'threshold-input threshold-input-km',
+    value: (state.householdSettings && state.householdSettings.highway_km != null)
+      ? state.householdSettings.highway_km : '' });
+  const row = el('div', { className: 'threshold-row' });
+  row.append(kmInput, el('span', { className: 'threshold-unit', textContent: 'km' }));
+  group.append(row);
+  block.append(group);
+  block.append(el('div', { className: 'field-desc',
+    textContent: 'A household position, shared by everyone. Listings closer than this to a 400-series highway are flagged as too close, and the "Far enough from highways" filter uses it.' }));
+  kmInput.addEventListener('change', () => saveHouseholdHighwayKm(kmInput));
+  container.append(block);
+}
+
+async function saveHouseholdHighwayKm(input) {
+  if (!state.activePerson) {
+    alert('Select who you are (top right) first, so we can record who made the change.');
+    input.value = state.householdSettings?.highway_km ?? '';
+    return;
+  }
+  const val = posNumOrNull(input.value);
+  if (val == null) { input.value = state.householdSettings?.highway_km ?? ''; return; }
+  const value = String(val);
+  try {
+    const res = await fetch('/api/household-settings', {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ person_id: state.activePerson, key: 'highway_km', value }),
+    });
+    if (!res.ok) throw new Error('save failed');
+    state.householdSettings.highway_km = value;
+    applyFiltersAndRender(); // card badge + highway filter reflect the new minimum
+  } catch (err) {
+    console.error(err);
+    alert('Could not save the highway minimum. Try again.');
+    input.value = state.householdSettings?.highway_km ?? '';
+  }
 }
 
 function posNumOrNull(raw) {
@@ -1381,7 +1417,7 @@ async function saveThreshold(personId, fields) {
   }
   // The mode/destination selects always carry a value (they default to
   // drive / nearest GO station), so only persist them when there is an
-  // actual per-leg travel threshold. Otherwise editing only highway_km would
+  // actual per-leg travel threshold. Otherwise editing another field would
   // stamp drive/go_station onto an otherwise-unset row, violating the
   // "NULL means not set" model. No travel_minutes => the whole travel
   // threshold is unset => null the mode, destination, and total too.
@@ -1396,7 +1432,6 @@ async function saveThreshold(personId, fields) {
     travel_mode: travelSet ? (fields.modeSel.value || null) : null,
     travel_dest_kind: travelSet ? destKind : null,
     travel_dest_ref: travelSet && destKind === 'poi' && fields.poiSel.value ? fields.poiSel.value : null,
-    highway_km: posNumOrNull(fields.kmInput.value),
   };
   try {
     const res = await fetch('/api/person-thresholds', {
@@ -1719,23 +1754,24 @@ function populateCard(node, item) {
   }
 
   // Highway distance (straight-line to the nearest 400-series highway).
-  // The person's threshold is a MINIMUM acceptable distance (a noise/
+  // The household's threshold is a MINIMUM acceptable distance (a noise/
   // pollution radius): closer to a highway is bad, farther is good. So a
   // listing closer than the minimum is a negative (red, "too close"), and
-  // one at or beyond it is a positive (green, "clears"). With no active
-  // person or no minimum set, it just states the distance.
+  // one at or beyond it is a positive (green, "clears"). It is a household
+  // position, so the badge shows for everyone regardless of who is active;
+  // with no household minimum set, it just states the distance.
   {
     const hwyEl = node.querySelector('.card-highway');
     if (hwyEl) {
       if (poc && item.highwayKm != null) {
-        const limit = activePersonHighwayKm();
+        const limit = householdHighwayKm();
         let badge = '';
         if (limit != null) {
           const tooClose = item.highwayKm < limit;
           badge = `<span class="hwy-badge ${tooClose ? 'hwy-bad' : 'hwy-good'}">`
             + (tooClose
-                ? `✕ closer than your ${num(limit)} km minimum`
-                : `✓ clears your ${num(limit)} km minimum`)
+                ? `✕ closer than the ${num(limit)} km minimum`
+                : `✓ clears the ${num(limit)} km minimum`)
             + `</span>`;
         }
         hwyEl.style.display = '';

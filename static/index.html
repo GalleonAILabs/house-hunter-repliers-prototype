@@ -113,7 +113,7 @@
       <div id="personFilters" class="contents"></div>
       <div class="filter-toggle-row">
         <label class="chip"><input type="checkbox" id="hideVetoed" /> Hide listings rejected by any buyer</label>
-        <label class="chip" title="Keeps only listings at or beyond your highway distance minimum, the noise/pollution radius of the person selected in I am (top right). Too-close listings are hidden. No effect until you select who you are and set a minimum."><input type="checkbox" id="filterHwyWithinLimit" /> Far enough from highways (my minimum)</label>
+        <label class="chip" title="Keeps only listings at or beyond the household's highway distance minimum (a noise/pollution radius). Too-close listings are hidden. Set the minimum in Settings, Location thresholds. No effect until it is set."><input type="checkbox" id="filterHwyWithinLimit" /> Far enough from highways</label>
       </div>
       <div class="feature-filter-block">
         <span class="feature-filter-caption">Text match only, not a confirmed feature:</span>
@@ -328,7 +328,7 @@
 
     <div class="settings-page" id="settingsPage-thresholds" hidden>
       <div class="settings-page-body">
-        <p class="settings-desc">Each person's own limits, shared with the whole group and editable from any device. Travel time uses a destination (a GO station or a place you've pinned on the map), so places have one source of truth. Highway distance is straight-line, as the crow flies, a noise and pollution radius, not a driving distance. Leave a field blank to leave it unset.</p>
+        <p class="settings-desc">Shared with the whole group and editable from any device. The highway distance minimum is a single household position (straight-line, as the crow flies, a noise and pollution radius, not a driving distance). Travel time is per buyer and uses a destination (a GO station or a place you've pinned on the map), so places have one source of truth. Leave a field blank to leave it unset.</p>
         <div id="thresholdSettingsList"></div>
       </div>
     </div>

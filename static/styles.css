@@ -175,7 +175,9 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .settings-nav-row{width:100%;background:none;border:0;font:inherit;color:inherit;text-align:left}
 /* Per-person location thresholds settings page */
 #thresholdSettingsList{padding:6px 16px 12px;display:flex;flex-direction:column;gap:14px}
-.threshold-person-block{border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.threshold-person-block,.threshold-household-block{border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.threshold-household-block{background:var(--bg)}
+.threshold-section-label{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-top:4px}
 .threshold-person-name{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:800}
 .threshold-role-badge{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);border:1px dashed var(--line);border-radius:999px;padding:1px 7px}
 .threshold-group{display:flex;flex-direction:column;gap:6px}
