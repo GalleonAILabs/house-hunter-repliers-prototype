@@ -52,7 +52,15 @@ those for map status.
 Git remote: https://github.com/GalleonAILabs/house-hunter-repliers-prototype
 
 ## Server
-Running on port 8787 (python3.11 server.py)
+Running on port 8787 (python3 server.py; runs under 3.14 today, stdlib
+only so any python3 works). Persistent: runs as a per-user LaunchAgent
+`ai.galleonglobal.househunter-server`
+(`~/Library/LaunchAgents/ai.galleonglobal.househunter-server.plist`,
+RunAtLoad + KeepAlive), so it starts at login and auto-restarts if it
+dies. A LaunchAgent (not a system LaunchDaemon) because server.py and
+its data live in the user's Google Drive mount, which only exists after
+login. Logs: `~/Library/Logs/househunter-server.{out,err}.log`.
+Manage: `launchctl unload|load -w ~/Library/LaunchAgents/ai.galleonglobal.househunter-server.plist`.
 Endpoints: /api/health, /api/config, /api/listings, /api/poc-listings,
 /api/people, /api/feedback, /layers/go-stations.geojson,
 /layers/highway-413.geojson
