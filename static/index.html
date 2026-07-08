@@ -116,29 +116,33 @@
           <option value="8">8/8</option>
         </select>
       </label>
-      <label>Page size
-        <select id="resultsPerPage">
-          <option>30</option>
-          <option selected>60</option>
-          <option>100</option>
-        </select>
-      </label>
-      <div id="personFilters" class="contents"></div>
+      <!-- Group-level exclusion first, then per-person refinement below it. -->
       <div class="filter-toggle-row">
         <label class="chip"><input type="checkbox" id="hideVetoed" /> Hide listings rejected by any buyer</label>
       </div>
+      <div id="personFilters" class="contents"></div>
+      <!-- Household keyword features (garage/pool/basement seeded, editable in
+           Settings). Rendered into #featureKeywordRow from the household list. -->
       <div class="feature-filter-block">
         <span class="feature-filter-caption">Text match only, not a confirmed feature:</span>
-        <label class="chip"><input type="checkbox" id="featGarage" /> Mentions garage</label>
-        <label class="chip"><input type="checkbox" id="featPool" /> Mentions pool</label>
-        <label class="chip"><input type="checkbox" id="featBasement" /> Mentions basement</label>
+        <div id="featureKeywordRow" class="feature-keyword-row"></div>
       </div>
-      <label>Data source
-        <select id="source">
-          <option value="poc" selected>My POC data</option>
-          <option value="repliers">Sample Data</option>
-        </select>
-      </label>
+      <!-- Data source, and (Sample Data only) how many results to fetch. -->
+      <div class="filter-row-pair">
+        <label>Data source
+          <select id="source">
+            <option value="poc" selected>My POC data</option>
+            <option value="repliers">Sample Data</option>
+          </select>
+        </label>
+        <label id="resultsPerFetchLabel" hidden>Results per fetch
+          <select id="resultsPerPage">
+            <option>30</option>
+            <option selected>60</option>
+            <option>100</option>
+          </select>
+        </label>
+      </div>
       <button id="load">Apply</button>
       <button id="reset" class="secondary">Reset</button>
     </section>
@@ -303,6 +307,24 @@
           </div>
           <span class="settings-nav-chevron">›</span>
         </button>
+        <button type="button" class="settings-row settings-nav-row" data-target="keywords" data-title="Search keywords">
+          <div>
+            <div>Search keywords</div>
+            <div class="field-desc">The family's text-match feature keywords, shown as filter checkboxes</div>
+          </div>
+          <span class="settings-nav-chevron">›</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="settings-page" id="settingsPage-keywords" hidden>
+      <div class="settings-page-body">
+        <p class="settings-desc">These keywords appear as filter checkboxes under "Text match only, not a confirmed feature". Each one is a plain substring match against the listing text, shared with the whole household.</p>
+        <div class="keyword-editor-list" id="keywordEditorList"></div>
+        <div class="keyword-editor-add">
+          <input type="text" id="keywordAddInput" placeholder="Add a keyword (e.g. fireplace)" maxlength="40" />
+          <button id="keywordAddBtn">Add</button>
+        </div>
       </div>
     </div>
 

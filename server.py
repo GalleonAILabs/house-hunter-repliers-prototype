@@ -112,6 +112,11 @@ HOUSEHOLD_SETTING_DEFAULTS: dict[str, str] = {
     "appraisal_flat": "350",
     "title_insurance_flat": "300",
     "highway_km": "5",
+    # Household text-match feature keywords, a JSON array of strings. Seeded with
+    # the three that used to be hardcoded so nothing is lost; the family edits
+    # the list in Settings. The value is validated as a string (JSON) like every
+    # other setting; the client parses it.
+    "feature_keywords": "[\"garage\", \"pool\", \"basement\"]",
 }
 
 # D10: known POC listing ids, loaded once at startup (see load_poc_listing_ids).

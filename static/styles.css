@@ -283,6 +283,19 @@ button.secondary { background:var(--bg); color:var(--ink); }
 /* Active-filter count badge on the collapsed Filters summary. */
 .filter-badge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;margin-left:8px;border-radius:999px;background:var(--blue);color:#fff;font-size:11px;font-weight:800;vertical-align:middle}
 .filter-badge[hidden]{display:none}
+/* A populated filter field gets a subtle highlight so active constraints are
+   findable in the long panel (why a badge count can exceed what is obvious). */
+.filterbox input.filter-filled,.filterbox select.filter-filled{border-color:var(--blue);background:rgba(43,103,214,0.08)}
+/* Household keyword filter chips + the settings-drawer keyword editor. */
+.feature-keyword-row{display:flex;flex-wrap:wrap;gap:8px}
+.keyword-editor-list{display:flex;flex-direction:column;gap:0;padding:2px 6px}
+.keyword-editor-row{display:flex;align-items:center;justify-content:space-between;padding:10px 8px;border-bottom:1px solid var(--line)}
+.keyword-name{font-size:15px}
+.keyword-del{border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:15px;line-height:1;padding:4px 10px;min-height:32px;border-radius:8px}
+.keyword-del:hover{color:#b3261e;background:var(--bg)}
+.keyword-editor-add{display:flex;gap:8px;padding:14px 6px}
+.keyword-editor-add input{flex:1;min-width:0;padding:9px 10px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font-size:14px}
+.keyword-editor-add button{white-space:nowrap}
 
 /* ── Combined view: cards alongside the map ─────────────────────────────────── */
 :root{--combined-w:clamp(300px,32vw,440px)}

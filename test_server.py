@@ -688,6 +688,19 @@ class HouseholdSettingsTests(ServerTestCase):
         _, data = self.request("GET", "/api/household-settings", token=self.TOKEN)
         self.assertEqual(data["settings"]["highway_km"], "3")
 
+    def test_feature_keywords_seeded_and_editable(self) -> None:
+        # Household keyword features: seeded with the three that used to be
+        # hardcoded so nothing is lost, and editable as a JSON list.
+        _, data = self.request("GET", "/api/household-settings", token=self.TOKEN)
+        self.assertEqual(json.loads(data["settings"]["feature_keywords"]), ["garage", "pool", "basement"])
+        status, _ = self.request(
+            "POST", "/api/household-settings", token=self.TOKEN,
+            body={"person_id": 1, "key": "feature_keywords", "value": json.dumps(["garage", "fireplace"])},
+        )
+        self.assertEqual(status, 200)
+        _, data = self.request("GET", "/api/household-settings", token=self.TOKEN)
+        self.assertEqual(json.loads(data["settings"]["feature_keywords"]), ["garage", "fireplace"])
+
     def test_default_first_time_buyer_true_before_anyone_sets_it(self) -> None:
         status, data = self.request("GET", "/api/household-settings", token=self.TOKEN)
         self.assertEqual(status, 200)

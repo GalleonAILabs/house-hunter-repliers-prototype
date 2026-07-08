@@ -763,13 +763,29 @@ function matchesRangeDirect(value, minId, maxId) {
   return true;
 }
 
-// Keyword-in-features checkboxes: text match only, not a confirmed feature.
+// Keyword-in-features checkboxes: text match only, not a confirmed feature. The
+// keyword list is household-defined (feature_keywords in household_settings),
+// seeded with garage/pool/basement; each check is a plain substring match, same
+// as before, only the list is now the family's own (see buildFeatureKeywordChips).
+const DEFAULT_FEATURE_KEYWORDS = ['garage', 'pool', 'basement'];
+function featureKeywords() {
+  const raw = state.householdSettings.feature_keywords;
+  if (raw) {
+    try {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) return arr.filter(k => typeof k === 'string' && k.trim());
+    } catch (_) {}
+  }
+  return DEFAULT_FEATURE_KEYWORDS.slice(); // unset -> seeded defaults, nothing lost
+}
+function currentCheckedKeywords() {
+  return Array.from(document.querySelectorAll('#featureKeywordRow input.feat-kw:checked')).map(cb => cb.dataset.kw);
+}
 function matchesFeatureKeywords(item) {
+  const checked = currentCheckedKeywords();
+  if (!checked.length) return true;
   const text = (item.features || '').toLowerCase();
-  if ($('featGarage')?.checked && !text.includes('garage')) return false;
-  if ($('featPool')?.checked && !text.includes('pool')) return false;
-  if ($('featBasement')?.checked && !text.includes('basement')) return false;
-  return true;
+  return checked.every(kw => text.includes(kw.toLowerCase()));
 }
 
 // Same "any buyer rejected" definition as the card's group-sentiment
@@ -1592,6 +1608,103 @@ async function loadHouseholdSettings() {
   HOUSEHOLD_NUMBER_SETTINGS.forEach(({ id, key }) => {
     const input = $(id);
     if (input && state.householdSettings[key] != null) input.value = state.householdSettings[key];
+  });
+  // The keyword filter row + settings editor reflect the household list.
+  buildFeatureKeywordChips();
+  renderKeywordEditor();
+  updateFilterBadge();
+}
+
+// Build the filter-panel keyword checkboxes from the household list, preserving
+// which are checked across a rebuild (from the live DOM and persisted state).
+function buildFeatureKeywordChips() {
+  const row = $('featureKeywordRow');
+  if (!row) return;
+  const checkedNow = new Set(currentCheckedKeywords());
+  const persisted = new Set(loadSavedFilterState()._featureKeywords || []);
+  row.innerHTML = '';
+  featureKeywords().forEach(kw => {
+    const label = document.createElement('label');
+    label.className = 'chip';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'feat-kw';
+    cb.dataset.kw = kw;
+    cb.checked = checkedNow.has(kw) || persisted.has(kw);
+    cb.addEventListener('change', () => { saveFilterState(); applyFiltersAndRender(); });
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(' Mentions ' + kw));
+    row.appendChild(label);
+  });
+}
+// Settings-drawer keyword editor: one row per keyword with a delete button,
+// plus an add field. Persists the whole list to household_settings.
+function renderKeywordEditor() {
+  const list = $('keywordEditorList');
+  if (!list) return;
+  list.innerHTML = '';
+  const kws = featureKeywords();
+  if (!kws.length) { list.innerHTML = '<div class="field-desc">No keywords yet. Add one below.</div>'; return; }
+  kws.forEach(kw => {
+    const rowEl = document.createElement('div');
+    rowEl.className = 'keyword-editor-row';
+    const name = document.createElement('span');
+    name.className = 'keyword-name';
+    name.textContent = kw;
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'keyword-del';
+    del.textContent = '✕';
+    del.title = 'Remove this keyword';
+    del.addEventListener('click', () => saveKeywords(featureKeywords().filter(k => k !== kw)));
+    rowEl.append(name, del);
+    list.appendChild(rowEl);
+  });
+}
+async function saveKeywords(listArr) {
+  if (!state.activePerson) { alert('Select who you are (top right) first.'); return false; }
+  try {
+    const res = await fetch('/api/household-settings', {
+      method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ person_id: state.activePerson, key: 'feature_keywords', value: JSON.stringify(listArr) }),
+    });
+    if (!res.ok) throw new Error('save failed');
+    state.householdSettings.feature_keywords = JSON.stringify(listArr);
+    renderKeywordEditor();
+    buildFeatureKeywordChips();
+    updateFilterBadge();
+    applyFiltersAndRender();
+    return true;
+  } catch (e) { alert('Could not save keywords: ' + e.message); return false; }
+}
+function addKeywordFromInput() {
+  const input = $('keywordAddInput');
+  if (!input) return;
+  const kw = (input.value || '').trim().toLowerCase();
+  if (!kw) return;
+  const kws = featureKeywords();
+  if (kws.includes(kw)) { input.value = ''; return; }
+  saveKeywords([...kws, kw]).then(ok => { if (ok) input.value = ''; });
+}
+
+// Results-per-fetch (page size) only applies to the paged Sample Data feed; POC
+// returns the whole set, so hide it there.
+function updateResultsPerFetchVisibility() {
+  const label = $('resultsPerFetchLabel');
+  if (label) label.hidden = currentSource() !== 'repliers';
+}
+
+// Highlight filter fields that currently hold a value, so persisted-but-easy-to-
+// miss constraints are findable in the long panel (the reason a badge count can
+// look higher than what is visible at a glance).
+const HIGHLIGHT_FIELD_IDS = ['q', 'filterStatus', 'minPrice', 'maxPrice', 'minBeds', 'maxBeds',
+  'minBaths', 'maxBaths', 'minSqft', 'maxSqft', 'minAcres', 'maxAcres', 'maxCommute',
+  'minHwyKm', 'maxHwyKm', 'minAttachDrive', 'maxAttachDrive', 'minPit', 'maxPit',
+  'minDue', 'maxDue', 'minFit'];
+function markFilledFilters() {
+  HIGHLIGHT_FIELD_IDS.forEach(id => {
+    const el = $(id);
+    if (el) el.classList.toggle('filter-filled', String(el.value || '').trim() !== '');
   });
 }
 
@@ -2997,12 +3110,14 @@ function activeFilterCount() {
     'minHwyKm', 'maxHwyKm', 'minAttachDrive', 'maxAttachDrive', 'minPit', 'maxPit',
     'minDue', 'maxDue', 'minFit'];
   valueFields.forEach(id => { const el = $(id); if (el && String(el.value || '').trim() !== '') n++; });
-  ['hideVetoed', 'featGarage', 'featPool', 'featBasement'].forEach(id => { if ($(id)?.checked) n++; });
+  if ($('hideVetoed')?.checked) n++;
+  n += currentCheckedKeywords().length; // each checked household keyword
   state.people.forEach(p => PERSON_FILTER_OPTIONS.forEach(o => { if ($(personFilterCbId(p.id, o.value))?.checked) n++; }));
   n += state.savedAreas.filter(a => isAreaActive(a.id)).length; // each enabled drawn area
   return n;
 }
 function updateFilterBadge() {
+  markFilledFilters(); // highlight populated fields so the count is explicable
   const badge = $('filterBadge');
   if (!badge) return;
   const n = activeFilterCount();
@@ -3129,7 +3244,8 @@ function reset() {
   ['q','minPrice','maxPrice','minBeds','maxBeds','minBaths','maxBaths','minSqft','maxSqft','minAcres','maxAcres','maxCommute','minHwyKm','maxHwyKm','minAttachDrive','maxAttachDrive','minPit','maxPit','minDue','maxDue','minFit','filterStatus']
     .forEach(id => { const el=$(id); if(el) { el.value=''; delete el.dataset.raw; } });
   $('resultsPerPage').value = '60';
-  ['featGarage','featPool','featBasement','hideVetoed'].forEach(id => { const el = $(id); if (el) el.checked = false; });
+  const hv = $('hideVetoed'); if (hv) hv.checked = false;
+  document.querySelectorAll('#featureKeywordRow input.feat-kw').forEach(cb => { cb.checked = false; });
   state.people.forEach(p => {
     PERSON_FILTER_OPTIONS.forEach(o => { const cb = $(personFilterCbId(p.id, o.value)); if (cb) cb.checked = false; });
   });
@@ -3173,7 +3289,7 @@ const PERSISTED_FIELD_IDS = [
   'resultsPerPage', 'source', 'sort',
 ];
 const PERSISTED_CHECKBOX_IDS = [
-  'featGarage', 'featPool', 'featBasement', 'hideVetoed',
+  'hideVetoed',
   'layerGoStations', 'layerGoStationsPlanned', 'layerGoLines', 'layerHwy413', 'layerPoiPins',
 ];
 
@@ -3182,6 +3298,7 @@ function saveFilterState() {
   PERSISTED_FIELD_IDS.forEach(id => { const el = $(id); if (el) saved[id] = el.value; });
   PERSISTED_CHECKBOX_IDS.forEach(id => { const el = $(id); if (el) saved[id] = el.checked; });
   saved._personFilters = Array.from(document.querySelectorAll('#personFilters input[type=checkbox]:checked')).map(cb => cb.id);
+  saved._featureKeywords = currentCheckedKeywords(); // household keyword checkboxes (dynamic)
   localStorage.setItem(FILTER_STATE_KEY, JSON.stringify(saved));
   updateFilterBadge(); // the badge tracks live edits, not just applied loads
 }
@@ -3288,8 +3405,13 @@ window.addEventListener('DOMContentLoaded', () => {
   $('minDue')?.addEventListener('change', applyFiltersAndRender);
   $('maxDue')?.addEventListener('change', applyFiltersAndRender);
   ['minSqft','maxSqft','minAcres','maxAcres','maxCommute','minHwyKm','maxHwyKm','minAttachDrive','maxAttachDrive'].forEach(id => $(id)?.addEventListener('change', applyFiltersAndRender));
-  ['featGarage','featPool','featBasement','hideVetoed'].forEach(id => $(id)?.addEventListener('change', applyFiltersAndRender));
-  $('source').addEventListener('change', () => { buildSettingsPanel(); load().catch(showError); });
+  $('hideVetoed')?.addEventListener('change', applyFiltersAndRender);
+  // Keyword filter chips wire their own change handlers in buildFeatureKeywordChips().
+  buildFeatureKeywordChips();
+  updateResultsPerFetchVisibility();
+  $('keywordAddBtn')?.addEventListener('click', addKeywordFromInput);
+  $('keywordAddInput')?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addKeywordFromInput(); } });
+  $('source').addEventListener('change', () => { updateResultsPerFetchVisibility(); buildSettingsPanel(); load().catch(showError); });
   // Map clustering (Appearance): toggle switches the map between count bubbles
   // and individual pins immediately; granularity re-fetches at a new precision.
   const clusterCb = $('mapClusterToggle');
