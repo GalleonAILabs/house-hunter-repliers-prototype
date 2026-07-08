@@ -936,3 +936,71 @@ the mobile Mapbox-offset CSS live, and 126 server tests (8 new for /api/areas).
 Phone-pass items: the three fragments resolved in satellite mode, the Satellite
 toggle actually switching the basemap from Layers, and draw -> name -> toggle an
 area on the live domain.
+
+## Combined view (cards + map) and active-filter badge
+
+**Shared core.** The visible set is `listingsInViewport()`: the already-filtered
+`state.listings` (so every active filter and enabled drawn area applies) whose
+pins fall inside `map.getBounds()`, in the current sort order, re-derived on
+`moveend`. The count is "n of m listings" (n = in viewport, m = all filtered).
+Cards are the one existing `buildMiniCard` component, shared verbatim across the
+cluster popup, the desktop column, and the mobile drawer; tapping opens the full
+card via the existing `showMapCard`.
+
+**One map, two presentations.** The map is a single full-screen fixed element,
+so Combined does not clone it: it shows `#viewMap` (the map) AND a `#combinedPanel`
+overlay together, toggled by a `body.combined` class. Desktop and mobile are the
+SAME panel + JS; only CSS media queries switch the presentation, so there is one
+behavior to reason about.
+- Desktop (>=700px): `#combinedPanel` is a fixed left column
+  (clamp(300px,32vw,440px)); `body.combined #viewMap` shifts `left` by that width
+  so the map fills the rest, and left-anchored map controls (Draw area) shift
+  right too. `map.resize()` runs on view switch and window resize so Mapbox
+  recomputes the canvas for the narrower container.
+- Mobile (<700px): `#combinedPanel` is a bottom drawer. Collapsed = a strip
+  (grip + count + sort) with a horizontal card row; expanded (74vh) = a vertical
+  list. Snap between them by dragging the handle (pointer events on the handle;
+  drag up expand / down collapse / tap toggles).
+
+**Status-bar coexistence (the required call).** In Combined the global bottom
+status bar is HIDDEN (`body.combined .status-bar{display:none}`) on both layouts,
+and its two jobs (the listing count and the sort control) move into the
+Combined panel/drawer header. This is a clean merge rather than stacking two
+bottom bars: the drawer would otherwise sit directly over the status bar on
+mobile, and the desktop column already has its own header. So there is exactly
+one count and one sort visible in Combined, and they live with the cards.
+
+**Gesture handling (mobile).** Card scrolling is native overflow inside the
+drawer with `touch-action: pan-x` on the collapsed card row, so a horizontal
+swipe scrolls cards and never reaches the map canvas (the drawer is an opaque
+DOM overlay above the map); map pan happens on the map area above the drawer.
+The handle uses `touch-action: none` so its vertical drag drives expand/collapse
+rather than scrolling. Drag feel and the pan/scroll boundary are phone-pass
+items (no touch in the headless environment).
+
+**Hover-highlight (desktop).** Achieved cheaply only for individual pins: single
+pill markers carry `data-mls`, and hovering a card toggles a highlight outline on
+the matching pill. Listings that collapsed into a cluster / count circle have no
+individual pin, so they do not highlight; this is the noted limitation (a
+reliable cluster-aware highlight is not cheap given the pill/cluster collapse).
+
+**Persistence.** The view choice persists per device (`hh_view`), and Map/List
+now persist too (they did not before; "persists like Map/List" is satisfied by
+making all three persist). The Combined sort select reuses the same option list
+and stays in sync with the other sort selects via `syncSort`.
+
+**Active-filter badge.** `activeFilterCount()` counts each populated value/range
+field, the feature + hide-vetoed checkboxes, each checked person rating filter,
+and each enabled drawn area; the badge on the collapsed Filters summary shows the
+number and hides at zero. It updates live (wired into `saveFilterState`, which
+fires on every control input/change, plus `onDrawAreaChanged` for area toggles
+and `applyFiltersAndRender`). Data source / page size / sort are deliberately not
+counted (they are not filters).
+
+**Verification limit.** WebGL is unavailable headless, so `getBounds` was mocked
+to verify the derivation (47 of 105 in a test box, exact vs a manual count) and
+both layouts were checked via CDP at 1280 (split column) and 390 (drawer:
+collapsed 212px horizontal row, expanded 625px vertical list, status bar hidden).
+Phone/desktop-pass items: the drawer drag feel, the card-scroll vs map-pan
+gesture boundary, the on-map viewport count updating as you pan, and the
+desktop hover-to-highlight.
