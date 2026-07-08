@@ -1483,7 +1483,7 @@ const POI_TYPE_META = {
 };
 
 function refreshPoiLayer() {
-  if (!state.mapReady) return;
+  if (!state.mapReady || !state.map.getSource('poi-pins')) return; // guard mid style-switch
   const fc = {
     type: 'FeatureCollection',
     features: state.poi.map(p => ({
@@ -2108,7 +2108,7 @@ async function refetchClustersForViewport() {
 }
 
 function renderClusterLayer() {
-  if (!state.mapReady) return;
+  if (!state.mapReady || !state.map.getSource('clusters')) return; // guard mid style-switch
   const fc = emptyFC();
   state.clusters.forEach((c, idx) => {
     if (c.lat == null || c.lng == null) return;
@@ -2207,7 +2207,7 @@ function buildMiniCard(item) {
 
 // ─── Draw-an-area map controls ──────────────────────────────────────────────────
 function renderDrawLayer() {
-  if (!state.mapReady) return;
+  if (!state.mapReady || !state.map.getSource('draw')) return; // guard mid style-switch
   const fc = emptyFC();
   state.drawPolygons.forEach(ring => {
     fc.features.push({ type: 'Feature', geometry: { type: 'Polygon', coordinates: [ring] }, properties: {} });
@@ -2353,6 +2353,11 @@ function schedulePillRelayout() {
 
 function refreshMap(list) {
   if (!state.mapReady) return;
+  // During a basemap style switch the custom sources are destroyed until
+  // style.load re-adds them (applyMapStyle). If a data load lands in that
+  // window, bail rather than call setData on a missing source; style.load then
+  // re-renders. (listings + clusters are added together, so one check covers.)
+  if (!state.map.getSource('listings')) return;
   closeMapCard();
   closeClusterPopup();
   if (clusteringActive()) {
