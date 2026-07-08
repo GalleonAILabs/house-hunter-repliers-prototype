@@ -1004,3 +1004,59 @@ collapsed 212px horizontal row, expanded 625px vertical list, status bar hidden)
 Phone/desktop-pass items: the drawer drag feel, the card-scroll vs map-pan
 gesture boundary, the on-map viewport count updating as you pan, and the
 desktop hover-to-highlight.
+
+## Mobile map chrome + drawer refinements
+
+- **Compact Filters on mobile.** Below 700px the Filters bar becomes a compact
+  right-side control (like Layers) at top:calc(hdr+8px), above the Layers panel,
+  keeping its active-filter badge; it expands to a right-anchored 340px single-
+  column dropdown. Desktop keeps the full-width bar.
+- **Both removed on mobile; the drawer moves into Map.** "Both" is desktop-only.
+  The consequence, made explicit by the brief ("Map with the drawer IS the
+  combined experience"), is that on a phone the cards drawer shows in MAP mode.
+  So the drawer/count/sort now key off a `drawerOn` flag = (desktop Both) OR
+  (mobile Map), not the "combined" view name. A persisted Both on a phone falls
+  back to Map; a persisted Grid falls back to List; narrowing past the
+  breakpoint re-derives the drawer (guarded to fire only on an actual breakpoint
+  crossing so mobile URL-bar resizes don't rebuild it).
+- **Collapsed drawer is a strip only** (56px: grip + count + Sort, no card row),
+  height matched to the header so nothing peeks; drag up reveals the vertical
+  list. Previously it showed a horizontal card row when collapsed.
+- **Grip contrast:** the handle uses --muted, not --line. --line is nearly the
+  panel colour in dark mode (invisible handle); --muted reads in both themes.
+
+## Grid view + filtered export (desktop only)
+
+- **Desktop-only, one derivation.** Grid joins the switcher at desktop widths
+  (hidden on mobile, Grid->List fallback). It reuses the shared filtered set;
+  header clicks set a grid-local sort override, otherwise the global sort
+  applies. Row click opens the card; the checkbox only selects.
+- **Bulk commands, extensible bar.** The command bar (shown on selection) is a
+  flex row (.grid-commands) so future commands drop in without restructuring.
+  Set rating = n standard rating writes as the active person (no new attribution
+  model). Attach place = pick an existing POI or geocode a new address, which is
+  created ONCE as a POI (not per listing, avoiding N duplicate POIs), then
+  attached to each selected listing.
+- **Mapbox Directions rate limit.** Each attach computes a per-listing drive
+  time server-side (one Directions call). Bulk attaches run SEQUENTIALLY with a
+  120ms delay (~8/sec), which keeps even a full-selection bulk under the 300/min
+  limit and naturally queues rather than bursting. Chosen over parallel fan-out
+  precisely because parallel would blow the limit on large selections.
+- **Export is server-side, stdlib only.** The client sends the already-derived
+  rows + chosen columns (so the export always matches the filtered grid, not the
+  selection) to POST /api/export; the server formats. Real .xlsx is built with
+  the stdlib `zipfile` module (no pip deps, honouring the no-Flask/no-pip
+  constraint): valid OOXML with a bold header, and numeric columns written as
+  number cells (t absent) so numbers stay numbers, text as inline strings with
+  XML escaping. CSV carries a UTF-8 BOM so Excel reads accents.
+- **Scope + column picker.** Step 1 chooses Displayed columns or Everything
+  (all scalar fields + every person's feedback/notes + attachments + the
+  financial breakdown, flattened, ~44 columns with 4 people). Step 2 is a
+  column checklist (all on by default) + CSV/Excel.
+- **Filename:** `listings-<YYYY-MM-DD>` plus a concise active-filter summary
+  (status, min-fit, a price token, a single active area name) when the result is
+  short (<=40 chars), else a generic tag; the server sanitizes it to a safe
+  basename regardless.
+- **Testability:** export bytes are unit-tested (numeric typing, valid zip,
+  well-formed XML for every part, escaping, filename sanitizing) and verified
+  end-to-end against the live endpoint (CSV + xlsx).
