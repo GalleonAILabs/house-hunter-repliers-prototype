@@ -1256,3 +1256,46 @@ themes. Consistent.
 Orphaned/floating element sweep via CDP at 390 (and 1280): every fixed/absolute
 visible element checked against the viewport box; ZERO clipped or off-screen
 elements found. Nothing orphaned.
+
+## Bulk-safety session (2026-07-08) — parts 1-3 built, part 4 data cleanup
+
+Parts 1-3 (confirmation gate, bulk Add note, session undo) shipped and verified;
+see the commit. Key model finding for the undo cost report: listing_feedback is
+append-only and reads take the latest row per (person, listing, action_type), so
+revert is uniform and CHEAP for ratings, notes, AND attachments alike: delete
+exactly the rows the action created (ids returned by each POST) and the prior
+value resurfaces automatically. No prior-value recording is needed. Built it;
+softened the dialog to "This can be undone immediately after, but not later."
+
+**Part 4 investigation (find the accidental data).** Queried listing_feedback
+for bulk-signature bursts (many rows, one person, near-identical timestamps):
+- 2026-07-04T16:23 cluster (varied ratings + 77 notes + 41 rejects, both people):
+  the one-time POC seed/backfill import (backfill is idempotent, never re-runs).
+  KEPT.
+- 2026-07-08T06:27:54-06:28:12 UTC: a 230-row automated burst by person 1 that
+  hammered 4/5/5/4 then 1 into each of 46 listings at an impossible ~1s cadence
+  (per-listing repeated re-rating in an 18-second window). This is automated
+  test/verification pollution (almost certainly my own from building the grid
+  bulk-rating feature), sitting on top of the real 2026-07-04 seed. It corrupted
+  the current rating of 46 listings.
+- Human-paced single ratings (05:23, 07:00-07:03, 22:35-22:38, one every
+  ~10-35s): real individual edits. KEPT.
+- 2026-07-08T22:45:59 UTC: a small 5-row automated bulk (5 listings to 4 in
+  150ms). Ambiguous (could be a real small bulk test in the evening); its only
+  meaningful effect is shadowing POC-8's real seed 5 with a 4. LEFT IN PLACE and
+  flagged rather than delete an ambiguous evening action.
+
+**Cleanup performed.** Deleted the 230-row automated burst
+(action_type='rating', person_id=1, 2026-07-08T06:27:54 to 06:28:13). Verified:
+total ratings 353 -> 123; zero rows remain in that window; the 46 affected
+listings now show their real seed / human-edited ratings (e.g. POC-10 -> 2,
+POC-100 -> 2, POC-101 -> 2), not the automated 4/5/1. Safe and reversible:
+- Backup before delete: data/backups/house_hunter.db.<ts>.before-burst-delete.bak
+  (plus the session-start .pre-bulk-cleanup.bak).
+- Every deleted row logged (id, person, listing, rating, ts) to
+  data/backups/deleted-bulk-burst-<ts>.csv for audit/manual restore.
+All under the gitignored data/ dir, so not committed; this note is the record.
+
+**NEEDS MARK:** (1) confirm the 22:45:59 x5 (rating 4) burst can also be removed
+(it shadows POC-8's real 5); (2) the 05:23 x3 singles were left as likely-real
+but are close in time to the automated burst, flag if they were not yours.
