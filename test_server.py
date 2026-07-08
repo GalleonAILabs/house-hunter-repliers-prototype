@@ -592,6 +592,80 @@ class PoiEndpointTests(ServerTestCase):
         self.assertEqual(len(data["poi"]), 2)
 
 
+class SavedAreaTests(ServerTestCase):
+    """Named draw areas are shared across the whole buyer group like POI pins:
+    a search zone is a household concept, created_by is attribution only."""
+
+    RING = [[-79.9, 44.2], [-79.9, 44.5], [-79.6, 44.5], [-79.6, 44.2], [-79.9, 44.2]]
+
+    def test_get_areas_without_token_401(self) -> None:
+        status, _ = self.request("GET", "/api/areas")
+        self.assertEqual(status, 401)
+
+    def test_get_areas_empty_by_default(self) -> None:
+        status, data = self.request("GET", "/api/areas", token=self.TOKEN)
+        self.assertEqual(status, 200)
+        self.assertEqual(data["areas"], [])
+
+    def test_post_area_requires_name(self) -> None:
+        status, data = self.request(
+            "POST", "/api/areas", token=self.TOKEN,
+            body={"person_id": 1, "name": "  ", "polygon": self.RING},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(data["error"], "invalid_request")
+
+    def test_post_area_requires_valid_polygon(self) -> None:
+        status, data = self.request(
+            "POST", "/api/areas", token=self.TOKEN,
+            body={"person_id": 1, "name": "Too small", "polygon": [[-79.9, 44.2], [-79.6, 44.5]]},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(data["error"], "invalid_request")
+
+    def test_post_area_requires_known_person(self) -> None:
+        status, data = self.request(
+            "POST", "/api/areas", token=self.TOKEN,
+            body={"person_id": 999, "name": "Barrie", "polygon": self.RING},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(data["error"], "unknown_person")
+
+    def test_post_area_then_visible_to_everyone(self) -> None:
+        status, data = self.request(
+            "POST", "/api/areas", token=self.TOKEN,
+            body={"person_id": 1, "name": "Barrie area", "polygon": self.RING},
+        )
+        self.assertEqual(status, 200)
+        self.assertIn("id", data)
+        self.assertEqual(data["polygon"], self.RING)  # round-trips
+
+        status, data = self.request("GET", "/api/areas", token=self.TOKEN)
+        self.assertEqual(status, 200)
+        self.assertEqual(len(data["areas"]), 1)
+        area = data["areas"][0]
+        self.assertEqual(area["name"], "Barrie area")
+        self.assertEqual(area["polygon"], self.RING)
+        self.assertEqual(area["created_by_name"], "Mark")
+
+    def test_delete_area(self) -> None:
+        _, data = self.request(
+            "POST", "/api/areas", token=self.TOKEN,
+            body={"person_id": 1, "name": "Orangeville", "polygon": self.RING},
+        )
+        area_id = data["id"]
+        status, out = self.request("DELETE", "/api/areas", token=self.TOKEN, body={"id": area_id})
+        self.assertEqual(status, 200)
+        self.assertTrue(out["ok"])
+        status, data = self.request("GET", "/api/areas", token=self.TOKEN)
+        self.assertEqual(data["areas"], [])
+
+    def test_delete_unknown_area_404(self) -> None:
+        status, data = self.request("DELETE", "/api/areas", token=self.TOKEN, body={"id": 4242})
+        self.assertEqual(status, 404)
+        self.assertEqual(data["error"], "not_found")
+
+
 class HouseholdSettingsTests(ServerTestCase):
     """Household-level settings: one shared value per key across the whole
     buyer group, not per person, like listing_feedback's shared POI pins,

@@ -283,6 +283,18 @@ def init_db() -> None:
                 created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             );
 
+            -- Saved draw areas: named search zones (e.g. "Barrie area") shared
+            -- across the whole buyer group like POI pins, not per device. A
+            -- zone is a household concept, so created_by is attribution, not a
+            -- privacy boundary. `polygon` is a JSON closed ring [[lng,lat],...].
+            CREATE TABLE IF NOT EXISTS saved_areas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                polygon TEXT NOT NULL,
+                created_by INTEGER NOT NULL REFERENCES people(id),
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+
             -- Household-level settings: one shared value per key across the
             -- whole buyer group, not per person, the same way a household
             -- fact like first-time-buyer status is one fact about the
@@ -853,6 +865,74 @@ def handle_poi_post(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
             "SELECT id, created_at FROM poi_pins WHERE id = ?", (cursor.lastrowid,)
         ).fetchone()
         return {"ok": True, "id": row["id"], "created_at": row["created_at"]}, 200
+    finally:
+        conn.close()
+
+
+def _valid_polygon(polygon: Any) -> bool:
+    """A closed-ring [[lng,lat],...] with at least 3 vertices, all numbers."""
+    if not isinstance(polygon, list) or len(polygon) < 3:
+        return False
+    for pt in polygon:
+        if (not isinstance(pt, (list, tuple)) or len(pt) != 2
+                or not isinstance(pt[0], (int, float)) or isinstance(pt[0], bool)
+                or not isinstance(pt[1], (int, float)) or isinstance(pt[1], bool)):
+            return False
+    return True
+
+
+def handle_area_post(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """Saved draw areas are shared across the whole buyer group, same as POI
+    pins -- created_by records who added the zone, not a privacy boundary."""
+    person_id = body.get("person_id")
+    name = body.get("name")
+    polygon = body.get("polygon")
+
+    if not isinstance(name, str) or not name.strip():
+        return {"error": "invalid_request", "detail": "name is required"}, 400
+    if not _valid_polygon(polygon):
+        return {
+            "error": "invalid_request",
+            "detail": "polygon must be a ring of at least 3 [lng,lat] points",
+        }, 400
+
+    conn = get_db()
+    try:
+        if not person_exists(conn, person_id):
+            return {"error": "unknown_person", "detail": f"person_id {person_id!r} not found"}, 400
+        cursor = conn.execute(
+            "INSERT INTO saved_areas (name, polygon, created_by) VALUES (?, ?, ?)",
+            (name.strip()[:120], json.dumps(polygon), person_id),
+        )
+        conn.commit()
+        row = conn.execute(
+            """
+            SELECT a.id, a.name, a.polygon, a.created_by, pe.name AS created_by_name, a.created_at
+            FROM saved_areas a JOIN people pe ON pe.id = a.created_by
+            WHERE a.id = ?
+            """,
+            (cursor.lastrowid,),
+        ).fetchone()
+        area = dict(row)
+        area["polygon"] = json.loads(area["polygon"])
+        return {"ok": True, **area}, 200
+    finally:
+        conn.close()
+
+
+def handle_area_delete(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """Delete a saved area by id. Shared resource, so any authenticated member
+    of the household can remove one (attribution is not ownership here)."""
+    area_id = body.get("id")
+    if not isinstance(area_id, int) or isinstance(area_id, bool):
+        return {"error": "invalid_request", "detail": "id must be an integer"}, 400
+    conn = get_db()
+    try:
+        cursor = conn.execute("DELETE FROM saved_areas WHERE id = ?", (area_id,))
+        conn.commit()
+        if cursor.rowcount == 0:
+            return {"error": "not_found", "detail": f"area {area_id} not found"}, 404
+        return {"ok": True, "id": area_id}, 200
     finally:
         conn.close()
 
@@ -2025,6 +2105,33 @@ class Handler(BaseHTTPRequestHandler):
                 finally:
                     conn.close()
                 return
+            if parsed.path == "/api/areas":
+                # Saved draw areas, shared across the whole group like POI pins.
+                if not require_auth(self):
+                    self.send_json({"error": "unauthorized"}, 401)
+                    return
+                conn = get_db()
+                try:
+                    rows = conn.execute(
+                        """
+                        SELECT a.id, a.name, a.polygon, a.created_by,
+                               pe.name AS created_by_name, a.created_at
+                        FROM saved_areas a JOIN people pe ON pe.id = a.created_by
+                        ORDER BY a.id
+                        """
+                    ).fetchall()
+                    areas = []
+                    for row in rows:
+                        area = dict(row)
+                        try:
+                            area["polygon"] = json.loads(area["polygon"])
+                        except (json.JSONDecodeError, TypeError):
+                            area["polygon"] = []
+                        areas.append(area)
+                    self.send_json({"areas": areas})
+                finally:
+                    conn.close()
+                return
             if parsed.path == "/api/household-settings":
                 # Shared across the whole buyer group, same auth as
                 # /api/people and /api/poi, not per-person filtered.
@@ -2153,6 +2260,23 @@ class Handler(BaseHTTPRequestHandler):
                 data, status = handle_poi_post(body)
                 self.send_json(data, status)
                 return
+            if parsed.path == "/api/areas":
+                if not require_auth(self):
+                    self.send_json({"error": "unauthorized"}, 401)
+                    return
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                raw_body = self.rfile.read(length) if length else b""
+                try:
+                    body = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    self.send_json({"error": "invalid_request", "detail": "malformed JSON body"}, 400)
+                    return
+                if not isinstance(body, dict):
+                    self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
+                    return
+                data, status = handle_area_post(body)
+                self.send_json(data, status)
+                return
             if parsed.path == "/api/household-settings":
                 if not require_auth(self):
                     self.send_json({"error": "unauthorized"}, 401)
@@ -2246,6 +2370,23 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
                     return
                 data, status = handle_place_attachment_delete(body)
+                self.send_json(data, status)
+                return
+            if parsed.path == "/api/areas":
+                if not require_auth(self):
+                    self.send_json({"error": "unauthorized"}, 401)
+                    return
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                raw_body = self.rfile.read(length) if length else b""
+                try:
+                    body = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    self.send_json({"error": "invalid_request", "detail": "malformed JSON body"}, 400)
+                    return
+                if not isinstance(body, dict):
+                    self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
+                    return
+                data, status = handle_area_delete(body)
                 self.send_json(data, status)
                 return
             self.send_json({"error": "not_found"}, 404)

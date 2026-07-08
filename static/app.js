@@ -368,7 +368,7 @@ async function loadConfig() {
 
 // ─── State ────────────────────────────────────────────────────────────────────
 const state = { map: null, mapReady: false, rawListings: [], listings: [], activeView: 'map', people: [], activePerson: null, feedback: {}, openMapItem: null, source: 'poc', sourceCount: 0, clusters: [], poi: [], householdSettings: {}, personThresholds: {}, personThresholdsError: false, placeAttachments: {}, clusterPopupOpen: false,
-  drawMode: false, drawPolygons: [], drawCurrent: [], pillListings: [], mapStyle: 'streets' };
+  drawMode: false, savedAreas: [], drawCurrent: [], pillListings: [], mapStyle: 'streets' };
 let cardSettings = loadSettings();
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -665,14 +665,36 @@ function matchesAttachDriveFilter(item) {
   });
 }
 
-// ─── Draw-an-area filter (geoJSON polygons) ─────────────────────────────────────
-// Session-level, not persisted. Filters BOTH sources to listings inside ANY
-// drawn polygon (multi-polygon OR): Sample Data via the Repliers `map` param
-// (see filterParams), POC via this client-side point-in-polygon. AND with the
-// filter panel. Each polygon is a closed [lng,lat] ring.
+// ─── Saved draw areas (named, shared, toggleable) ───────────────────────────────
+// Search zones are household concepts, so a drawn polygon is saved server-side
+// (shared like POI pins, with who-created attribution), not session-only. Each
+// saved area has its own on/off toggle in the Layers menu: on means visible on
+// the map AND active as a filter, off means neither. The on/off state is a view
+// preference, so it lives in localStorage per device (like the other layer
+// toggles); the area itself is shared. Active areas filter BOTH sources with OR
+// semantics between them, AND with the filter panel: Sample Data via the
+// Repliers `map` param (filterParams), POC via the client-side point-in-polygon.
+const ACTIVE_AREAS_KEY = 'hh_active_area_ids';
+function loadActiveAreaIds() {
+  try {
+    const v = JSON.parse(localStorage.getItem(ACTIVE_AREAS_KEY) || '[]');
+    return Array.isArray(v) ? v.filter(x => typeof x === 'number') : [];
+  } catch (_) { return []; }
+}
+function saveActiveAreaIds(ids) { localStorage.setItem(ACTIVE_AREAS_KEY, JSON.stringify(ids)); }
+function isAreaActive(id) { return loadActiveAreaIds().includes(id); }
+function setAreaActive(id, on) {
+  const ids = loadActiveAreaIds().filter(x => x !== id);
+  if (on) ids.push(id);
+  saveActiveAreaIds(ids);
+}
+// The polygons of every currently-active saved area (as [lng,lat] rings).
+function activeAreaPolygons() {
+  return state.savedAreas.filter(a => isAreaActive(a.id)).map(a => a.polygon);
+}
 function drawnPolygonsParam() {
-  if (!state.drawPolygons.length) return null;
-  return JSON.stringify(state.drawPolygons);
+  const polys = activeAreaPolygons();
+  return polys.length ? JSON.stringify(polys) : null;
 }
 function pointInRing(lng, lat, ring) {
   let inside = false;
@@ -683,9 +705,10 @@ function pointInRing(lng, lat, ring) {
   return inside;
 }
 function matchesDrawArea(item) {
-  if (!state.drawPolygons.length) return true;
+  const polys = activeAreaPolygons();
+  if (!polys.length) return true;
   if (item.lng == null || item.lat == null) return false;
-  return state.drawPolygons.some(ring => pointInRing(item.lng, item.lat, ring));
+  return polys.some(ring => pointInRing(item.lng, item.lat, ring));
 }
 
 function matchesStatusFilter(listingId, value) {
@@ -1138,7 +1161,11 @@ function initMap() {
     zoom: 9,
   });
   state.mapStyle = mapStyleChoice(); // tracks the loaded basemap for applyMapStyle
-  state.map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
+  // No NavigationControl: the map is full-screen with the app's own chrome
+  // (topbar, filters, status bar) floating over it, and a top-right zoom stack
+  // renders under the person selector and reads as a clipped white fragment on
+  // mobile. Pinch / double-tap (touch) and scroll / double-click (desktop) zoom
+  // remain, which is the norm for a mobile-first map.
 
   state.map.on('load', () => {
     addMapLayers();
@@ -1451,7 +1478,8 @@ function applyMapStyle(choice) {
 }
 function updateMapStyleUI() {
   const choice = mapStyleChoice();
-  document.querySelectorAll('.map-style-btn').forEach(b => b.classList.toggle('active', b.dataset.style === choice));
+  const toggle = $('layerSatellite');
+  if (toggle) toggle.checked = choice === 'satellite';
   const sel = $('mapStyleSelect');
   if (sel) sel.value = choice;
 }
@@ -2205,11 +2233,12 @@ function buildMiniCard(item) {
   return card;
 }
 
-// ─── Draw-an-area map controls ──────────────────────────────────────────────────
+// ─── Saved draw areas: drawing, saving, toggling ────────────────────────────────
 function renderDrawLayer() {
   if (!state.mapReady || !state.map.getSource('draw')) return; // guard mid style-switch
   const fc = emptyFC();
-  state.drawPolygons.forEach(ring => {
+  // Every currently-active saved area, plus the polygon being drawn right now.
+  activeAreaPolygons().forEach(ring => {
     fc.features.push({ type: 'Feature', geometry: { type: 'Polygon', coordinates: [ring] }, properties: {} });
   });
   if (state.drawCurrent.length >= 2) {
@@ -2228,56 +2257,149 @@ function undoDrawVertex() {
   renderDrawLayer();
   updateDrawToolbar();
 }
-function finishPolygon() {
-  if (state.drawCurrent.length >= 3) {
-    const ring = state.drawCurrent.slice();
-    ring.push(ring[0]); // close the ring (first point == last)
-    state.drawPolygons.push(ring);
+// Finish = save the drawn polygon as a named, shared area, then activate it for
+// this device. Prompts for a name (Area N by default).
+async function finishPolygon() {
+  if (state.drawCurrent.length < 3) { updateDrawToolbar(); return; }
+  if (!state.activePerson) { alert('Select who you are ("I am", top right) before saving an area.'); return; }
+  const ring = state.drawCurrent.slice();
+  ring.push(ring[0]); // close the ring (first point == last)
+  const defaultName = 'Area ' + (state.savedAreas.length + 1);
+  const name = (window.prompt('Name this area', defaultName) || '').trim() || defaultName;
+  try {
+    const res = await fetch('/api/areas', {
+      method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ person_id: state.activePerson, name, polygon: ring }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || data.error || 'save failed');
     state.drawCurrent = [];
+    exitDrawModeQuietly();
+    await loadAreas();
+    setAreaActive(data.id, true); // the creator sees the new area on + filtering
+    renderAreaLayers();
     renderDrawLayer();
     onDrawAreaChanged();
+  } catch (e) {
+    alert('Could not save the area: ' + e.message);
+    updateDrawToolbar();
   }
-  updateDrawToolbar();
 }
-function clearDrawAreas() {
-  state.drawPolygons = [];
-  state.drawCurrent = [];
-  renderDrawLayer();
-  onDrawAreaChanged();
-  updateDrawToolbar();
-}
-function toggleDrawMode() { if (state.drawMode) exitDrawMode(); else enterDrawMode(); }
+function toggleDrawMode() { if (state.drawMode) cancelDrawing(); else enterDrawMode(); }
 function enterDrawMode() {
   if (!state.mapReady) { alert('The map is not available, so drawing an area is not possible here.'); return; }
+  if (!state.activePerson) { alert('Select who you are ("I am", top right) before drawing an area.'); return; }
   state.drawMode = true;
   document.body.classList.add('draw-mode');
   if (state.map) state.map.getCanvas().style.cursor = 'crosshair';
   updateDrawToolbar();
 }
-function exitDrawMode() {
-  // Finish the in-progress polygon if it has enough points, else discard it.
-  if (state.drawCurrent.length >= 3) finishPolygon();
-  else { state.drawCurrent = []; renderDrawLayer(); }
+// Cancel = discard the in-progress polygon and leave draw mode. Saved areas are
+// the model now, so there is no unsaved session polygon to preserve.
+function cancelDrawing() {
+  state.drawCurrent = [];
+  exitDrawModeQuietly();
+  renderDrawLayer();
+}
+function exitDrawModeQuietly() {
   state.drawMode = false;
   document.body.classList.remove('draw-mode');
   if (state.map) state.map.getCanvas().style.cursor = '';
   updateDrawToolbar();
 }
+
+// Load the household's saved areas (shared) from the server.
+async function loadAreas() {
+  try {
+    const res = await fetch('/api/areas', { headers: authHeaders() });
+    const data = await res.json();
+    state.savedAreas = (res.ok && Array.isArray(data.areas)) ? data.areas : [];
+  } catch (_) { state.savedAreas = []; }
+}
+// One Layers-menu row per saved area: an on/off toggle (visible + filtering)
+// and a delete button, with the creator's name as attribution.
+function renderAreaLayers() {
+  const list = $('areaLayerList');
+  if (!list) return;
+  list.innerHTML = '';
+  state.savedAreas.forEach(area => {
+    const row = document.createElement('div');
+    row.className = 'area-row';
+    const label = document.createElement('label');
+    label.className = 'chip area-chip';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = isAreaActive(area.id);
+    cb.addEventListener('change', () => {
+      setAreaActive(area.id, cb.checked);
+      renderDrawLayer();
+      onDrawAreaChanged();
+    });
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(' ' + area.name));
+    if (area.created_by_name) {
+      const by = document.createElement('span');
+      by.className = 'area-by';
+      by.textContent = ' · ' + area.created_by_name;
+      label.appendChild(by);
+    }
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'area-del';
+    del.title = 'Delete this area for everyone';
+    del.textContent = '✕';
+    del.addEventListener('click', () => deleteArea(area));
+    row.appendChild(label);
+    row.appendChild(del);
+    list.appendChild(row);
+  });
+}
+async function deleteArea(area) {
+  if (!window.confirm(`Delete the saved area "${area.name}"? This removes it for everyone.`)) return;
+  try {
+    const res = await fetch('/api/areas', {
+      method: 'DELETE', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: area.id }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || data.error || 'delete failed');
+    setAreaActive(area.id, false);
+    await loadAreas();
+    renderAreaLayers();
+    renderDrawLayer();
+    onDrawAreaChanged();
+  } catch (e) {
+    alert('Could not delete the area: ' + e.message);
+  }
+}
+// Turn every active area off (used by the indicator Clear button and Reset).
+// Areas are not deleted, just deactivated, so they can be toggled back on.
+function deactivateAllAreas() {
+  saveActiveAreaIds([]);
+  renderAreaLayers();
+  renderDrawLayer();
+  onDrawAreaChanged();
+}
 function onDrawAreaChanged() {
   updateDrawIndicator();
   // Sample Data is re-fetched so the Repliers `map` param filters server-side;
   // POC filters client-side, so a re-render is enough. Neither re-centers the
-  // map (the user drew on the current view).
+  // map (the areas may be anywhere; the user is looking at the current view).
   if (currentSource() === 'repliers') reloadListingsPreservingMapView().catch(showError);
   else applyFiltersAndRender();
 }
 function updateDrawIndicator() {
   const ind = $('drawIndicator');
   if (!ind) return;
-  const n = state.drawPolygons.length;
-  ind.hidden = n === 0;
+  const active = state.savedAreas.filter(a => isAreaActive(a.id));
+  ind.hidden = active.length === 0;
   const label = $('drawIndicatorLabel');
-  if (label) label.textContent = n === 1 ? 'Filtering to 1 drawn area' : `Filtering to ${n} drawn areas`;
+  if (label) {
+    // Name the active areas when few, so a filtered view is always explicable.
+    if (active.length === 0) label.textContent = '';
+    else if (active.length <= 2) label.textContent = 'Filtering to ' + active.map(a => a.name).join(' + ');
+    else label.textContent = `Filtering to ${active.length} areas`;
+  }
 }
 function updateDrawToolbar() {
   const btn = $('drawAreaBtn');
@@ -2290,7 +2412,7 @@ function updateDrawToolbar() {
   if (undo) undo.disabled = state.drawCurrent.length === 0;
   const hint = $('drawHint');
   if (hint) hint.textContent = state.drawCurrent.length
-    ? `${state.drawCurrent.length} point${state.drawCurrent.length === 1 ? '' : 's'} placed`
+    ? `${state.drawCurrent.length} point${state.drawCurrent.length === 1 ? '' : 's'} placed, then Finish`
     : 'Tap the map to add points';
 }
 
@@ -2900,10 +3022,13 @@ function reset() {
   });
   // Reset also clears any drawn search areas (session-level, so just wipe the
   // state and layer; the load() below refetches without the map filter).
+  // Reset clears the area filter by turning every saved area off (the areas
+  // themselves stay saved and re-toggleable, they are shared household data).
   state.drawMode = false;
-  state.drawPolygons = [];
   state.drawCurrent = [];
   document.body.classList.remove('draw-mode');
+  saveActiveAreaIds([]);
+  renderAreaLayers();
   renderDrawLayer();
   updateDrawIndicator();
   updateDrawToolbar();
@@ -3003,6 +3128,13 @@ window.addEventListener('DOMContentLoaded', () => {
       try { initMap(); } catch (err) { console.error('Map init failed:', err); }
       loadPeople().then(() => { applyFiltersAndRender(); loadPersonThresholds(); });
       loadPoi().then(buildThresholdSettings);
+      // Saved areas (shared) drive the Layers menu entries + the area filter.
+      loadAreas().then(() => {
+        renderAreaLayers();
+        renderDrawLayer();
+        updateDrawIndicator();
+        if (state.rawListings.length) applyFiltersAndRender();
+      });
       loadHouseholdSettings().then(migrateHighwayFilterCheckbox);
       return load();
     })
@@ -3062,11 +3194,15 @@ window.addEventListener('DOMContentLoaded', () => {
     // Re-render both views so pills and cards pick up the new decimals at once.
     decSel.addEventListener('change', e => { setPillCompactDecimals(parseInt(e.target.value, 10)); applyFiltersAndRender(); });
   }
-  // Basemap Streets/Satellite: the on-map segmented control and the Appearance
-  // select drive the same applyMapStyle(); updateMapStyleUI keeps both in sync.
-  document.querySelectorAll('.map-style-btn').forEach(btn => {
-    btn.addEventListener('click', () => applyMapStyle(btn.dataset.style));
-  });
+  // Basemap Streets/Satellite: the Layers-menu "Satellite imagery" toggle and
+  // the Appearance select both drive applyMapStyle(); updateMapStyleUI keeps
+  // the two surfaces in sync. Basemap is a layer decision, so its primary
+  // control lives with the other layer toggles.
+  const satToggle = $('layerSatellite');
+  if (satToggle) {
+    satToggle.checked = mapStyleChoice() === 'satellite';
+    satToggle.addEventListener('change', e => applyMapStyle(e.target.checked ? 'satellite' : 'streets'));
+  }
   const styleSel = $('mapStyleSelect');
   if (styleSel) {
     styleSel.value = mapStyleChoice();
@@ -3075,10 +3211,10 @@ window.addEventListener('DOMContentLoaded', () => {
   $('clusterPopupClose')?.addEventListener('click', closeClusterPopup);
   // Draw-an-area controls
   $('drawAreaBtn')?.addEventListener('click', toggleDrawMode);
-  $('drawFinishBtn')?.addEventListener('click', finishPolygon);
+  $('drawFinishBtn')?.addEventListener('click', () => finishPolygon().catch(err => console.error(err)));
   $('drawUndoBtn')?.addEventListener('click', undoDrawVertex);
-  $('drawClearBtn')?.addEventListener('click', clearDrawAreas);
-  $('drawIndicatorClear')?.addEventListener('click', clearDrawAreas);
+  $('drawCancelBtn')?.addEventListener('click', cancelDrawing);
+  $('drawIndicatorClear')?.addEventListener('click', deactivateAllAreas);
   $('sort')?.addEventListener('change', e => { syncSort(e.target.value); renderCards(state.listings); refreshMap(state.listings); });
   $('sortList')?.addEventListener('change', e => { syncSort(e.target.value); renderCards(state.listings); });
   $('btnMap').addEventListener('click', () => switchView('map'));

@@ -177,12 +177,17 @@
     <details class="map-layers-panel" id="mapLayersPanel">
       <summary>Layers</summary>
       <div class="map-layers-body">
+        <label class="chip"><input type="checkbox" id="layerSatellite" /> Satellite imagery</label>
         <label class="chip"><input type="checkbox" id="layerGoLines" /> GO Lines</label>
         <label class="chip"><input type="checkbox" id="layerGoStations" /> GO Stations (existing)</label>
         <label class="chip"><input type="checkbox" id="layerGoStationsPlanned" /> GO Stations (planned/proposed)</label>
         <label class="chip"><input type="checkbox" id="layerHwy413" /> Highway 413</label>
         <label class="chip"><input type="checkbox" id="layerPoiPins" /> Places (school, hospital, etc.)</label>
         <button class="secondary" id="addPoiBtn" title="Search for a place and drop a pin, shared with the whole group">📍 Add place</button>
+        <!-- Saved draw areas (shared across the household). Each row: on/off
+             toggle (visible + filtering) and a delete button. Rendered by
+             renderAreaLayers(). -->
+        <div class="area-layer-list" id="areaLayerList"></div>
       </div>
     </details>
     <details class="map-legend" id="mapLegend">
@@ -196,24 +201,17 @@
       </div>
     </details>
 
-    <!-- Basemap style switch (Streets / Satellite). Satellite uses Mapbox's
-         satellite-streets hybrid so roads + labels stay overlaid. Choice is
-         also mirrored in Appearance settings and persisted per device. -->
-    <div class="map-style-toggle" id="mapStyleToggle" role="group" aria-label="Map style">
-      <button type="button" class="map-style-btn active" data-style="streets">Map</button>
-      <button type="button" class="map-style-btn" data-style="satellite">Satellite</button>
-    </div>
-
     <!-- Draw-an-area search: tap "Draw area", tap the map to place a polygon's
-         points, Finish to close it. Multiple areas (OR). Filters both sources. -->
+         points, Finish to name + save it as a shared area. Saved areas live in
+         the Layers menu with their own on/off toggle. -->
     <div class="map-draw-control">
-      <button class="secondary map-draw-btn" id="drawAreaBtn" title="Draw an area on the map to search within it">✏️ Draw area</button>
+      <button class="secondary map-draw-btn" id="drawAreaBtn" title="Draw an area on the map to save as a shared search zone">✏️ Draw area</button>
       <div class="map-draw-toolbar" id="drawToolbar" hidden>
         <span class="draw-hint" id="drawHint">Tap the map to add points</span>
         <div class="draw-toolbar-btns">
           <button class="secondary" id="drawUndoBtn" disabled>Undo point</button>
           <button id="drawFinishBtn" disabled>Finish area</button>
-          <button class="secondary" id="drawClearBtn">Clear all</button>
+          <button class="secondary" id="drawCancelBtn">Cancel</button>
         </div>
       </div>
     </div>
