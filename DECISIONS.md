@@ -1,5 +1,58 @@
 # Batch 2 Decisions Log
 
+## OVERNIGHT SESSION SUMMARY — 2026-07-08 (read this first)
+
+Ran unattended to completion. Three deploys, all verified live; `main` clean and
+pushed; no destructive operations; a safety backup of the DB + poc_listings.json
+was taken to `data/backups/` (gitignored). Full detail per task lower in this
+file under "Overnight session" headings.
+
+**Completed:**
+- Task 2a — map control normalization: one control-chip style (12px/800/6px 10px
+  /▾▴) across Filters, Layers, Legend, Sort, Draw; Draw keeps only its active
+  blue, not its old larger size; draw-mode toolbar buttons identical size,
+  stacked. Deployed, verified at 390 (dark) and 1280 (light), both basemaps.
+- Task 2b — TTC subway layer: built from the live TTC GTFS (Toronto Open Data,
+  downloaded at build time). All of Lines 1/2/4/5/6 are EXISTING (the 2026 feed
+  carries Line 5 Eglinton and Line 6 Finch West in revenue service); Line 3 is
+  gone from the feed (closed 2023). Station counts match TTC published exactly
+  (38/31/5/25/18), 110 unique stations, zero out-of-GTA coordinates. Layers menu
+  regrouped under Transit / Roads & places. Deployed; live endpoints verified.
+
+**Skipped:**
+- Task 1 — POC merge: SKIPPED because no new export from the Hermes pipeline
+  exists on this machine (MM1). The only listing files are the live data (Jul 6)
+  and an OLDER vault mirror (Jul 3). Per the task's own instruction, skipped
+  rather than guessing a source. No data was mutated.
+
+**Defaults / judgment calls chosen (all logged in detail below):**
+- Draw control stays LEFT (not moved into the right-side stack): its expandable
+  toolbar would overlap the equally-expandable Layers panel, and its own lane
+  keeps the map clear for drawing. Size (the actual complaint) was fixed.
+- Draw toolbar stacked vertically: the three full labels do not fit one row at
+  390px; Finish keeps fill (not size) emphasis.
+- TTC line colours taken from the GTFS route_color (agency-official), including
+  Line 6 grey (#808080) despite low street-map contrast.
+- Transit / Roads & places grouping adopted in the Layers menu (it grew long).
+
+**NEEDS MARK'S ATTENTION IN THE MORNING:**
+1. **Task 1 is unrun.** If a new Hermes POC export exists, it is not on MM1.
+   Point me at the file (or sync it into `data/` or the vault) and I will run
+   the keyed merge exactly as specified.
+2. **Line 5/6 are live in the 2026 TTC feed** (opened), not under construction.
+   If that looks wrong, flag it and I will re-tier.
+3. **Line 6 colour is grey** (#808080), low-contrast on the street basemap. Say
+   if you want a brighter substitute; I kept the official colour.
+4. **Draw stayed on the left.** If you want it physically in the right stack, a
+   small follow-up; I flagged the expandable-overlap tradeoff rather than force
+   it unattended.
+5. **Codex was quota-blocked all session** (OpenAI billing). Every task's review
+   was a structured self-review instead. Top up to restore the standing gate.
+6. A stray saved area "Area 1 · Mark" is in the shared DB (earlier test cruft). I
+   left it rather than delete shared data unattended; remove it if unwanted.
+
+---
+
 This file records every ambiguity resolved without stopping to ask, per the
 batch kickoff instructions. Entries are added as work proceeds. A summary
 section is added at the top once the batch is complete.
