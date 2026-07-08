@@ -296,7 +296,7 @@
           <input type="checkbox" id="mapClusterToggle" />
           <div>
             <div>Map clustering</div>
-            <div class="field-desc">Group nearby map pins into count bubbles that split as you zoom in, and click a bubble to list the properties under it. Applies to Sample Data (the Repliers feed) only; POC data always shows individual pins (clicking a stacked pin still lists them).</div>
+            <div class="field-desc">Server-side count bubbles for the Sample Data (Repliers) feed, split as you zoom in. Applies to Sample Data only. POC listings always show price pills, which collapse into a count circle wherever they would overlap and expand again as you zoom in.</div>
           </div>
         </label>
         <div class="settings-row settings-number-row">
@@ -308,6 +308,17 @@
             <option value="coarse">Coarse</option>
             <option value="medium">Medium</option>
             <option value="fine">Fine</option>
+          </select>
+        </div>
+        <div class="settings-row settings-number-row">
+          <div>
+            <div>Pill price decimals</div>
+            <div class="field-desc">Decimal places for compact prices on pills and mini-cards, e.g. $1.1M / $1.05M / $1.049M. Monthly figures always show exact dollars.</div>
+          </div>
+          <select id="pillDecimalsSelect" class="settings-number-input" style="width:auto">
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
           </select>
         </div>
       </div>

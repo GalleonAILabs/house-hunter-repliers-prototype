@@ -49,6 +49,107 @@ function clusterPrecisionForZoom() {
   return Math.max(1, Math.min(29, Math.round(z) + offset));
 }
 
+// Compact-notation decimal places for map pills (1.1M / 1.05M / 1.049M), an
+// appearance preference per device, stored beside the clustering settings.
+// Applies only to compact figures (prices, cost to close); monthly figures are
+// always exact dollars, so this does not touch them.
+const COMPACT_DECIMALS_KEY = 'hh_pill_compact_decimals';
+function pillCompactDecimals() {
+  const n = parseInt(localStorage.getItem(COMPACT_DECIMALS_KEY) || '2', 10);
+  return (n === 1 || n === 2 || n === 3) ? n : 2;
+}
+function setPillCompactDecimals(n) { localStorage.setItem(COMPACT_DECIMALS_KEY, String(n)); }
+
+// ─── Map pill labels ────────────────────────────────────────────────────────────
+// Strictly one formatting rule per metric type, never mixed on a view:
+//   prices + cost to close -> compact ($1.05M, $875K, $247K), decimals per the
+//     pillCompactDecimals() setting on the M unit; K is whole thousands; under
+//     $1K is exact dollars.
+//   monthly figures (PIT) -> exact dollars ($5,645); too small for compact
+//     rounding to carry information.
+function formatCompactMoney(value, decimals) {
+  if (value == null || isNaN(value)) return '';
+  const v = Number(value), abs = Math.abs(v);
+  if (abs >= 1e6) return '$' + (v / 1e6).toFixed(decimals) + 'M';
+  if (abs >= 1e3) return '$' + Math.round(v / 1e3) + 'K';
+  return '$' + Math.round(v).toLocaleString('en-US');
+}
+function formatExactMoney(value) {
+  if (value == null || isNaN(value)) return '';
+  return '$' + Math.round(Number(value)).toLocaleString('en-US');
+}
+// The money figure behind a pill: same metric the card headline uses
+// (loadSummaryValueChoice), so pin and card can never disagree on the metric.
+// Price prefers the potential purchase price when one is entered (matching the
+// breakdown and the card's Estimate line everywhere else); Monthly PIT uses the
+// Total monthly figure (PIT + condo fees) when the listing has condo fees,
+// consistent with the card's Financial summary block.
+function pillMetricValue(item) {
+  const choice = loadSummaryValueChoice();
+  if (choice === 'closing') return { metric: 'closing', value: effectiveDueNum(item) };
+  if (choice === 'pit') {
+    const pit = effectivePitNum(item);
+    if (pit == null) return { metric: 'pit', value: null };
+    const condoFee = item.isCondo && item.condoFeeNum ? item.condoFeeNum : 0;
+    return { metric: 'pit', value: pit + condoFee };
+  }
+  const potential = item.potentialPurchasePrice;
+  return { metric: 'price', value: potential != null ? potential.price : item.price };
+}
+function pillMoneyText(item) {
+  const { metric, value } = pillMetricValue(item);
+  if (value == null) return '';
+  return metric === 'pit' ? formatExactMoney(value) : formatCompactMoney(value, pillCompactDecimals());
+}
+// The full pill label: the active person's rating (numeric + star) when they
+// have rated this listing, then the money figure. No star when unrated.
+function pillLabel(item) {
+  const money = pillMoneyText(item);
+  const fb = personFeedbackFor(item.mls, state.activePerson);
+  const rating = fb && fb.rating != null ? fb.rating : null;
+  return (rating != null ? rating + '★ ' : '') + money;
+}
+// Fit palette shared by pills and cluster circles. Cluster circles take the
+// highest fit among their contents (no fit information lost when pins collapse).
+function fitRatioColor(ratio) {
+  if (ratio >= 0.75) return '#16803a';
+  if (ratio >= 0.5) return '#e8b400';
+  return '#e8720c';
+}
+function clusterFitColor(items) {
+  let best = -1;
+  items.forEach(it => {
+    const total = it.fit && it.fit.total ? it.fit.total : 8;
+    const ratio = (it.fit && it.fit.met != null ? it.fit.met : 0) / total;
+    if (ratio > best) best = ratio;
+  });
+  return best < 0 ? '#8a94a6' : fitRatioColor(best);
+}
+// Greedy screen-space collapse so pills never pile up: a listing joins an
+// existing group when its projected pixel centre is within a pill's footprint
+// of that group's anchor (PILL_COLLAPSE_W wide, _H tall). Groups of one render
+// as a pill; groups of two or more collapse to a fit-coloured count circle that
+// the existing chooser popup expands. Pure given `project`, so it is testable
+// headless with a mock projection; on the map, project = map.project.
+const PILL_COLLAPSE_W = 92; // px, an approximate pill width incl. padding
+const PILL_COLLAPSE_H = 30; // px, an approximate pill height incl. margin
+function collapsePillGroups(items, project, cellW, cellH) {
+  const w = cellW || PILL_COLLAPSE_W, h = cellH || PILL_COLLAPSE_H;
+  const groups = [];
+  for (const it of items) {
+    if (it.lat == null || it.lng == null) continue;
+    const pt = project(it);
+    if (!pt) continue;
+    let g = null;
+    for (const cand of groups) {
+      if (Math.abs(cand.x - pt.x) < w && Math.abs(cand.y - pt.y) < h) { g = cand; break; }
+    }
+    if (g) { g.items.push(it); }
+    else { groups.push({ x: pt.x, y: pt.y, items: [it] }); }
+  }
+  return groups;
+}
+
 
 // T18: a single, user-chosen headline value (Price / Cost to close / PIT),
 // distinct from the always-detailed "Monthly PIT + closing" block below.
@@ -249,7 +350,7 @@ async function loadConfig() {
 
 // ─── State ────────────────────────────────────────────────────────────────────
 const state = { map: null, mapReady: false, rawListings: [], listings: [], activeView: 'map', people: [], activePerson: null, feedback: {}, openMapItem: null, source: 'poc', sourceCount: 0, clusters: [], poi: [], householdSettings: {}, personThresholds: {}, personThresholdsError: false, placeAttachments: {}, clusterPopupOpen: false,
-  drawMode: false, drawPolygons: [], drawCurrent: [] };
+  drawMode: false, drawPolygons: [], drawCurrent: [], pillListings: [] };
 let cardSettings = loadSettings();
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -1108,8 +1209,11 @@ function setupMapSources() {
     source: 'clusters',
     paint: {
       'circle-radius': ['get', 'radius'],
-      'circle-color': '#2b67d6',
-      'circle-opacity': 0.75,
+      // Coloured by the highest fit among the cluster's contents when they are
+      // known (small clusters carry inline listings); a neutral slate when a
+      // big cluster's contents are not loaded (see renderClusterLayer).
+      'circle-color': ['get', 'color'],
+      'circle-opacity': 0.82,
       'circle-stroke-width': 2,
       'circle-stroke-color': '#fff',
     },
@@ -1139,7 +1243,10 @@ function setupMapSources() {
   // Recompute clusters for the new viewport (and precision) after any pan/zoom,
   // so bubbles split as the user zooms in. Debounced; a no-op unless clustering
   // is active (Sample Data + toggle on).
-  map.on('moveend', () => { if (clusteringActive()) scheduleClusterRefetch(); });
+  // On pan/zoom: refetch server clusters when clustering is active, else
+  // re-collapse the individual pill markers for the new zoom so pills separate
+  // as you zoom in and merge into count circles where they would pile up.
+  map.on('moveend', () => { if (clusteringActive()) scheduleClusterRefetch(); else schedulePillRelayout(); });
 
   // Draw-an-area: completed polygons (fill + outline), the in-progress ring
   // (dashed line), and its vertices (dots).
@@ -1907,6 +2014,9 @@ function renderClusterLayer() {
       geometry: { type: 'Point', coordinates: [c.lng, c.lat] },
       properties: {
         count: c.count, radius: clusterRadius(c.count), clusterIdx: idx,
+        // Fit colour from the cluster's known contents; slate when a big
+        // cluster carries no inline listings (nothing to colour by).
+        color: (c.listings && c.listings.length) ? clusterFitColor(c.listings) : '#8a94a6',
         swLng: b ? b.top_left.longitude : null, swLat: b ? b.bottom_right.latitude : null,
         neLng: b ? b.bottom_right.longitude : null, neLat: b ? b.top_left.latitude : null,
       },
@@ -1976,9 +2086,11 @@ function buildMiniCard(item) {
   const feedbackList = state.feedback[item.mls] || [];
   const byPerson = new Map(feedbackList.map(f => [f.person_id, f]));
   const chips = state.people.length ? state.people.map(p => groupSentimentChip(p, byPerson.get(p.id) || null)).join('') : '';
+  // Same star-plus-money line as the map pill (same metric + formatting rules),
+  // so a listing reads identically whether shown as a pill or in the chooser.
   card.innerHTML = thumb
     + '<div class="mini-body">'
-    + `<div class="mini-price">${esc(money(item.price) || 'Price n/a')}</div>`
+    + `<div class="mini-price">${esc(pillLabel(item) || 'Price n/a')}</div>`
     + `<div class="mini-addr">${esc(item.address || '')}</div>`
     + (stat ? `<div class="mini-stat">${esc(stat)}</div>` : '')
     + (chips ? `<div class="mini-chips">${chips}</div>` : '')
@@ -2078,36 +2190,91 @@ function updateDrawToolbar() {
     : 'Tap the map to add points';
 }
 
+// Individual listings render as info pills (HTML markers) that collapse into
+// fit-coloured count circles wherever they would materially overlap at the
+// current zoom, so pills never pile up. Recomputed on zoom via
+// schedulePillRelayout. mapboxgl.Marker anchors each element to its lng/lat.
+let _pillMarkers = [];
+function clearPillMarkers() {
+  _pillMarkers.forEach(m => m.remove());
+  _pillMarkers = [];
+}
+function renderPillMarkers(list) {
+  if (!state.mapReady || !state.map) return;
+  clearPillMarkers();
+  const project = it => state.map.project([it.lng, it.lat]);
+  const groups = collapsePillGroups(list, project);
+  groups.forEach(g => {
+    let el;
+    if (g.items.length === 1) {
+      const item = g.items[0];
+      el = document.createElement('button');
+      el.type = 'button';
+      el.className = 'map-pill';
+      el.style.background = markerColor(item);
+      el.textContent = pillLabel(item);
+      el.title = item.address || '';
+      el.addEventListener('click', ev => {
+        ev.stopPropagation();
+        if (state.drawMode) return;
+        closeOutsideDetailsPanels(document.body);
+        showMapCard(item);
+      });
+    } else {
+      const items = g.items.slice();
+      el = document.createElement('button');
+      el.type = 'button';
+      el.className = 'map-pill-cluster';
+      el.style.background = clusterFitColor(items);
+      el.textContent = String(items.length);
+      el.title = items.length + ' listings here';
+      el.addEventListener('click', ev => {
+        ev.stopPropagation();
+        if (state.drawMode) return;
+        closeOutsideDetailsPanels(document.body);
+        openListingChooser(items);
+      });
+    }
+    const anchor = g.items[0];
+    _pillMarkers.push(new mapboxgl.Marker({ element: el }).setLngLat([anchor.lng, anchor.lat]).addTo(state.map));
+  });
+}
+let _pillRelayoutTimer = null;
+function schedulePillRelayout() {
+  clearTimeout(_pillRelayoutTimer);
+  _pillRelayoutTimer = setTimeout(() => {
+    if (!clusteringActive() && state.pillListings && state.pillListings.length) renderPillMarkers(state.pillListings);
+  }, 150);
+}
+
 function refreshMap(list) {
   if (!state.mapReady) return;
   closeMapCard();
   closeClusterPopup();
   if (clusteringActive()) {
-    // Viewport-driven server clusters: no flat pins, no auto-fit (that would
+    // Viewport-driven server clusters: no pill markers, no auto-fit (that would
     // fight the user's zoom). Render current clusters, then refetch this view.
+    clearPillMarkers();
+    state.pillListings = [];
     state.map.getSource('listings').setData(emptyFC());
     renderClusterLayer();
     refetchClustersForViewport();
     requestAnimationFrame(() => state.map?.resize());
     return;
   }
-  // Individual pins (POC always; Sample Data when clustering is off).
+  // Individual listings as info pills (POC always; Sample Data when clustering
+  // is off). The GeoJSON listings/clusters sources stay empty here; pills and
+  // their collapse circles are HTML markers.
   state.map.getSource('clusters').setData(emptyFC());
-  const listingsFC = emptyFC();
+  state.map.getSource('listings').setData(emptyFC());
+  state.pillListings = list;
   const bounds = [];
-  list.forEach(item => {
-    if (item.lat == null || item.lng == null) return;
-    const myRating = personFeedbackFor(item.mls, state.activePerson)?.rating;
-    listingsFC.features.push({
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [item.lng, item.lat] },
-      properties: { mls: item.mls, color: markerColor(item), ratingLabel: myRating != null ? String(myRating) : '' },
-    });
-    bounds.push([item.lng, item.lat]);
-  });
-  state.map.getSource('listings').setData(listingsFC);
+  list.forEach(item => { if (item.lat != null && item.lng != null) bounds.push([item.lng, item.lat]); });
   const b = lngLatBoundsOf(bounds);
   if (b) state.map.fitBounds(b, { padding: 40, maxZoom: 15 });
+  // Collapse against the just-set view. fitBounds animates; render once now for
+  // an immediate result, and moveend (schedulePillRelayout) refines it after.
+  renderPillMarkers(list);
   requestAnimationFrame(() => state.map?.resize());
 }
 
@@ -2775,6 +2942,12 @@ window.addEventListener('DOMContentLoaded', () => {
   if (granSel) {
     granSel.value = mapClusterGranularity();
     granSel.addEventListener('change', e => { setMapClusterGranularity(e.target.value); if (clusteringActive()) refetchClustersForViewport(); });
+  }
+  const decSel = $('pillDecimalsSelect');
+  if (decSel) {
+    decSel.value = String(pillCompactDecimals());
+    // Re-render both views so pills and cards pick up the new decimals at once.
+    decSel.addEventListener('change', e => { setPillCompactDecimals(parseInt(e.target.value, 10)); applyFiltersAndRender(); });
   }
   $('clusterPopupClose')?.addEventListener('click', closeClusterPopup);
   // Draw-an-area controls

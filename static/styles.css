@@ -242,6 +242,18 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .legend-hint[hidden]{display:none}
 
 .map-layers-panel{position:fixed;top:100px;right:12px;z-index:500;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);max-width:min(220px,calc(100vw - 24px));}
+/* Info pills for individual listings: the active person's star rating (when
+   rated) + a money figure, background carrying the fit-score colour. And the
+   count circle they collapse into where they would otherwise pile up. Rendered
+   as HTML markers (mapboxgl.Marker) so the pill shape + fit colour are exact. */
+.map-pill{display:inline-flex;align-items:center;gap:3px;padding:3px 9px;border:1.5px solid #fff;border-radius:999px;font-weight:700;font-size:12px;line-height:1;color:#fff;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.35);text-shadow:0 1px 2px rgba(0,0,0,.5);cursor:pointer;transition:transform .08s ease}
+.map-pill:hover{transform:translateY(-1px)}
+.map-pill:focus-visible{outline:2px solid #1d4ed8;outline-offset:2px}
+.map-pill-cluster{display:flex;align-items:center;justify-content:center;min-width:34px;height:34px;padding:0 7px;border:2px solid #fff;border-radius:999px;font-weight:800;font-size:13px;line-height:1;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5);box-shadow:0 1px 5px rgba(0,0,0,.4);cursor:pointer}
+/* In draw mode pills must not eat taps: let them pass through to the map canvas
+   so a tap over a pill still drops a polygon vertex. */
+.draw-mode .map-pill,.draw-mode .map-pill-cluster{pointer-events:none}
+
 /* Draw-an-area controls: a button + an in-draw toolbar (top-left), and an
    active-filter pill (top-centre). Same panel/shadow language as the others. */
 .map-draw-control{position:fixed;top:100px;left:12px;z-index:500;display:flex;flex-direction:column;gap:6px;align-items:flex-start;max-width:calc(100vw - 24px)}
