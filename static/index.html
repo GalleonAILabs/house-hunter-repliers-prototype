@@ -34,7 +34,7 @@
 
   <!-- 2. FILTERS, flex: 0 0 auto, always in flow -->
   <details class="filterbox" id="filterbox">
-    <summary>Filters<span class="filter-badge" id="filterBadge" hidden></span></summary>
+    <summary class="map-ctrl-btn" data-ctrl-icon="filter" title="Filters" aria-label="Filters"><span class="ctrl-glyph"></span><span class="ctrl-label">Filters</span><span class="filter-badge" id="filterBadge" hidden></span></summary>
     <section class="controls">
       <label>Search
         <input id="q" placeholder="address, town, features…" />
@@ -152,7 +152,7 @@
   <!-- 3. STATUS BAR, flex: 0 0 auto, always in flow -->
   <div class="status-bar">
     <span id="summary">Loading…</span>
-    <label class="sort-inline">Sort
+    <label class="sort-inline" data-ctrl-icon="sort" title="Sort"><span class="ctrl-glyph"></span><span class="ctrl-label">Sort</span>
       <select id="sort">
         <option value="fit-desc">Fit ↓</option>
         <option value="fit-asc">Fit ↑</option>
@@ -181,7 +181,7 @@
   <div id="viewMap" class="view-section">
     <div id="map"></div>
     <details class="map-layers-panel" id="mapLayersPanel">
-      <summary>Layers</summary>
+      <summary class="map-ctrl-btn" data-ctrl-icon="layers" title="Layers" aria-label="Layers"><span class="ctrl-glyph"></span><span class="ctrl-label">Layers</span></summary>
       <div class="map-layers-body">
         <label class="chip"><input type="checkbox" id="layerSatellite" /> Satellite imagery</label>
         <div class="layer-group-heading">Transit</div>
@@ -201,7 +201,7 @@
       </div>
     </details>
     <details class="map-legend" id="mapLegend">
-      <summary>Legend</summary>
+      <summary class="map-ctrl-btn" data-ctrl-icon="legend" title="Legend" aria-label="Legend"><span class="ctrl-glyph"></span><span class="ctrl-label">Legend</span></summary>
       <div class="map-legend-body">
         <div class="legend-row"><span class="legend-swatch" style="background:#16803a"></span>Strong fit</div>
         <div class="legend-row"><span class="legend-swatch" style="background:#e8b400"></span>Good fit</div>
@@ -215,7 +215,7 @@
          points, Finish to name + save it as a shared area. Saved areas live in
          the Layers menu with their own on/off toggle. -->
     <div class="map-draw-control">
-      <button class="secondary map-draw-btn" id="drawAreaBtn" title="Draw an area on the map to save as a shared search zone">✏️ Draw area</button>
+      <button class="map-draw-btn map-ctrl-btn" id="drawAreaBtn" data-ctrl-icon="pencil" title="Draw area" aria-label="Draw area"><span class="ctrl-glyph"></span><span class="ctrl-label">Draw area</span></button>
       <div class="map-draw-toolbar" id="drawToolbar" hidden>
         <span class="draw-hint" id="drawHint">Tap the map to add points</span>
         <div class="draw-toolbar-btns">

@@ -37,15 +37,31 @@ h1 { font-size:18px; color:#fff; white-space:nowrap; }
 .who-am-i { background:rgba(255,255,255,.12); color:#fff; border:1px solid rgba(255,255,255,.28); border-radius:8px; padding:5px 8px; font-size:13px; font-weight:700; min-height:0; max-width:110px; }
 .who-am-i option { color:#000; }
 
-.filterbox { position:fixed; top:calc(var(--hdr-h) + 10px); left:12px; right:12px; max-width:100%; z-index:500; background:var(--panel); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); max-height:70vh; overflow-y:auto; overflow-x:hidden; }
-/* One shared map-control chip style across Filters, Layers, Legend, Sort, Draw:
-   same size, weight, padding, radius, and ▾/▴ arrow. Layers/Legend already set
-   the canonical (6px 10px, 800, 12px, ▾/▴); the rules below bring the others to
-   match. */
-.filterbox > summary { list-style:none; padding:6px 10px; cursor:pointer; font-weight:800; font-size:12px; color:var(--ink); }
-.filterbox > summary::-webkit-details-marker { display:none; }
-.filterbox > summary::after { content:' ▾'; color:var(--muted); font-weight:400; }
-.filterbox[open] > summary::after { content:' ▴'; }
+/* ── Icon-only map control family (Filters, Layers, Legend, Draw, Sort) ───────────
+   One consistent style: panel-grey pill, blue glyph, uniform 40x40 square (tap
+   target >= the old pill height). No dropdown arrows. .ctrl-label is hidden
+   except during the first-visit teaching pass (body.icons-labeled). Details
+   controls are chrome-less when collapsed (the summary pill IS the control) and
+   get panel chrome only when [open]. */
+.map-ctrl-btn{list-style:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  width:40px;height:40px;min-height:40px;padding:0;box-sizing:border-box;position:relative;
+  background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);
+  color:var(--blue);cursor:pointer;font-weight:800;font-size:12px}
+.map-ctrl-btn::-webkit-details-marker{display:none}
+.map-ctrl-btn::after{content:none !important}
+.map-ctrl-btn .ctrl-glyph{display:inline-flex;align-items:center;justify-content:center;color:var(--blue)}
+.map-ctrl-btn .ctrl-glyph svg{display:block}
+.ctrl-label{display:none}
+body.icons-labeled .map-ctrl-btn{width:auto;padding:0 12px}
+body.icons-labeled .ctrl-label{display:inline;color:var(--ink)}
+.filterbox,.map-layers-panel,.map-legend{background:transparent;border:0;box-shadow:none}
+.filterbox[open],.map-layers-panel[open],.map-legend[open]{background:var(--panel);border:1px solid var(--line);box-shadow:var(--shadow);border-radius:12px}
+.filterbox[open] > .map-ctrl-btn,.map-layers-panel[open] > .map-ctrl-btn,.map-legend[open] > .map-ctrl-btn{background:transparent;border:0;box-shadow:none;width:auto;padding:6px 10px;justify-content:flex-start}
+.filterbox[open] > .map-ctrl-btn .ctrl-label,.map-layers-panel[open] > .map-ctrl-btn .ctrl-label,.map-legend[open] > .map-ctrl-btn .ctrl-label{display:inline;color:var(--ink)}
+
+.filterbox { position:fixed; top:calc(var(--hdr-h) + 8px); right:12px; left:auto; z-index:500; max-width:min(340px,calc(100vw - 24px)); max-height:70vh; overflow-y:auto; overflow-x:hidden; border-radius:12px; }
+.filterbox[open]{ width:min(340px,calc(100vw - 24px)); }
+.filterbox[open] .controls{ grid-template-columns:1fr; }
 /* Defensive: no element inside the filter panel may force horizontal
    overflow. min-width:0 overrides the browser default (min-width:auto) that
    lets a grid/flex item's intrinsic content size force its container wider
@@ -234,24 +250,20 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .settings-nav-chevron{margin-left:auto;color:var(--muted);font-size:18px;flex-shrink:0}
 .theme-toggle-btn{background:var(--bg);border:1px solid var(--line);color:var(--ink);border-radius:10px;min-width:44px;min-height:44px;font-size:18px;cursor:pointer;flex-shrink:0}
 
-.map-legend{position:fixed;right:12px;bottom:64px;z-index:500;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);max-width:min(200px,calc(100vw - 24px));}
+.map-legend{position:fixed;right:12px;bottom:64px;z-index:500;border-radius:12px;max-width:min(200px,calc(100vw - 24px));}
 /* The map is full-screen with the app's status bar floating over its bottom
    edge, so lift Mapbox's own logo + attribution (required, kept visible) up
    clear of the status bar on mobile instead of letting them hide behind it. */
 @media (max-width:600px){
   .mapboxgl-ctrl-bottom-left,.mapboxgl-ctrl-bottom-right{bottom:52px}
 }
-.map-legend > summary{list-style:none;padding:6px 10px;cursor:pointer;font-weight:800;font-size:12px;color:var(--ink)}
-.map-legend > summary::-webkit-details-marker{display:none}
-.map-legend > summary::after{content:' ▾';color:var(--muted);font-weight:400}
-.map-legend[open] > summary::after{content:' ▴'}
 .map-legend-body{padding:2px 10px 10px;display:flex;flex-direction:column;gap:5px}
 .legend-row{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ink)}
 .legend-swatch{width:12px;height:12px;border-radius:50%;flex-shrink:0;border:1px solid rgba(0,0,0,.2)}
 .legend-hint{margin:2px 0 0;font-size:10px;color:var(--muted);font-style:italic}
 .legend-hint[hidden]{display:none}
 
-.map-layers-panel{position:fixed;top:100px;right:12px;z-index:500;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);max-width:min(220px,calc(100vw - 24px));}
+.map-layers-panel{position:fixed;top:108px;right:12px;z-index:500;border-radius:12px;max-width:min(220px,calc(100vw - 24px));}
 /* Info pills for individual listings: the active person's star rating (when
    rated) + a money figure, background carrying the fit-score colour. And the
    count circle they collapse into where they would otherwise pile up. Rendered
@@ -268,11 +280,11 @@ button.secondary { background:var(--bg); color:var(--ink); }
    active-filter pill (top-centre). Same panel/shadow language as the others. */
 /* Draw lives in the right-side control stack, below Layers (right:12), same as
    its siblings; its toolbar drops down right-aligned beneath the chip. */
-.map-draw-control{position:fixed;top:140px;right:12px;left:auto;z-index:500;display:flex;flex-direction:column;gap:6px;align-items:flex-end;max-width:calc(100vw - 24px)}
-/* Draw trigger matches the shared control chip size; keeps only its active-state
-   blue, not its former larger size. */
-.map-draw-btn{min-height:0;padding:6px 10px;font-size:12px;font-weight:800;border-radius:12px;box-shadow:var(--shadow)}
-.map-draw-btn.active{background:var(--blue);color:#fff;border-color:var(--blue)}
+.map-draw-control{position:fixed;top:156px;right:12px;left:auto;z-index:500;display:flex;flex-direction:column;gap:6px;align-items:flex-end;max-width:calc(100vw - 24px)}
+/* Draw trigger is an icon button (.map-ctrl-btn owns size/chrome); active state
+   flips to solid blue with a white glyph. */
+.map-draw-btn.active{background:var(--blue);border-color:var(--blue)}
+.map-draw-btn.active,.map-draw-btn.active .ctrl-glyph,.map-draw-btn.active .ctrl-label{color:#fff}
 .map-draw-toolbar{background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:9px 11px;display:flex;flex-direction:column;gap:8px;max-width:min(230px,calc(100vw - 24px))}
 .map-draw-toolbar[hidden]{display:none}
 .draw-hint{font-size:12px;color:var(--muted)}
@@ -288,18 +300,19 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .map-draw-indicator[hidden]{display:none}
 .map-draw-indicator>span{font-size:12px;font-weight:700;color:var(--blue);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .map-draw-indicator button{min-height:28px;padding:3px 12px;font-size:12px;flex-shrink:0}
-.map-layers-panel > summary{list-style:none;padding:6px 10px;cursor:pointer;font-weight:800;font-size:12px;color:var(--ink)}
-.map-layers-panel > summary::-webkit-details-marker{display:none}
-.map-layers-panel > summary::after{content:' ▾';color:var(--muted);font-weight:400}
-.map-layers-panel[open] > summary::after{content:' ▴'}
 .map-layers-body{padding:2px 10px 10px;display:flex;flex-direction:column;gap:6px}
 /* Sub-group headings in the Layers menu (Transit / Roads & places): the list
    grew long enough with TTC added that grouping reads better than a flat list. */
 .layer-group-heading{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-top:4px;padding-top:6px;border-top:1px solid var(--line)}
 
-/* Active-filter count badge on the collapsed Filters summary. */
-.filter-badge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;margin-left:8px;border-radius:999px;background:var(--blue);color:#fff;font-size:11px;font-weight:800;vertical-align:middle}
+/* Active-filter count badge: a corner badge on the Filters icon (the summary is
+   position:relative). A panel-coloured ring keeps it legible over the glyph. */
+.filterbox:not([open]){overflow:visible}
+.filter-badge{position:absolute;top:-6px;right:-6px;display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 4px;border-radius:999px;background:var(--blue);color:#fff;font-size:11px;font-weight:800;border:2px solid var(--panel)}
+.filterbox[open] .filter-badge{position:static;border:0;margin-left:6px}
 .filter-badge[hidden]{display:none}
+/* Sort: the sort-arrows glyph replaces the "Sort" text label in the status bar. */
+.status-bar .sort-inline .ctrl-glyph{display:inline-flex;align-items:center;color:var(--blue)}
 /* A populated filter field gets a subtle highlight so active constraints are
    findable in the long panel (why a badge count can exceed what is obvious). */
 .filterbox input.filter-filled,.filterbox select.filter-filled{border-color:var(--blue);background:rgba(43,103,214,0.08)}
@@ -329,9 +342,8 @@ button.secondary { background:var(--bg); color:var(--ink); }
   .combined-cards{display:flex;flex-direction:column;gap:10px;padding:10px;overflow-y:auto;overflow-x:hidden}
   .combined-cards .mini-card{width:100%}
   body.combined #viewMap{left:var(--combined-w)}
-  body.combined .filterbox{left:calc(var(--combined-w) + 10px)}
-  /* Draw is now right-anchored (right:12) like Layers/Legend, so it sits over
-     the map in the Combined split with no left shift needed. */
+  /* Filters/Layers/Draw/Legend are all right-anchored icon buttons now, so they
+     sit over the map in the Combined split with no left shift needed. */
   body.combined .status-bar{display:none}
 }
 /* Mobile: a bottom drawer over the map. Collapsed = a strip + a row of
@@ -374,10 +386,6 @@ button.secondary { background:var(--bg); color:var(--ink); }
    switcher on a phone (Map + the drawer already is the combined experience). */
 @media (max-width:699px){
   #btnCombined,#btnGrid{display:none}
-  .filterbox{top:calc(var(--hdr-h) + 8px);left:auto;right:12px;width:auto;max-width:calc(100vw - 24px)}
-  .filterbox > summary{padding:6px 10px;font-size:12px;font-weight:800}
-  .filterbox[open]{width:min(340px,calc(100vw - 24px))}
-  .filterbox[open] .controls{grid-template-columns:1fr}
 }
 
 /* ── Grid view (desktop only) ───────────────────────────────────────────────── */

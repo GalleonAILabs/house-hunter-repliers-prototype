@@ -1603,6 +1603,49 @@ function updateMapStyleUI() {
   const sel = $('mapStyleSelect');
   if (sel) sel.value = choice;
 }
+
+// ─── Icon-only map controls ─────────────────────────────────────────────────────
+// One consistent inline-SVG set (Lucide-style strokes) for the whole control
+// family: funnel (Filters), layers (Layers), pencil (Draw), key/legend (Legend),
+// sort arrows (Sort). Inline SVG so it works under the strict CSP (no icon CDN).
+const CONTROL_ICONS = {
+  filter: '<polygon points="21 4 3 4 10 12 10 19 14 21 14 12 21 4"/>',
+  layers: '<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>',
+  pencil: '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>',
+  legend: '<circle cx="4" cy="6" r="1.6"/><circle cx="4" cy="12" r="1.6"/><circle cx="4" cy="18" r="1.6"/><line x1="9" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="9" y1="18" x2="21" y2="18"/>',
+  sort: '<polyline points="7 4 7 20"/><polyline points="3.5 8 7 4 10.5 8"/><polyline points="17 20 17 4"/><polyline points="13.5 16 17 20 20.5 16"/>',
+};
+function ctrlSvg(name) {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20" aria-hidden="true">${CONTROL_ICONS[name] || ''}</svg>`;
+}
+function setupControlIcons() {
+  document.querySelectorAll('[data-ctrl-icon]').forEach(el => {
+    const glyph = el.querySelector('.ctrl-glyph');
+    if (glyph) glyph.innerHTML = ctrlSvg(el.dataset.ctrlIcon);
+  });
+}
+// Discoverability: desktop hover + touch long-press use the native title (set in
+// HTML). Additionally, the FIRST time a device sees the icon-only controls, the
+// text labels show (icon + text), then collapse to icon-only on the first
+// interaction with any control or after a few seconds, whichever comes first, so
+// the icon->meaning mapping is taught once rather than assumed. Per-device flag.
+const ICONS_TAUGHT_KEY = 'hh_icons_taught_v1';
+function maybeTeachIconLabels() {
+  if (localStorage.getItem(ICONS_TAUGHT_KEY)) return;
+  document.body.classList.add('icons-labeled');
+  let timer = null;
+  const collapse = () => {
+    document.body.classList.remove('icons-labeled');
+    localStorage.setItem(ICONS_TAUGHT_KEY, '1');
+    document.removeEventListener('pointerdown', onInteract, true);
+    if (timer) clearTimeout(timer);
+  };
+  const onInteract = e => {
+    if (e.target.closest('.map-ctrl-btn, .map-draw-btn, .status-bar .sort-inline')) collapse();
+  };
+  document.addEventListener('pointerdown', onInteract, true);
+  timer = setTimeout(collapse, 4500);
+}
 // Satellite-mode legibility: show the white line casings (only meaningful in
 // satellite mode, and only when their parent line layer is toggled on), and
 // bump the Highway 413 line opacity so it reads against imagery. Streets mode
@@ -2623,7 +2666,14 @@ function updateDrawIndicator() {
 }
 function updateDrawToolbar() {
   const btn = $('drawAreaBtn');
-  if (btn) { btn.classList.toggle('active', state.drawMode); btn.textContent = state.drawMode ? '✏️ Drawing…' : '✏️ Draw area'; }
+  if (btn) {
+    // Icon-only button: toggle the active (blue) state and the title/label, but
+    // never overwrite the SVG glyph with textContent.
+    btn.classList.toggle('active', state.drawMode);
+    btn.title = state.drawMode ? 'Drawing… tap the map to add points' : 'Draw area';
+    const label = btn.querySelector('.ctrl-label');
+    if (label) label.textContent = state.drawMode ? 'Drawing…' : 'Draw area';
+  }
   const bar = $('drawToolbar');
   if (bar) bar.hidden = !state.drawMode;
   const finish = $('drawFinishBtn');
@@ -3929,6 +3979,8 @@ function debounce(fn, ms) {
 
 window.addEventListener('DOMContentLoaded', () => {
   loadTheme();
+  setupControlIcons();      // inject the inline-SVG glyphs into the icon controls
+  maybeTeachIconLabels();   // first-visit: show labels once, then collapse to icons
   ['minPrice', 'maxPrice', 'minPit', 'maxPit', 'minDue', 'maxDue'].forEach(wirePriceInput);
   // Restore last-used filter/layer/sort state (T10) before the initial load
   // so filterParams()/currentSource()/currentSort() all read restored values.

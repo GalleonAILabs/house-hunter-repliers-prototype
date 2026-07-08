@@ -53,6 +53,59 @@ file under "Overnight session" headings.
 
 ---
 
+## 2026-07-08 — Map controls converted to icon-only
+
+Supersedes Task 2a's chip style: the control family (Filters, Layers, Draw,
+Legend, Sort) is now icon-only buttons, one consistent style across the whole
+family. Grey/panel background matching the old pills, blue glyph, uniform 40x40
+visual size, tap target >= the old pill height. One icon set: inline Lucide-style
+stroke SVG (required, CSP blocks external icon CDNs), injected from a single
+`CONTROL_ICONS` map in app.js via `data-ctrl-icon`. Icons: funnel (Filters),
+stacked layers (Layers), pencil (Draw), map-key/list (Legend), up/down arrows
+(Sort).
+
+Decisions made in this pass:
+
+1. **Dropdown arrows dropped entirely.** The `details/summary` disclosure arrows
+   (▾▴) rendered as illegible dots at icon size. Per the two options (drop vs.
+   resize legibly), dropped them: `.map-ctrl-btn::after{content:none}`. The icon
+   plus the panel opening below it is enough of a disclosure signal; the arrow
+   added noise at 40x40. This reverses the ▾▴ part of Task 2a.
+
+2. **Discoverability without hover, three layers.** (a) Desktop hover: native
+   `title` tooltip with the control name on every button. (b) Touch long-press:
+   the same `title`/`aria-label` surfaces the name. (c) First-visit teaching:
+   the first time a device sees the icon-only controls, all labels render inline
+   (icon + text, the wider pill form) via `body.icons-labeled`, then collapse to
+   icons after the first interaction with any control OR after 4.5s, whichever
+   comes first. Persisted once-per-device with `localStorage.hh_icons_taught_v1`
+   so returning users go straight to icons. Implemented in `maybeTeachIconLabels`.
+
+3. **Active-filter badge preserved as a corner badge.** The count moved from an
+   inline pill segment to an absolutely-positioned corner badge (top-right of the
+   Filters icon) with a panel-colour ring so it reads at icon size. The Filters
+   container gets `overflow:visible` when collapsed so the badge is not clipped.
+   Verified legible showing "3" at 390px dark.
+
+4. **Active states unchanged in behaviour.** Draw-mode still turns the Draw
+   button blue (now blue background + white glyph/label instead of a blue chip);
+   `updateDrawToolbar` swaps only the label text and `active` class, never the
+   injected icon. Layers carries no satellite/basemap active indicator today, so
+   none was added.
+
+5. **All controls right-anchored.** Filters/Layers/Draw/Legend are a right-edge
+   stack over the map at all widths; the old combined-view left-shift for Filters
+   was removed (it conflicted with the new right anchoring). Sort stays inline in
+   the status bar with a blue glyph.
+
+Verified via CDP at 1280 (light) and 390 (dark), both the first-visit labeled
+state and the collapsed icon-only state: family is uniform 40x40 collapsed,
+expands to icon+text labeled, badge legible, all tap targets 40px. 133 unit
+tests pass. Codex still quota-blocked (OpenAI billing); structured self-review
+substituted per standing note.
+
+---
+
 This file records every ambiguity resolved without stopping to ask, per the
 batch kickoff instructions. Entries are added as work proceeds. A summary
 section is added at the top once the batch is complete.
