@@ -279,6 +279,49 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .map-layers-panel > summary::after{content:' ▾';color:var(--muted);font-weight:400}
 .map-layers-panel[open] > summary::after{content:' ▴'}
 .map-layers-body{padding:2px 10px 10px;display:flex;flex-direction:column;gap:6px}
+
+/* Active-filter count badge on the collapsed Filters summary. */
+.filter-badge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;margin-left:8px;border-radius:999px;background:var(--blue);color:#fff;font-size:11px;font-weight:800;vertical-align:middle}
+.filter-badge[hidden]{display:none}
+
+/* ── Combined view: cards alongside the map ─────────────────────────────────── */
+:root{--combined-w:clamp(300px,32vw,440px)}
+.combined-panel{z-index:600;background:var(--panel);display:flex;flex-direction:column;box-shadow:var(--shadow)}
+.combined-panel[hidden]{display:none}
+.combined-header{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);flex-shrink:0}
+.combined-count{font-size:13px;font-weight:700;color:var(--ink);white-space:nowrap}
+.combined-header .sort-inline{margin-left:auto;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px}
+.combined-grip{display:none}
+.combined-cards{flex:1;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch}
+/* Desktop: a left card column, the map fills the rest. */
+@media (min-width:700px){
+  .combined-panel{position:fixed;top:52px;left:0;bottom:0;width:var(--combined-w);border-right:1px solid var(--line)}
+  .combined-cards{display:flex;flex-direction:column;gap:10px;padding:10px;overflow-y:auto;overflow-x:hidden}
+  .combined-cards .mini-card{width:100%}
+  body.combined #viewMap{left:var(--combined-w)}
+  body.combined .filterbox{left:calc(var(--combined-w) + 10px)}
+  body.combined .map-draw-control{left:calc(var(--combined-w) + 12px)}
+  body.combined .status-bar{display:none}
+}
+/* Mobile: a bottom drawer over the map. Collapsed = a strip + a row of
+   horizontally scrolling cards; expanded (drag the handle up) = taller with a
+   vertical list. The global status bar is hidden so they do not stack. */
+@media (max-width:699px){
+  .combined-panel{position:fixed;left:0;right:0;bottom:0;border-top-left-radius:16px;border-top-right-radius:16px;border-top:1px solid var(--line);transition:height .18s ease}
+  .combined-panel.collapsed{height:212px}
+  .combined-panel.expanded{height:74vh}
+  .combined-header{cursor:grab;touch-action:none;justify-content:center;position:relative;padding-top:14px}
+  .combined-grip{display:block;position:absolute;top:6px;left:50%;transform:translateX(-50%);width:38px;height:4px;border-radius:999px;background:var(--line)}
+  .combined-header .sort-inline{margin-left:12px}
+  /* Collapsed: cards scroll horizontally. touch-action pan-x keeps a horizontal
+     swipe on the cards and leaves vertical drags for the handle. */
+  .combined-panel.collapsed .combined-cards{display:flex;flex-direction:row;gap:10px;padding:10px;overflow-x:auto;overflow-y:hidden;touch-action:pan-x}
+  .combined-panel.collapsed .combined-cards .mini-card{width:260px;flex:0 0 auto}
+  .combined-panel.expanded .combined-cards{display:flex;flex-direction:column;gap:10px;padding:10px;overflow-y:auto;overflow-x:hidden}
+  body.combined .status-bar{display:none}
+}
+/* Hover a card -> highlight its pin (desktop; only for individual, un-clustered pills). */
+.map-pill.map-pill-hi{outline:3px solid #1d4ed8;outline-offset:1px}
 /* Saved-area rows in the Layers menu: on/off toggle + delete, one per area. */
 .area-layer-list{display:flex;flex-direction:column;gap:5px}
 .area-layer-list:not(:empty){margin-top:4px;padding-top:6px;border-top:1px solid var(--line)}

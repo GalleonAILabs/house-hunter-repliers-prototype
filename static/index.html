@@ -23,6 +23,7 @@
     <div class="topbar-right">
       <div class="view-toggle">
         <button class="view-btn active" id="btnMap">🗺 Map</button>
+        <button class="view-btn" id="btnCombined">▨ Both</button>
         <button class="view-btn" id="btnList">☰ List</button>
       </div>
       <select class="who-am-i" id="whoAmI" title="Who you are: every rating, note, reject, and research request is recorded as this person"></select>
@@ -32,7 +33,7 @@
 
   <!-- 2. FILTERS, flex: 0 0 auto, always in flow -->
   <details class="filterbox" id="filterbox">
-    <summary>Filters</summary>
+    <summary>Filters<span class="filter-badge" id="filterBadge" hidden></span></summary>
     <section class="controls">
       <label>Search
         <input id="q" placeholder="address, town, features…" />
@@ -240,6 +241,22 @@
   <!-- 5. LIST VIEW, flex: 1 1 0, scrollable -->
   <div id="viewList" class="view-section" hidden>
     <div id="cards" class="cards"></div>
+  </div>
+
+  <!-- 5b. COMBINED VIEW: cards alongside the map (same #map). Desktop = a left
+       card column; mobile = a bottom drawer over the map (drag the handle to
+       expand/collapse). Shows only the listings whose pins are in the current
+       viewport, in sort order. The header carries the count + sort (the global
+       status bar is hidden in Combined so they do not stack). -->
+  <div id="combinedPanel" class="combined-panel collapsed" hidden>
+    <div class="combined-header" id="combinedHandle">
+      <span class="combined-grip" aria-hidden="true"></span>
+      <span class="combined-count" id="combinedCount">0 listings</span>
+      <label class="sort-inline">Sort
+        <select id="sortCombined"></select>
+      </label>
+    </div>
+    <div class="combined-cards" id="combinedCards"></div>
   </div>
 
   <!-- SETTINGS PANEL: a main list of sections, each opening its own

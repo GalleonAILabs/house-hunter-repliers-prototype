@@ -808,6 +808,8 @@ function applyFiltersAndRender() {
   state.listings = filterByFeedback(state.rawListings);
   refreshMap(state.listings);
   renderCards(state.listings);
+  renderCombined();
+  updateFilterBadge();
   const summaryText = state.source === 'poc'
     ? `${state.listings.length} of ${state.sourceCount} POC listings`
     : `${state.listings.length} shown · ${Number(state.sourceCount).toLocaleString()} Sample Data available`;
@@ -1122,14 +1124,28 @@ function buildFeedbackActions(node, item) {
   container.append(starsLabel, starsRow, btnRow, noteBox, rejectBox, statusEl);
 }
 
-// ─── View toggle ──────────────────────────────────────────────────────────────
+// ─── View toggle (Map / Combined / List), persisted per device ──────────────────
+const VIEW_KEY = 'hh_view';
+function loadView() {
+  const v = localStorage.getItem(VIEW_KEY);
+  return (v === 'list' || v === 'combined') ? v : 'map';
+}
 function switchView(view) {
   state.activeView = view;
-  $('viewMap').hidden = view !== 'map';
+  localStorage.setItem(VIEW_KEY, view);
+  // Combined shows the map AND the card panel together.
+  const mapShown = view === 'map' || view === 'combined';
+  $('viewMap').hidden = !mapShown;
   $('viewList').hidden = view !== 'list';
+  $('combinedPanel').hidden = view !== 'combined';
+  document.body.classList.toggle('combined', view === 'combined');
   $('btnMap').classList.toggle('active', view === 'map');
+  $('btnCombined')?.classList.toggle('active', view === 'combined');
   $('btnList').classList.toggle('active', view === 'list');
-  if (view === 'map') requestAnimationFrame(() => state.map?.resize());
+  if (view === 'combined') renderCombined();
+  // The map's container width changes entering/leaving Combined (desktop) or
+  // Map, so let Mapbox recompute the canvas size after layout settles.
+  if (mapShown) requestAnimationFrame(() => state.map?.resize());
 }
 
 // ─── Map (Mapbox GL JS) ────────────────────────────────────────────────────────
@@ -1408,7 +1424,10 @@ function wireMapHandlers() {
   // On pan/zoom: refetch server clusters when clustering is active, else
   // re-collapse the individual pill markers for the new zoom so pills separate
   // as you zoom in and merge into count circles where they would pile up.
-  map.on('moveend', () => { if (clusteringActive()) scheduleClusterRefetch(); else schedulePillRelayout(); });
+  map.on('moveend', () => {
+    if (clusteringActive()) scheduleClusterRefetch(); else schedulePillRelayout();
+    if (state.activeView === 'combined') renderCombined(); // re-derive the viewport set
+  });
 
   // In draw mode every map click drops a polygon vertex (works with touch: one
   // tap = one vertex). The listing/cluster click handlers early-return in draw
@@ -2382,6 +2401,7 @@ function deactivateAllAreas() {
 }
 function onDrawAreaChanged() {
   updateDrawIndicator();
+  updateFilterBadge(); // enabled drawn areas count toward the active-filter badge
   // Sample Data is re-fetched so the Repliers `map` param filters server-side;
   // POC filters client-side, so a re-render is enough. Neither re-centers the
   // map (the areas may be anywhere; the user is looking at the current view).
@@ -2437,6 +2457,7 @@ function renderPillMarkers(list) {
       el = document.createElement('button');
       el.type = 'button';
       el.className = 'map-pill';
+      el.dataset.mls = item.mls; // lets a hovered Combined card highlight this pin
       el.style.background = markerColor(item);
       el.textContent = pillLabel(item);
       el.title = item.address || '';
@@ -2898,6 +2919,94 @@ function renderCards(list) {
   applyCardVisibility();
 }
 
+// ─── Combined view: viewport-linked cards + map ────────────────────────────────
+// The visible set: already-filtered listings (filterByFeedback, so all active
+// filters + enabled drawn areas apply) whose pins fall inside the current map
+// viewport, in the current sort order. Re-derived on pan/zoom (moveend).
+function listingsInViewport() {
+  const all = sortListings(state.listings);
+  if (!state.map || !state.mapReady || typeof state.map.getBounds !== 'function') return all;
+  let b;
+  try { b = state.map.getBounds(); } catch (_) { return all; }
+  if (!b) return all;
+  return all.filter(it => it.lat != null && it.lng != null && b.contains([it.lng, it.lat]));
+}
+function highlightPin(mls, on) {
+  if (!mls) return;
+  const sel = '.map-pill[data-mls="' + ((window.CSS && CSS.escape) ? CSS.escape(mls) : mls) + '"]';
+  const el = document.querySelector(sel);
+  if (el) el.classList.toggle('map-pill-hi', on);
+}
+function renderCombined() {
+  if (state.activeView !== 'combined') return;
+  const container = $('combinedCards');
+  if (!container) return;
+  const inView = listingsInViewport();
+  container.innerHTML = '';
+  inView.forEach(item => {
+    const card = buildMiniCard(item); // the one mini-card component (also cluster popup + list)
+    // Desktop nicety: hovering a card highlights its pin, when that pin is an
+    // individual (un-clustered) pill. Clustered listings have no own pin, so
+    // they simply do not highlight (see DECISIONS.md).
+    card.addEventListener('mouseenter', () => highlightPin(item.mls, true));
+    card.addEventListener('mouseleave', () => highlightPin(item.mls, false));
+    container.appendChild(card);
+  });
+  const countEl = $('combinedCount');
+  if (countEl) countEl.textContent = `${inView.length} of ${state.listings.length} listings`;
+}
+
+// Mobile bottom-drawer drag: the handle snaps the drawer between a collapsed
+// strip and an expanded taller list. Card scrolling (horizontal, collapsed) is
+// native overflow inside the drawer, so it never reaches the map; map pan
+// happens on the map area above the drawer.
+function initDrawerDrag() {
+  const handle = $('combinedHandle');
+  const panel = $('combinedPanel');
+  if (!handle || !panel) return;
+  let startY = null, dragging = false;
+  const isMobile = () => window.matchMedia('(max-width:699px)').matches;
+  const setExpanded = expand => {
+    panel.classList.toggle('expanded', expand);
+    panel.classList.toggle('collapsed', !expand);
+  };
+  handle.addEventListener('pointerdown', e => {
+    if (!isMobile()) return;
+    startY = e.clientY; dragging = true;
+    try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+  });
+  handle.addEventListener('pointerup', e => {
+    if (!dragging) return;
+    dragging = false;
+    try { handle.releasePointerCapture(e.pointerId); } catch (_) {}
+    const dy = e.clientY - startY;
+    if (dy < -30) setExpanded(true);          // dragged up -> expand
+    else if (dy > 30) setExpanded(false);     // dragged down -> collapse
+    else setExpanded(!panel.classList.contains('expanded')); // tap -> toggle
+  });
+}
+
+// ─── Active-filter count badge (on the collapsed Filters summary) ──────────────
+function activeFilterCount() {
+  let n = 0;
+  const valueFields = ['q', 'filterStatus', 'minPrice', 'maxPrice', 'minBeds', 'maxBeds',
+    'minBaths', 'maxBaths', 'minSqft', 'maxSqft', 'minAcres', 'maxAcres', 'maxCommute',
+    'minHwyKm', 'maxHwyKm', 'minAttachDrive', 'maxAttachDrive', 'minPit', 'maxPit',
+    'minDue', 'maxDue', 'minFit'];
+  valueFields.forEach(id => { const el = $(id); if (el && String(el.value || '').trim() !== '') n++; });
+  ['hideVetoed', 'featGarage', 'featPool', 'featBasement'].forEach(id => { if ($(id)?.checked) n++; });
+  state.people.forEach(p => PERSON_FILTER_OPTIONS.forEach(o => { if ($(personFilterCbId(p.id, o.value))?.checked) n++; }));
+  n += state.savedAreas.filter(a => isAreaActive(a.id)).length; // each enabled drawn area
+  return n;
+}
+function updateFilterBadge() {
+  const badge = $('filterBadge');
+  if (!badge) return;
+  const n = activeFilterCount();
+  badge.hidden = n === 0;
+  badge.textContent = String(n);
+}
+
 // ─── Sort ─────────────────────────────────────────────────────────────────────
 function currentSort() {
   // Both sort selects stay in sync; use whichever is active
@@ -2907,6 +3016,7 @@ function currentSort() {
 function syncSort(value) {
   if ($('sort')) $('sort').value = value;
   if ($('sortList')) $('sortList').value = value;
+  if ($('sortCombined')) $('sortCombined').value = value;
 }
 
 function sortListings(list) {
@@ -3070,6 +3180,7 @@ function saveFilterState() {
   PERSISTED_CHECKBOX_IDS.forEach(id => { const el = $(id); if (el) saved[id] = el.checked; });
   saved._personFilters = Array.from(document.querySelectorAll('#personFilters input[type=checkbox]:checked')).map(cb => cb.id);
   localStorage.setItem(FILTER_STATE_KEY, JSON.stringify(saved));
+  updateFilterBadge(); // the badge tracks live edits, not just applied loads
 }
 
 function loadSavedFilterState() {
@@ -3215,10 +3326,20 @@ window.addEventListener('DOMContentLoaded', () => {
   $('drawUndoBtn')?.addEventListener('click', undoDrawVertex);
   $('drawCancelBtn')?.addEventListener('click', cancelDrawing);
   $('drawIndicatorClear')?.addEventListener('click', deactivateAllAreas);
-  $('sort')?.addEventListener('change', e => { syncSort(e.target.value); renderCards(state.listings); refreshMap(state.listings); });
+  $('sort')?.addEventListener('change', e => { syncSort(e.target.value); renderCards(state.listings); refreshMap(state.listings); renderCombined(); });
   $('sortList')?.addEventListener('change', e => { syncSort(e.target.value); renderCards(state.listings); });
+  // Combined sort: reuse the same option list; changing it re-sorts every view.
+  if ($('sortCombined') && $('sort')) {
+    $('sortCombined').innerHTML = $('sort').innerHTML;
+    $('sortCombined').value = currentSort();
+    $('sortCombined').addEventListener('change', e => { syncSort(e.target.value); renderCombined(); renderCards(state.listings); saveFilterState(); });
+  }
+  initDrawerDrag();
   $('btnMap').addEventListener('click', () => switchView('map'));
+  $('btnCombined')?.addEventListener('click', () => switchView('combined'));
   $('btnList').addEventListener('click', () => switchView('list'));
+  switchView(loadView());  // restore the persisted Map / Combined / List choice
+  updateFilterBadge();     // reflect any restored filters immediately
   $('themeBtn').addEventListener('click', cycleTheme);
   $('settingsBtn').addEventListener('click', openSettings);
   $('settingsClose').addEventListener('click', closeSettings);
