@@ -561,8 +561,12 @@ function personFilterCbId(personId, value) { return `personFilter_${personId}_${
 
 function personFilterChip(personId, value) {
   const o = PERSON_FILTER_OPTIONS.find(x => x.value === value);
+  // Only add a native title when it says more than the visible label. For
+  // chips whose title equals the label (e.g. "Said no"), the title is pure
+  // redundancy and just an extra native tooltip to linger, so omit it.
+  const titleAttr = o.title && o.title !== o.label ? ` title="${esc(o.title)}"` : '';
   return `
-    <label class="chip" title="${esc(o.title)}">
+    <label class="chip"${titleAttr}>
       <input type="checkbox" id="${personFilterCbId(personId, o.value)}" data-person-id="${personId}" data-value="${o.value}" />
       ${esc(o.label)}
     </label>
