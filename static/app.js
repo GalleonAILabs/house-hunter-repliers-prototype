@@ -368,7 +368,7 @@ async function loadConfig() {
 
 // ─── State ────────────────────────────────────────────────────────────────────
 const state = { map: null, mapReady: false, rawListings: [], listings: [], activeView: 'map', people: [], activePerson: null, feedback: {}, openMapItem: null, source: 'poc', sourceCount: 0, clusters: [], poi: [], householdSettings: {}, personThresholds: {}, personThresholdsError: false, placeAttachments: {}, clusterPopupOpen: false,
-  drawMode: false, savedAreas: [], drawCurrent: [], pillListings: [], mapStyle: 'streets' };
+  drawMode: false, savedAreas: [], drawCurrent: [], pillListings: [], mapStyle: 'streets', drawerOn: false };
 let cardSettings = loadSettings();
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -1146,25 +1146,34 @@ function buildFeedbackActions(node, item) {
 
 // ─── View toggle (Map / Combined / List), persisted per device ──────────────────
 const VIEW_KEY = 'hh_view';
+function isNarrowViewport() { return window.matchMedia('(max-width:699px)').matches; }
+let _wasNarrowViewport = isNarrowViewport(); // tracks breakpoint crossings for resize
 function loadView() {
   const v = localStorage.getItem(VIEW_KEY);
-  return (v === 'list' || v === 'combined') ? v : 'map';
+  const view = (v === 'list' || v === 'combined') ? v : 'map';
+  // Combined ("Both") is desktop-only: on a phone the Map drawer already is the
+  // combined experience, so a persisted Both falls back to Map.
+  if (view === 'combined' && isNarrowViewport()) return 'map';
+  return view;
 }
 function switchView(view) {
   state.activeView = view;
   localStorage.setItem(VIEW_KEY, view);
-  // Combined shows the map AND the card panel together.
   const mapShown = view === 'map' || view === 'combined';
+  // The cards drawer/column shows for desktop "Both" AND for mobile "Map": on a
+  // phone, Map with the drawer IS the combined experience (there is no Both).
+  const drawerOn = view === 'combined' || (view === 'map' && isNarrowViewport());
+  state.drawerOn = drawerOn;
   $('viewMap').hidden = !mapShown;
   $('viewList').hidden = view !== 'list';
-  $('combinedPanel').hidden = view !== 'combined';
-  document.body.classList.toggle('combined', view === 'combined');
+  $('combinedPanel').hidden = !drawerOn;
+  document.body.classList.toggle('combined', drawerOn);
   $('btnMap').classList.toggle('active', view === 'map');
   $('btnCombined')?.classList.toggle('active', view === 'combined');
   $('btnList').classList.toggle('active', view === 'list');
-  if (view === 'combined') renderCombined();
-  // The map's container width changes entering/leaving Combined (desktop) or
-  // Map, so let Mapbox recompute the canvas size after layout settles.
+  if (drawerOn) renderCombined();
+  // The map's container width changes entering/leaving the desktop column, so
+  // let Mapbox recompute the canvas size after layout settles.
   if (mapShown) requestAnimationFrame(() => state.map?.resize());
 }
 
@@ -1222,7 +1231,18 @@ function initMap() {
   // (a pin, a cluster) stop propagation so that same click does not also
   // trigger the outside-click close on what it just opened.
 
-  window.addEventListener('resize', () => state.map?.resize());
+  window.addEventListener('resize', () => {
+    state.map?.resize();
+    // Only react when the mobile/desktop breakpoint actually flips (mobile
+    // URL-bar show/hide fires resize constantly, which must not rebuild the
+    // drawer). Crossing into phone width drops Both -> Map; either crossing
+    // re-derives the drawer (mobile Map has it, desktop Map does not).
+    const narrow = isNarrowViewport();
+    if (narrow === _wasNarrowViewport) return;
+    _wasNarrowViewport = narrow;
+    if (state.activeView === 'combined' && narrow) switchView('map');
+    else switchView(state.activeView);
+  });
 }
 
 // All custom sources + layers. Split out from event wiring because setStyle()
@@ -1446,7 +1466,7 @@ function wireMapHandlers() {
   // as you zoom in and merge into count circles where they would pile up.
   map.on('moveend', () => {
     if (clusteringActive()) scheduleClusterRefetch(); else schedulePillRelayout();
-    if (state.activeView === 'combined') renderCombined(); // re-derive the viewport set
+    if (state.drawerOn) renderCombined(); // re-derive the viewport set (drawer/column)
   });
 
   // In draw mode every map click drops a polygon vertex (works with touch: one
@@ -3055,7 +3075,7 @@ function highlightPin(mls, on) {
   if (el) el.classList.toggle('map-pill-hi', on);
 }
 function renderCombined() {
-  if (state.activeView !== 'combined') return;
+  if (!state.drawerOn) return; // desktop Both or mobile Map drawer
   const container = $('combinedCards');
   if (!container) return;
   const inView = listingsInViewport();
