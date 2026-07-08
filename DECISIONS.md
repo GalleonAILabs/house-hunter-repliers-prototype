@@ -1091,3 +1091,36 @@ gitignored data/ dir, so not committed).
 NEEDS MARK: if a new Hermes POC export exists, it is not on MM1. Point me at the
 file path (or sync it into `data/` or the vault) and I will run the keyed merge
 as specified.
+
+## Overnight session — Task 2a: map control normalization
+
+One shared control-chip style now applies across Filters, Layers, Legend, Sort,
+and Draw: font-size 12px, weight 800, disclosure padding 6px 10px, radius 12px,
+and the ▾/▴ arrow. Previously Filters was 13px/900 with ▼/▲, Sort was weight
+700, and Draw was min-height 36 / padding 7px 12px (the "dramatically larger"
+one). Layers and Legend were already the canonical, so the others were brought
+to match. Draw keeps ONLY its active-state blue, at the shared size.
+
+Draw-mode toolbar (Undo point / Finish area / Cancel): identical size, each
+label on one line, stacked VERTICALLY (full width). JUDGMENT CALL: the three
+full labels ("Undo point", "Finish area") do not fit one horizontal row at 390px
+without shrinking or wrapping, so a vertical stack keeps them identical size with
+full labels; Finish keeps FILL emphasis (the only non-secondary button), not
+size emphasis. Verified at 390 (dark) and 1280 (light).
+
+JUDGMENT CALL — Draw stays on the LEFT (not moved into the right-side stack).
+The task allows keeping it left if drawing ergonomics argue for it; they do:
+Draw is the only control that opens a secondary multi-button toolbar in place,
+and the right column already stacks the compact Filters + Layers (mobile). Put
+in the right column, Draw's expandable toolbar would overlap the equally-
+expandable Layers panel whenever either opened, and on mobile would cover more
+of the map during drawing. Its own left lane gives the toolbar unobstructed
+space and keeps the map's right/centre clear for drawing taps. Size was the
+actual reported defect and is fixed; if Mark still wants Draw physically in the
+right stack, it's a small follow-up but the expandable-overlap tradeoff wanted a
+human eye, so I did not force it unattended.
+
+Verified consistency via CDP: all five controls report font-size 12px / weight
+800; the four disclosure chips share 6px 10px padding. Both themes, and both
+basemaps share these solid-panel control chips (satellite legibility confirmed
+in the earlier per-layer pass).

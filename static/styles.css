@@ -38,10 +38,14 @@ h1 { font-size:18px; color:#fff; white-space:nowrap; }
 .who-am-i option { color:#000; }
 
 .filterbox { position:fixed; top:calc(var(--hdr-h) + 10px); left:12px; right:12px; max-width:100%; z-index:500; background:var(--panel); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); max-height:70vh; overflow-y:auto; overflow-x:hidden; }
-.filterbox > summary { list-style:none; padding:8px 12px; cursor:pointer; font-weight:900; font-size:13px; color:var(--ink); }
+/* One shared map-control chip style across Filters, Layers, Legend, Sort, Draw:
+   same size, weight, padding, radius, and ▾/▴ arrow. Layers/Legend already set
+   the canonical (6px 10px, 800, 12px, ▾/▴); the rules below bring the others to
+   match. */
+.filterbox > summary { list-style:none; padding:6px 10px; cursor:pointer; font-weight:800; font-size:12px; color:var(--ink); }
 .filterbox > summary::-webkit-details-marker { display:none; }
-.filterbox > summary::after { content:' ▼'; color:var(--muted); font-weight:400; }
-.filterbox[open] > summary::after { content:' ▲'; }
+.filterbox > summary::after { content:' ▾'; color:var(--muted); font-weight:400; }
+.filterbox[open] > summary::after { content:' ▴'; }
 /* Defensive: no element inside the filter panel may force horizontal
    overflow. min-width:0 overrides the browser default (min-width:auto) that
    lets a grid/flex item's intrinsic content size force its container wider
@@ -76,7 +80,7 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .feature-filter-caption { flex-basis:100%; font-size:12px; font-style:italic; color:var(--muted); }
 
 .status-bar { position:fixed; left:12px; right:12px; bottom:12px; z-index:500; display:flex; justify-content:space-between; align-items:center; gap:10px; padding:8px 12px; font-size:13px; color:var(--muted); border:1px solid var(--line); border-radius:14px; background:var(--panel); box-shadow:var(--shadow); }
-.sort-inline { display:flex; align-items:center; gap:6px; font-weight:700; white-space:nowrap; }
+.sort-inline { display:flex; align-items:center; gap:6px; font-weight:800; font-size:12px; white-space:nowrap; }
 .sort-inline select { min-height:30px; padding:3px 8px; font-size:12px; border-radius:8px; }
 
 .map-card { position:fixed; bottom:0; left:0; right:0; z-index:700; background:var(--panel); border-radius:20px 20px 0 0; box-shadow:0 -4px 32px rgba(0,0,0,.22); max-height:72vh; overflow-y:auto; }
@@ -263,13 +267,19 @@ button.secondary { background:var(--bg); color:var(--ink); }
 /* Draw-an-area controls: a button + an in-draw toolbar (top-left), and an
    active-filter pill (top-centre). Same panel/shadow language as the others. */
 .map-draw-control{position:fixed;top:100px;left:12px;z-index:500;display:flex;flex-direction:column;gap:6px;align-items:flex-start;max-width:calc(100vw - 24px)}
-.map-draw-btn{min-height:36px;padding:7px 12px;box-shadow:var(--shadow)}
+/* Draw trigger matches the shared control chip size; keeps only its active-state
+   blue, not its former larger size. */
+.map-draw-btn{min-height:0;padding:6px 10px;font-size:12px;font-weight:800;border-radius:12px;box-shadow:var(--shadow)}
 .map-draw-btn.active{background:var(--blue);color:#fff;border-color:var(--blue)}
 .map-draw-toolbar{background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:9px 11px;display:flex;flex-direction:column;gap:8px;max-width:min(230px,calc(100vw - 24px))}
 .map-draw-toolbar[hidden]{display:none}
 .draw-hint{font-size:12px;color:var(--muted)}
-.draw-toolbar-btns{display:flex;flex-wrap:wrap;gap:6px}
-.draw-toolbar-btns button{min-height:34px;padding:6px 10px;font-size:13px}
+/* Undo / Finish / Cancel: identical size, each label on one line. Stacked
+   vertically (full width) because the three full labels do not fit one
+   horizontal row at 390px without shrinking. Finish keeps FILL emphasis (it is
+   the only non-.secondary button), not size emphasis. */
+.draw-toolbar-btns{display:flex;flex-direction:column;gap:6px}
+.draw-toolbar-btns button{width:100%;min-height:34px;padding:7px 10px;font-size:13px;white-space:nowrap}
 .map-draw-indicator{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:501;display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--blue);border-radius:999px;box-shadow:var(--shadow);padding:5px 6px 5px 14px;max-width:calc(100vw - 24px)}
 .map-draw-indicator[hidden]{display:none}
 .map-draw-indicator>span{font-size:12px;font-weight:700;color:var(--blue);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
