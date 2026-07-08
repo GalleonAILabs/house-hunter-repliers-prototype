@@ -6,12 +6,15 @@ normalizes sample listing data, and serves a Leaflet/card UI.
 """
 from __future__ import annotations
 
+import csv
 import functools
+import io
 import json
 import math
 import os
 import re
 import sqlite3
+import zipfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -940,6 +943,128 @@ def handle_area_delete(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         return {"ok": True, "id": area_id}, 200
     finally:
         conn.close()
+
+
+# ─── Export (CSV + real .xlsx, stdlib only) ─────────────────────────────────────
+# The client sends the already-derived rows (filters + drawn areas + scope + the
+# chosen columns applied client-side) so the export always matches what the grid
+# shows. The server just formats. columns: [{"key","label","type"}], type is
+# "number" or "text". rows: [{key: value}].
+def build_csv(columns: list[dict[str, Any]], rows: list[dict[str, Any]]) -> bytes:
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([c.get("label", c["key"]) for c in columns])
+    for row in rows:
+        writer.writerow(["" if row.get(c["key"]) is None else row.get(c["key"]) for c in columns])
+    # UTF-8 BOM so Excel opens accented text correctly.
+    return buf.getvalue().encode("utf-8-sig")
+
+
+def _xlsx_col_letter(n: int) -> str:
+    """1-based column index to spreadsheet letters (1->A, 27->AA)."""
+    s = ""
+    while n > 0:
+        n, rem = divmod(n - 1, 26)
+        s = chr(65 + rem) + s
+    return s
+
+
+def _xlsx_escape(value: Any) -> str:
+    return (str(value).replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace('"', "&quot;"))
+
+
+def build_xlsx(columns: list[dict[str, Any]], rows: list[dict[str, Any]]) -> bytes:
+    """A minimal but valid .xlsx (Office Open XML), built with zipfile. Numeric
+    columns whose value is a real number are written as number cells (t absent),
+    everything else as inline strings, so numbers sort/compute as numbers."""
+    def cell(col_idx: int, row_idx: int, value: Any, numeric: bool, style: int = 0) -> str:
+        ref = f"{_xlsx_col_letter(col_idx)}{row_idx}"
+        s_attr = f' s="{style}"' if style else ""
+        if numeric:
+            return f'<c r="{ref}"{s_attr}><v>{value}</v></c>'
+        text = "" if value is None else value
+        return (f'<c r="{ref}"{s_attr} t="inlineStr"><is>'
+                f'<t xml:space="preserve">{_xlsx_escape(text)}</t></is></c>')
+
+    sheet_rows = ['<row r="1">' + "".join(
+        cell(i + 1, 1, columns[i].get("label", columns[i]["key"]), False, style=1)
+        for i in range(len(columns))
+    ) + "</row>"]
+    for ri, row in enumerate(rows, start=2):
+        cells = []
+        for ci, col in enumerate(columns, start=1):
+            val = row.get(col["key"])
+            numeric = col.get("type") == "number" and isinstance(val, (int, float)) and not isinstance(val, bool)
+            cells.append(cell(ci, ri, val, numeric))
+        sheet_rows.append(f'<row r="{ri}">' + "".join(cells) + "</row>")
+
+    sheet_xml = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<sheetData>' + "".join(sheet_rows) + '</sheetData></worksheet>')
+    content_types = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+        '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+        '</Types>')
+    root_rels = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+        '</Relationships>')
+    workbook = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        '<sheets><sheet name="Listings" sheetId="1" r:id="rId1"/></sheets></workbook>')
+    wb_rels = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+        '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+        '</Relationships>')
+    styles = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font>'
+        '<font><b/><sz val="11"/><name val="Calibri"/></font></fonts>'
+        '<fills count="1"><fill><patternFill patternType="none"/></fill></fills>'
+        '<borders count="1"><border/></borders>'
+        '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+        '<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+        '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs>'
+        '</styleSheet>')
+
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("[Content_Types].xml", content_types)
+        zf.writestr("_rels/.rels", root_rels)
+        zf.writestr("xl/workbook.xml", workbook)
+        zf.writestr("xl/_rels/workbook.xml.rels", wb_rels)
+        zf.writestr("xl/styles.xml", styles)
+        zf.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+    return out.getvalue()
+
+
+def handle_export(body: dict[str, Any]) -> tuple[bytes, str, str, int]:
+    """Returns (body_bytes, content_type, filename, status). On a bad request,
+    returns a JSON error body with a 400."""
+    fmt = body.get("format")
+    columns = body.get("columns")
+    rows = body.get("rows")
+    filename = body.get("filename") or "listings"
+    if fmt not in ("csv", "xlsx"):
+        return json.dumps({"error": "invalid_request", "detail": "format must be csv or xlsx"}).encode(), "application/json", "", 400
+    if not isinstance(columns, list) or not columns or not all(isinstance(c, dict) and c.get("key") for c in columns):
+        return json.dumps({"error": "invalid_request", "detail": "columns must be a non-empty list of {key,label,type}"}).encode(), "application/json", "", 400
+    if not isinstance(rows, list):
+        return json.dumps({"error": "invalid_request", "detail": "rows must be a list"}).encode(), "application/json", "", 400
+    # Sanitize the filename to a safe basename.
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", str(filename)).strip("-") or "listings"
+    if fmt == "csv":
+        return build_csv(columns, rows), "text/csv; charset=utf-8", f"{safe}.csv", 200
+    return (build_xlsx(columns, rows),
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            f"{safe}.xlsx", 200)
 
 
 _NOW_SQL = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
@@ -2281,6 +2406,36 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 data, status = handle_area_post(body)
                 self.send_json(data, status)
+                return
+            if parsed.path == "/api/export":
+                if not require_auth(self):
+                    self.send_json({"error": "unauthorized"}, 401)
+                    return
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                raw_body = self.rfile.read(length) if length else b""
+                try:
+                    body = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    self.send_json({"error": "invalid_request", "detail": "malformed JSON body"}, 400)
+                    return
+                if not isinstance(body, dict):
+                    self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
+                    return
+                out_bytes, content_type, filename, status = handle_export(body)
+                if status != 200:
+                    self.send_response(status)
+                    self.send_header("Content-Type", content_type)
+                    self.send_header("Content-Length", str(len(out_bytes)))
+                    self.end_headers()
+                    self.wfile.write(out_bytes)
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(out_bytes)))
+                self.end_headers()
+                self.wfile.write(out_bytes)
                 return
             if parsed.path == "/api/household-settings":
                 if not require_auth(self):

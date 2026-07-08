@@ -368,7 +368,8 @@ async function loadConfig() {
 
 // ─── State ────────────────────────────────────────────────────────────────────
 const state = { map: null, mapReady: false, rawListings: [], listings: [], activeView: 'map', people: [], activePerson: null, feedback: {}, openMapItem: null, source: 'poc', sourceCount: 0, clusters: [], poi: [], householdSettings: {}, personThresholds: {}, personThresholdsError: false, placeAttachments: {}, clusterPopupOpen: false,
-  drawMode: false, savedAreas: [], drawCurrent: [], pillListings: [], mapStyle: 'streets', drawerOn: false };
+  drawMode: false, savedAreas: [], drawCurrent: [], pillListings: [], mapStyle: 'streets', drawerOn: false,
+  gridSort: null, gridSelection: new Set() };
 let cardSettings = loadSettings();
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -829,6 +830,7 @@ function applyFiltersAndRender() {
   refreshMap(state.listings);
   renderCards(state.listings);
   renderCombined();
+  renderGrid();
   updateFilterBadge();
   const summaryText = state.source === 'poc'
     ? `${state.listings.length} of ${state.sourceCount} POC listings`
@@ -1150,10 +1152,14 @@ function isNarrowViewport() { return window.matchMedia('(max-width:699px)').matc
 let _wasNarrowViewport = isNarrowViewport(); // tracks breakpoint crossings for resize
 function loadView() {
   const v = localStorage.getItem(VIEW_KEY);
-  const view = (v === 'list' || v === 'combined') ? v : 'map';
-  // Combined ("Both") is desktop-only: on a phone the Map drawer already is the
-  // combined experience, so a persisted Both falls back to Map.
-  if (view === 'combined' && isNarrowViewport()) return 'map';
+  const view = (v === 'list' || v === 'combined' || v === 'grid') ? v : 'map';
+  // Combined ("Both") and Grid are desktop-only. On a phone: Both -> Map (the
+  // drawer is the combined experience there); Grid -> List (its row-per-listing
+  // equivalent).
+  if (isNarrowViewport()) {
+    if (view === 'combined') return 'map';
+    if (view === 'grid') return 'list';
+  }
   return view;
 }
 function switchView(view) {
@@ -1167,11 +1173,15 @@ function switchView(view) {
   $('viewMap').hidden = !mapShown;
   $('viewList').hidden = view !== 'list';
   $('combinedPanel').hidden = !drawerOn;
+  $('viewGrid').hidden = view !== 'grid';
   document.body.classList.toggle('combined', drawerOn);
+  document.body.classList.toggle('grid', view === 'grid');
   $('btnMap').classList.toggle('active', view === 'map');
   $('btnCombined')?.classList.toggle('active', view === 'combined');
   $('btnList').classList.toggle('active', view === 'list');
+  $('btnGrid')?.classList.toggle('active', view === 'grid');
   if (drawerOn) renderCombined();
+  if (view === 'grid') renderGrid();
   // The map's container width changes entering/leaving the desktop column, so
   // let Mapbox recompute the canvas size after layout settles.
   if (mapShown) requestAnimationFrame(() => state.map?.resize());
@@ -3126,6 +3136,314 @@ function initDrawerDrag() {
   handle.addEventListener('pointercancel', () => { dragging = false; });
 }
 
+// ─── Grid view (desktop): spreadsheet + selection + bulk commands + export ──────
+function numOrNull(v) { return (v == null || v === '' || isNaN(Number(v))) ? null : Number(v); }
+function sentimentWordFor(item) {
+  const feedbackByPerson = new Map((state.feedback[item.mls] || []).map(f => [f.person_id, f]));
+  const buyers = state.people.filter(p => p.role === 'buyer');
+  return buyerHeadline(buyers, feedbackByPerson).word;
+}
+function gridCommuteVal(i) { return i.poc?.goTotal ?? i.goMin ?? null; }
+// Data columns (checkbox + thumbnail are rendered separately). `get` returns the
+// raw value (numbers stay numbers for sort + export typing); `fmt` is the display
+// string; `type` drives export cell typing and numeric alignment.
+function gridColumns() {
+  const rating = i => personFeedbackFor(i.mls, state.activePerson)?.rating ?? null;
+  return [
+    { key: 'address', label: 'Address', type: 'text', get: i => i.address || '', fmt: i => i.address || '', sortable: true },
+    { key: 'price', label: 'Price', type: 'number', get: i => effectivePrice(i).value ?? null, fmt: i => money(effectivePrice(i).value) || '', sortable: true },
+    { key: 'beds', label: 'Beds', type: 'number', get: i => numOrNull(i.bedsNum ?? i.beds), fmt: i => String(i.beds ?? i.bedsNum ?? ''), sortable: true },
+    { key: 'baths', label: 'Baths', type: 'number', get: i => numOrNull(i.baths), fmt: i => i.baths != null ? num(i.baths) : '', sortable: true },
+    { key: 'sqft', label: 'Sqft', type: 'number', get: i => numOrNull(i.sqft), fmt: i => i.sqft ? num(i.sqft) : '', sortable: true },
+    { key: 'fit', label: 'Fit', type: 'number', get: i => i.fit?.met ?? null, fmt: i => i.fit ? `${i.fit.met}/${i.fit.total}` : '', sortable: true },
+    { key: 'myRating', label: 'My rating', type: 'number', get: i => rating(i), fmt: i => { const r = rating(i); return r != null ? r + '★' : ''; }, sortable: true },
+    { key: 'group', label: 'Group', type: 'text', get: i => sentimentWordFor(i), fmt: i => sentimentWordFor(i), sortable: true },
+    { key: 'pit', label: 'Monthly PIT', type: 'number', get: i => effectivePitNum(i) ?? null, fmt: i => money(effectivePitNum(i)) || '', sortable: true },
+    { key: 'close', label: 'Cost to close', type: 'number', get: i => effectiveDueNum(i) ?? null, fmt: i => money(effectiveDueNum(i)) || '', sortable: true },
+    { key: 'highway', label: 'Highway (km)', type: 'number', get: i => numOrNull(i.highwayKm), fmt: i => i.highwayKm != null ? num(i.highwayKm) : '', sortable: true },
+    { key: 'commute', label: 'GO commute (min)', type: 'number', get: i => numOrNull(gridCommuteVal(i)), fmt: i => { const g = gridCommuteVal(i); return g != null ? num(g) : ''; }, sortable: true },
+  ];
+}
+// Same filtered set as every view; grid header clicks set a local sort override,
+// otherwise the shared global sort (sortListings) applies.
+function gridRows() {
+  const cols = gridColumns();
+  if (!state.gridSort) return sortListings(state.listings);
+  const col = cols.find(c => c.key === state.gridSort.key);
+  if (!col) return sortListings(state.listings);
+  const dir = state.gridSort.dir === 'asc' ? 1 : -1;
+  const isNum = col.type === 'number';
+  return [...state.listings].sort((a, b) => {
+    let av = col.get(a), bv = col.get(b);
+    if (isNum) { if (av == null && bv == null) return 0; if (av == null) return 1; if (bv == null) return -1; return (av - bv) * dir; }
+    av = (av || '').toString().toLowerCase(); bv = (bv || '').toString().toLowerCase();
+    return av < bv ? -dir : av > bv ? dir : 0;
+  });
+}
+function toggleGridSort(key) {
+  if (state.gridSort && state.gridSort.key === key) state.gridSort.dir = state.gridSort.dir === 'asc' ? 'desc' : 'asc';
+  else state.gridSort = { key, dir: 'asc' };
+  renderGrid();
+}
+function renderGrid() {
+  if (state.activeView !== 'grid') return;
+  const table = $('gridTable');
+  if (!table) return;
+  const cols = gridColumns();
+  const rows = gridRows();
+  // Drop any selection that filtered out of the visible set.
+  const visible = new Set(rows.map(r => r.mls));
+  [...state.gridSelection].forEach(mls => { if (!visible.has(mls)) state.gridSelection.delete(mls); });
+  const allSelected = rows.length > 0 && rows.every(r => state.gridSelection.has(r.mls));
+  let html = '<thead><tr>';
+  html += `<th class="grid-th-sel"><input type="checkbox" id="gridSelectAll" ${allSelected ? 'checked' : ''} title="Select all visible" /></th>`;
+  html += '<th class="grid-th-thumb"></th>';
+  cols.forEach(c => {
+    const active = state.gridSort && state.gridSort.key === c.key;
+    const arrow = active ? (state.gridSort.dir === 'asc' ? ' ▲' : ' ▼') : '';
+    html += `<th data-col="${c.key}" class="${c.sortable ? 'grid-th-sortable' : ''}${active ? ' grid-th-active' : ''}${c.type === 'number' ? ' grid-td-num' : ''}">${esc(c.label)}${arrow}</th>`;
+  });
+  html += '</tr></thead><tbody>';
+  rows.forEach(item => {
+    const sel = state.gridSelection.has(item.mls);
+    html += `<tr data-mls="${esc(item.mls)}" class="${sel ? 'grid-row-sel' : ''}">`;
+    html += `<td class="grid-td-sel"><input type="checkbox" class="grid-row-cb" ${sel ? 'checked' : ''} /></td>`;
+    html += `<td class="grid-td-thumb">${item.image ? `<img src="${esc(item.image)}" alt="" loading="lazy"/>` : '<span class="grid-thumb-empty">🏠</span>'}</td>`;
+    cols.forEach(c => { html += `<td class="${c.type === 'number' ? 'grid-td-num' : ''}">${esc(c.fmt(item))}</td>`; });
+    html += '</tr>';
+  });
+  html += '</tbody>';
+  table.innerHTML = html;
+  $('gridCount').textContent = `${rows.length} listing${rows.length === 1 ? '' : 's'}`;
+  updateGridCommandBar();
+}
+function updateGridCommandBar() {
+  const n = state.gridSelection.size;
+  const bar = $('gridCommandBar');
+  if (bar) bar.hidden = n === 0;
+  const cnt = $('gridSelCount');
+  if (cnt) cnt.textContent = `${n} selected`;
+}
+function gridToggleSelectAll(on) {
+  const rows = gridRows();
+  if (on) rows.forEach(r => state.gridSelection.add(r.mls));
+  else state.gridSelection.clear();
+  renderGrid();
+}
+function gridClearSelection() { state.gridSelection.clear(); renderGrid(); }
+
+// Bulk set rating: n listings = n standard rating writes as the active person.
+async function bulkSetRating(rating) {
+  if (!state.activePerson) { alert('Select who you are (top right) first.'); return; }
+  const targets = [...state.gridSelection];
+  if (!targets.length) return;
+  try {
+    for (const mls of targets) {
+      await postFeedback({ person_id: state.activePerson, listing_id: mls, action_type: 'rating', rating });
+    }
+    Object.assign(state.feedback, await fetchFeedback(targets));
+    applyFiltersAndRender();
+  } catch (e) { alert('Could not set ratings: ' + e.message); }
+}
+
+async function geocodeAddress(query) {
+  const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json`
+    + `?access_token=${encodeURIComponent(MAPBOX_TOKEN)}&proximity=-79.5,44.0&limit=1`;
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  const data = await res.json();
+  return (data.features || [])[0] || null;
+}
+function openBulkAttach() {
+  if (!state.gridSelection.size) return;
+  if (!state.activePerson) { alert('Select who you are (top right) first.'); return; }
+  const poiSel = $('bulkAttachPoi');
+  poiSel.innerHTML = '<option value="">— pick an existing place —</option>'
+    + state.poi.map(p => `<option value="${p.id}">${esc((POI_TYPE_META[p.type] || POI_TYPE_META.other).label)}: ${esc(p.label || '')}</option>`).join('');
+  $('bulkAttachAddr').value = '';
+  $('bulkAttachStatus').textContent = '';
+  $('bulkAttachTitle').textContent = `Attach a place to ${state.gridSelection.size} listings`;
+  $('bulkAttachOverlay').hidden = false;
+  $('bulkAttachModal').hidden = false;
+}
+function closeBulkAttach() { $('bulkAttachOverlay').hidden = true; $('bulkAttachModal').hidden = true; }
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function bulkAttachGo() {
+  const targets = [...state.gridSelection];
+  const status = msg => { $('bulkAttachStatus').textContent = msg; };
+  if (!targets.length) { closeBulkAttach(); return; }
+  let poiId = $('bulkAttachPoi').value ? Number($('bulkAttachPoi').value) : null;
+  const addr = $('bulkAttachAddr').value.trim();
+  try {
+    if (!poiId && addr) {
+      status('Finding the address…');
+      const feat = await geocodeAddress(addr);
+      if (!feat) { status('No place found for that address.'); return; }
+      const [lng, lat] = feat.center;
+      const res = await fetch('/api/poi', { method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ person_id: state.activePerson, type: $('bulkAttachType').value, label: feat.place_name, lat, lng }) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'could not create place');
+      poiId = data.id;
+      await loadPoi();
+    }
+    if (!poiId) { status('Pick an existing place or enter an address.'); return; }
+    // Attach sequentially: each attach computes a per-listing drive time via the
+    // Mapbox Directions API server-side, so a small delay between calls keeps a
+    // large selection under the 300 requests/min limit (~8/sec here). For very
+    // large selections this queues rather than bursting.
+    let done = 0;
+    for (const mls of targets) {
+      const res = await fetch('/api/place-attachments', { method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ listing_id: mls, person_id: state.activePerson, poi_id: poiId }) });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || 'attach failed'); }
+      done++;
+      status(`Attaching… ${done} of ${targets.length}`);
+      await sleep(120);
+    }
+    state.placeAttachments = await fetchPlaceAttachments(state.rawListings.map(x => x.mls));
+    closeBulkAttach();
+    applyFiltersAndRender();
+  } catch (e) { status('Error: ' + e.message); }
+}
+
+// ─── Export (scope -> columns -> CSV/xlsx) ─────────────────────────────────────
+// "Everything" scope: every scalar listing field, all per-person feedback, notes,
+// attachments, and the computed financial breakdown, flattened into columns.
+function everythingColumns() {
+  const cols = [
+    { key: 'mls', label: 'MLS', type: 'text', get: i => i.mls || '' },
+    { key: 'address', label: 'Address', type: 'text', get: i => i.address || '' },
+    { key: 'listPrice', label: 'List price', type: 'number', get: i => numOrNull(i.price) },
+    { key: 'potentialPrice', label: 'Potential price', type: 'number', get: i => i.potentialPurchasePrice?.price ?? null },
+    { key: 'effectivePrice', label: 'Effective price', type: 'number', get: i => effectivePrice(i).value ?? null },
+    { key: 'beds', label: 'Beds', type: 'text', get: i => String(i.beds ?? i.bedsNum ?? '') },
+    { key: 'baths', label: 'Baths', type: 'number', get: i => numOrNull(i.baths) },
+    { key: 'sqft', label: 'Sqft', type: 'number', get: i => numOrNull(i.sqft) },
+    { key: 'acres', label: 'Lot acres', type: 'number', get: i => numOrNull(i.acres) },
+    { key: 'fitMet', label: 'Fit met', type: 'number', get: i => i.fit?.met ?? null },
+    { key: 'fitTotal', label: 'Fit total', type: 'number', get: i => i.fit?.total ?? null },
+    { key: 'lat', label: 'Lat', type: 'number', get: i => numOrNull(i.lat) },
+    { key: 'lng', label: 'Lng', type: 'number', get: i => numOrNull(i.lng) },
+    { key: 'highwayKm', label: 'Highway km', type: 'number', get: i => numOrNull(i.highwayKm) },
+    { key: 'nearestHighway', label: 'Nearest highway', type: 'text', get: i => i.nearestHighway || '' },
+    { key: 'goMin', label: 'GO drive (min)', type: 'number', get: i => numOrNull(i.goMin) },
+    { key: 'goTrain', label: 'GO train (min)', type: 'number', get: i => numOrNull(i.poc?.goTrain) },
+    { key: 'goTotal', label: 'GO total (min)', type: 'number', get: i => numOrNull(i.poc?.goTotal) },
+    { key: 'monthlyPit', label: 'Monthly PIT', type: 'number', get: i => effectivePitNum(i) ?? null },
+    { key: 'costToClose', label: 'Cost to close', type: 'number', get: i => effectiveDueNum(i) ?? null },
+    { key: 'group', label: 'Group sentiment', type: 'text', get: i => sentimentWordFor(i) },
+  ];
+  // Per-person feedback columns.
+  state.people.forEach(p => {
+    const fb = i => (state.feedback[i.mls] || []).find(f => f.person_id === p.id) || null;
+    cols.push({ key: `p${p.id}_rating`, label: `${p.name} rating`, type: 'number', get: i => fb(i)?.rating ?? null });
+    cols.push({ key: `p${p.id}_status`, label: `${p.name} status`, type: 'text', get: i => fb(i)?.status || '' });
+    cols.push({ key: `p${p.id}_note`, label: `${p.name} note`, type: 'text', get: i => fb(i)?.note || '' });
+    cols.push({ key: `p${p.id}_research`, label: `${p.name} research`, type: 'text', get: i => fb(i)?.research_requested ? 'yes' : '' });
+  });
+  // Attachments (all places attached to the listing, summarized).
+  cols.push({ key: 'attachments', label: 'Attached places', type: 'text', get: i =>
+    (state.placeAttachments[i.mls] || []).map(a => `${a.poi_label || (POI_TYPE_META[a.poi_type] || POI_TYPE_META.other).label}${a.drive_minutes != null ? ' (' + a.drive_minutes + ' min)' : ''}`).join('; ') });
+  // Computed financial breakdown itemized.
+  const bd = i => i.mortgageBreakdown || null;
+  cols.push({ key: 'downPayment', label: 'Down payment', type: 'number', get: i => bd(i)?.downPayment?.amount ?? null });
+  cols.push({ key: 'cmhc', label: 'CMHC premium', type: 'number', get: i => bd(i)?.cmhc?.applies ? bd(i).cmhc.premium : null });
+  cols.push({ key: 'ontarioLtt', label: 'Ontario LTT', type: 'number', get: i => bd(i)?.ontarioLtt?.afterRebate ?? null });
+  cols.push({ key: 'torontoLtt', label: 'Toronto LTT', type: 'number', get: i => bd(i)?.torontoLtt?.applies ? bd(i).torontoLtt.afterRebate : null });
+  cols.push({ key: 'monthlyPI', label: 'Monthly P&I', type: 'number', get: i => bd(i)?.monthlyPrincipalInterest ?? null });
+  cols.push({ key: 'monthlyTax', label: 'Monthly property tax', type: 'number', get: i => bd(i)?.monthlyPropertyTax ?? null });
+  return cols;
+}
+function exportColumnsForScope(scope) {
+  return scope === 'everything' ? everythingColumns() : gridColumns();
+}
+function exportFilenameBase() {
+  const date = new Date().toISOString().slice(0, 10);
+  const parts = [];
+  const st = $('filterStatus')?.value; if (st) parts.push(st);
+  const mf = $('minFit')?.value; if (mf) parts.push('fit' + mf + 'plus');
+  if ($('minPrice')?.value || $('maxPrice')?.value) parts.push('price');
+  const areas = state.savedAreas.filter(a => isAreaActive(a.id));
+  if (areas.length === 1) parts.push(areas[0].name);
+  // Include a concise filter summary in the name; otherwise a generic tag.
+  let summary = parts.join('-');
+  if (activeFilterCount() > 0 && summary.length > 40) summary = 'filtered';
+  return 'listings-' + date + (summary ? '-' + summary : '');
+}
+let _exportState = { scope: 'displayed' };
+function openExport() {
+  if (state.activeView !== 'grid') return;
+  _exportState = { scope: 'displayed' };
+  $('exportTitle').textContent = 'Export';
+  renderExportStep1();
+  $('exportOverlay').hidden = false;
+  $('exportModal').hidden = false;
+}
+function closeExport() { $('exportOverlay').hidden = true; $('exportModal').hidden = true; }
+function renderExportStep1() {
+  const n = gridRows().length;
+  $('exportBody').innerHTML = `
+    <p class="settings-desc">Exports the ${n} listing${n === 1 ? '' : 's'} currently shown (all active filters and drawn areas apply).</p>
+    <div class="export-scope">
+      <label class="export-radio"><input type="radio" name="exportScope" value="displayed" checked /> <div><div>Displayed columns</div><div class="field-desc">The ${gridColumns().length} columns shown in the grid</div></div></label>
+      <label class="export-radio"><input type="radio" name="exportScope" value="everything" /> <div><div>Everything</div><div class="field-desc">All listing fields, every person's feedback, notes, attachments, and the financial breakdown</div></div></label>
+    </div>
+    <button id="exportNext">Next: choose columns</button>`;
+  $('exportNext').addEventListener('click', () => {
+    _exportState.scope = document.querySelector('input[name=exportScope]:checked').value;
+    renderExportStep2();
+  });
+}
+function renderExportStep2() {
+  const cols = exportColumnsForScope(_exportState.scope);
+  const checks = cols.map((c, idx) =>
+    `<label class="export-col"><input type="checkbox" class="export-col-cb" data-idx="${idx}" checked /> ${esc(c.label)}</label>`).join('');
+  $('exportBody').innerHTML = `
+    <div class="export-col-head">
+      <button class="link-btn" id="exportBack">‹ Back</button>
+      <span>${cols.length} columns, all selected by default</span>
+    </div>
+    <div class="export-col-list">${checks}</div>
+    <div class="export-format">
+      <span>Format:</span>
+      <label><input type="radio" name="exportFormat" value="csv" checked /> CSV</label>
+      <label><input type="radio" name="exportFormat" value="xlsx" /> Excel (.xlsx)</label>
+    </div>
+    <button id="exportRun">Export</button>`;
+  $('exportBack').addEventListener('click', renderExportStep1);
+  $('exportRun').addEventListener('click', () => {
+    const chosen = [...document.querySelectorAll('.export-col-cb:checked')].map(cb => cols[Number(cb.dataset.idx)]);
+    if (!chosen.length) { alert('Pick at least one column.'); return; }
+    const format = document.querySelector('input[name=exportFormat]:checked').value;
+    runExport(chosen, format).catch(err => alert('Export failed: ' + err.message));
+  });
+}
+async function runExport(columns, format) {
+  const rows = gridRows().map(item => {
+    const r = {};
+    columns.forEach(c => { r[c.key] = c.get(item); });
+    return r;
+  });
+  const payload = {
+    format, filename: exportFilenameBase(),
+    columns: columns.map(c => ({ key: c.key, label: c.label, type: c.type })),
+    rows,
+  };
+  const res = await fetch('/api/export', { method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  if (!res.ok) throw new Error('server ' + res.status);
+  const blob = await res.blob();
+  const cd = res.headers.get('Content-Disposition') || '';
+  const m = cd.match(/filename="([^"]+)"/);
+  const fname = m ? m[1] : payload.filename + '.' + format;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = fname;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  closeExport();
+}
+
 // ─── Active-filter count badge (on the collapsed Filters summary) ──────────────
 function activeFilterCount() {
   let n = 0;
@@ -3487,7 +3805,43 @@ window.addEventListener('DOMContentLoaded', () => {
   $('btnMap').addEventListener('click', () => switchView('map'));
   $('btnCombined')?.addEventListener('click', () => switchView('combined'));
   $('btnList').addEventListener('click', () => switchView('list'));
-  switchView(loadView());  // restore the persisted Map / Combined / List choice
+  $('btnGrid')?.addEventListener('click', () => switchView('grid'));
+  // Grid table interactions (delegated once; innerHTML is rebuilt each render).
+  const gt = $('gridTable');
+  if (gt) {
+    gt.addEventListener('click', e => {
+      const th = e.target.closest('th[data-col]');
+      if (th) { const c = gridColumns().find(x => x.key === th.dataset.col); if (c?.sortable) toggleGridSort(c.key); return; }
+      if (e.target.matches('input[type=checkbox]')) return; // handled on change
+      const tr = e.target.closest('tbody tr[data-mls]');
+      if (tr) { const item = findListing(tr.dataset.mls) || state.rawListings.find(x => x.mls === tr.dataset.mls); if (item) showMapCard(item); }
+    });
+    gt.addEventListener('change', e => {
+      if (e.target.id === 'gridSelectAll') { gridToggleSelectAll(e.target.checked); return; }
+      if (e.target.classList.contains('grid-row-cb')) {
+        const mls = e.target.closest('tr').dataset.mls;
+        if (e.target.checked) state.gridSelection.add(mls); else state.gridSelection.delete(mls);
+        e.target.closest('tr').classList.toggle('grid-row-sel', e.target.checked);
+        updateGridCommandBar();
+      }
+    });
+  }
+  // Command bar: rating buttons (1-5) + attach + clear.
+  const rateBtns = $('gridRateBtns');
+  if (rateBtns) {
+    rateBtns.innerHTML = [1, 2, 3, 4, 5].map(n => `<button type="button" class="grid-rate-btn" data-rate="${n}">${n}★</button>`).join('');
+    rateBtns.addEventListener('click', e => { const b = e.target.closest('[data-rate]'); if (b) bulkSetRating(Number(b.dataset.rate)); });
+  }
+  $('cmdAttachPlace')?.addEventListener('click', openBulkAttach);
+  $('cmdClearSel')?.addEventListener('click', gridClearSelection);
+  $('bulkAttachClose')?.addEventListener('click', closeBulkAttach);
+  $('bulkAttachOverlay')?.addEventListener('click', closeBulkAttach);
+  $('bulkAttachGo')?.addEventListener('click', () => bulkAttachGo());
+  // Export
+  $('gridExportBtn')?.addEventListener('click', openExport);
+  $('exportClose')?.addEventListener('click', closeExport);
+  $('exportOverlay')?.addEventListener('click', closeExport);
+  switchView(loadView());  // restore the persisted Map / Combined / List / Grid choice
   updateFilterBadge();     // reflect any restored filters immediately
   $('themeBtn').addEventListener('click', cycleTheme);
   $('settingsBtn').addEventListener('click', openSettings);

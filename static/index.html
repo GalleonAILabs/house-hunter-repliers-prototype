@@ -25,6 +25,7 @@
         <button class="view-btn active" id="btnMap">🗺 Map</button>
         <button class="view-btn" id="btnCombined">▨ Both</button>
         <button class="view-btn" id="btnList">☰ List</button>
+        <button class="view-btn" id="btnGrid">▦ Grid</button>
       </div>
       <select class="who-am-i" id="whoAmI" title="Who you are: every rating, note, reject, and research request is recorded as this person"></select>
       <button class="icon-btn" id="settingsBtn" title="Settings">⚙</button>
@@ -261,6 +262,65 @@
       </label>
     </div>
     <div class="combined-cards" id="combinedCards"></div>
+  </div>
+
+  <!-- 5c. GRID VIEW (desktop only): a spreadsheet-style table, one row per
+       listing, with selection + bulk commands + export. Same derivation
+       pipeline (filters, drawn areas, sort) as every other view. -->
+  <div id="viewGrid" class="view-section" hidden>
+    <div class="grid-toolbar">
+      <span id="gridCount" class="grid-count">0 listings</span>
+      <div class="grid-toolbar-right">
+        <button id="gridExportBtn" class="secondary">⤓ Export</button>
+      </div>
+    </div>
+    <!-- Command bar: appears when any row is selected. Built to take more bulk
+         commands later without restructuring (add a button to .grid-commands). -->
+    <div id="gridCommandBar" class="grid-command-bar" hidden>
+      <span id="gridSelCount" class="grid-sel-count">0 selected</span>
+      <div class="grid-commands">
+        <span class="grid-cmd-label">Set rating</span>
+        <span class="grid-rate-btns" id="gridRateBtns"></span>
+        <button id="cmdAttachPlace" class="secondary">📍 Attach place</button>
+        <button id="cmdClearSel" class="secondary">Clear</button>
+      </div>
+    </div>
+    <div class="grid-scroll" id="gridScroll">
+      <table class="grid-table" id="gridTable"></table>
+    </div>
+  </div>
+
+  <!-- Bulk attach-place modal -->
+  <div class="modal-overlay" id="bulkAttachOverlay" hidden></div>
+  <div class="app-modal" id="bulkAttachModal" hidden>
+    <div class="app-modal-head"><span id="bulkAttachTitle">Attach a place</span><button class="close-btn" id="bulkAttachClose">✕</button></div>
+    <div class="app-modal-body">
+      <label>Existing place
+        <select id="bulkAttachPoi"></select>
+      </label>
+      <div class="bulk-attach-or">or add a new address</div>
+      <label>Address
+        <input type="text" id="bulkAttachAddr" placeholder="123 Main St, Barrie" />
+      </label>
+      <label>Type
+        <select id="bulkAttachType">
+          <option value="school">School</option>
+          <option value="hospital">Hospital</option>
+          <option value="work">Workplace</option>
+          <option value="worship">Place of worship</option>
+          <option value="other" selected>Other</option>
+        </select>
+      </label>
+      <div class="app-modal-status" id="bulkAttachStatus"></div>
+      <button id="bulkAttachGo">Attach to selected</button>
+    </div>
+  </div>
+
+  <!-- Export modal: step 1 scope, step 2 columns + format -->
+  <div class="modal-overlay" id="exportOverlay" hidden></div>
+  <div class="app-modal" id="exportModal" hidden>
+    <div class="app-modal-head"><span id="exportTitle">Export</span><button class="close-btn" id="exportClose">✕</button></div>
+    <div class="app-modal-body" id="exportBody"></div>
   </div>
 
   <!-- SETTINGS PANEL: a main list of sections, each opening its own
