@@ -1067,6 +1067,26 @@ def handle_export(body: dict[str, Any]) -> tuple[bytes, str, str, int]:
             f"{safe}.xlsx", 200)
 
 
+def handle_feedback_delete(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """Delete listing_feedback rows by id. Supports the grid bulk-action undo.
+    listing_feedback is append-only and reads take the latest row per (person,
+    listing, action_type), so deleting exactly the rows a bulk action created
+    restores the prior value automatically. Prior rows were never modified, so
+    nothing needs to be stored to revert."""
+    ids = body.get("ids")
+    if (not isinstance(ids, list) or not ids
+            or not all(isinstance(i, int) and not isinstance(i, bool) for i in ids)):
+        return {"error": "invalid_request", "detail": "ids must be a non-empty list of integers"}, 400
+    conn = get_db()
+    try:
+        placeholders = ",".join("?" for _ in ids)
+        cur = conn.execute(f"DELETE FROM listing_feedback WHERE id IN ({placeholders})", ids)
+        conn.commit()
+        return {"ok": True, "deleted": cur.rowcount}, 200
+    finally:
+        conn.close()
+
+
 _NOW_SQL = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
 
 
@@ -2536,6 +2556,23 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
                     return
                 data, status = handle_place_attachment_delete(body)
+                self.send_json(data, status)
+                return
+            if parsed.path == "/api/feedback":
+                if not require_auth(self):
+                    self.send_json({"error": "unauthorized"}, 401)
+                    return
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                raw_body = self.rfile.read(length) if length else b""
+                try:
+                    body = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    self.send_json({"error": "invalid_request", "detail": "malformed JSON body"}, 400)
+                    return
+                if not isinstance(body, dict):
+                    self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
+                    return
+                data, status = handle_feedback_delete(body)
                 self.send_json(data, status)
                 return
             if parsed.path == "/api/areas":

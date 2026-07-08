@@ -379,6 +379,31 @@ class FeedbackReadTests(ServerTestCase):
 
 
 class FeedbackWriteTests(ServerTestCase):
+    def test_bulk_delete_restores_prior_rating(self) -> None:
+        # Append-only model: a later rating shadows an earlier one; deleting the
+        # later row (bulk-undo) makes the prior one current again.
+        _, first = self.request("POST", "/api/feedback", token=self.TOKEN,
+            body={"person_id": 2, "listing_id": "POC-2", "action_type": "rating", "rating": 5})
+        _, second = self.request("POST", "/api/feedback", token=self.TOKEN,
+            body={"person_id": 2, "listing_id": "POC-2", "action_type": "rating", "rating": 1})
+        # current rating is now 1
+        _, fb = self.request("GET", "/api/feedback?listing_ids=POC-2", token=self.TOKEN)
+        cur = next(f for f in fb["feedback"]["POC-2"] if f["person_id"] == 2)
+        self.assertEqual(cur["rating"], 1)
+        # undo: delete the second row
+        status, out = self.request("DELETE", "/api/feedback", token=self.TOKEN, body={"ids": [second["id"]]})
+        self.assertEqual(status, 200)
+        self.assertEqual(out["deleted"], 1)
+        _, fb2 = self.request("GET", "/api/feedback?listing_ids=POC-2", token=self.TOKEN)
+        cur2 = next(f for f in fb2["feedback"]["POC-2"] if f["person_id"] == 2)
+        self.assertEqual(cur2["rating"], 5)  # prior value restored automatically
+
+    def test_bulk_delete_bad_ids_400(self) -> None:
+        status, data = self.request("DELETE", "/api/feedback", token=self.TOKEN, body={"ids": []})
+        self.assertEqual(status, 400)
+        status2, _ = self.request("DELETE", "/api/feedback", token=self.TOKEN, body={"ids": ["x"]})
+        self.assertEqual(status2, 400)
+
     def test_post_valid_rating_200(self) -> None:
         status, data = self.request(
             "POST", "/api/feedback", token=self.TOKEN,

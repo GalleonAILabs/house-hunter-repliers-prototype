@@ -369,7 +369,7 @@ async function loadConfig() {
 // ─── State ────────────────────────────────────────────────────────────────────
 const state = { map: null, mapReady: false, rawListings: [], listings: [], activeView: 'map', people: [], activePerson: null, feedback: {}, openMapItem: null, source: 'poc', sourceCount: 0, clusters: [], poi: [], householdSettings: {}, personThresholds: {}, personThresholdsError: false, placeAttachments: {}, clusterPopupOpen: false,
   drawMode: false, savedAreas: [], drawCurrent: [], pillListings: [], mapStyle: 'streets', drawerOn: false,
-  gridSort: null, gridSelection: new Set() };
+  gridSort: null, gridSelection: new Set(), lastBulk: null };
 let cardSettings = loadSettings();
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -3269,6 +3269,7 @@ function renderGrid() {
   table.innerHTML = html;
   $('gridCount').textContent = `${rows.length} listing${rows.length === 1 ? '' : 's'}`;
   updateGridCommandBar();
+  updateUndoButton();
 }
 function updateGridCommandBar() {
   const n = state.gridSelection.size;
@@ -3285,18 +3286,119 @@ function gridToggleSelectAll(on) {
 }
 function gridClearSelection() { state.gridSelection.clear(); renderGrid(); }
 
-// Bulk set rating: n listings = n standard rating writes as the active person.
+// ─── Bulk-action safety: confirmation gate + session undo ──────────────────────
+// Every bulk command routes through confirmBulk(), which names the exact action
+// and count so the dialog doubles as a proofread of the action, not just a
+// brake. It resolves true ONLY on an explicit Confirm click: Enter never
+// confirms (the modal swallows Enter, and the Confirm button is never focused),
+// so the fast keystroke rhythm that fires an accidental bulk cannot also confirm
+// it.
+let _bulkConfirmResolve = null;
+function confirmBulk(message) {
+  return new Promise(resolve => {
+    _bulkConfirmResolve = resolve;
+    $('bulkConfirmMsg').textContent = message;
+    $('bulkConfirmOverlay').hidden = false;
+    $('bulkConfirmModal').hidden = false;
+    $('bulkConfirmCancel').focus(); // focus Cancel, never Confirm
+  });
+}
+function resolveBulkConfirm(ok) {
+  if (_bulkConfirmResolve == null) return;
+  $('bulkConfirmOverlay').hidden = true;
+  $('bulkConfirmModal').hidden = true;
+  const r = _bulkConfirmResolve; _bulkConfirmResolve = null;
+  r(ok);
+}
+// Session-level record of the last bulk action's created rows, for one-click
+// undo. Not persisted (cleared on reload). Undo deletes exactly those rows; the
+// append-only feedback model then restores the prior value automatically.
+function setLastBulk(kind, label, ids) {
+  state.lastBulk = (ids && ids.length) ? { kind, label, ids } : null;
+  updateUndoButton();
+}
+function updateUndoButton() {
+  const btn = $('gridUndoBtn');
+  if (!btn) return;
+  btn.hidden = !state.lastBulk;
+  if (state.lastBulk) btn.title = 'Undo: ' + state.lastBulk.label;
+}
+async function undoLastBulk() {
+  const lb = state.lastBulk;
+  if (!lb || !lb.ids.length) return;
+  const ok = await confirmBulk(`Undo "${lb.label}"? This deletes exactly the ${lb.ids.length} row${lb.ids.length === 1 ? '' : 's'} that action created and restores the prior state. Continue?`);
+  if (!ok) return;
+  try {
+    if (lb.kind === 'feedback') {
+      const res = await fetch('/api/feedback', { method: 'DELETE', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: lb.ids }) });
+      if (!res.ok) throw new Error('delete failed');
+      state.feedback = await fetchFeedback(state.rawListings.map(x => x.mls));
+    } else if (lb.kind === 'attachment') {
+      for (const id of lb.ids) {
+        await fetch('/api/place-attachments', { method: 'DELETE', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+      }
+      state.placeAttachments = await fetchPlaceAttachments(state.rawListings.map(x => x.mls));
+    }
+    setLastBulk(null, '', []);
+    applyFiltersAndRender();
+  } catch (e) { alert('Could not undo: ' + e.message); }
+}
+
+// Bulk set rating: n listings = n standard rating writes as the active person,
+// behind the confirmation gate, with the created rows recorded for undo.
 async function bulkSetRating(rating) {
   if (!state.activePerson) { alert('Select who you are (top right) first.'); return; }
   const targets = [...state.gridSelection];
   if (!targets.length) return;
+  const n = targets.length;
+  const ok = await confirmBulk(`Set rating to ${rating} star${rating === 1 ? '' : 's'} for ${n} propert${n === 1 ? 'y' : 'ies'}. This can be undone immediately after, but not later. Continue?`);
+  if (!ok) return;
   try {
+    const ids = [];
     for (const mls of targets) {
-      await postFeedback({ person_id: state.activePerson, listing_id: mls, action_type: 'rating', rating });
+      const d = await postFeedback({ person_id: state.activePerson, listing_id: mls, action_type: 'rating', rating });
+      if (d && d.id) ids.push(d.id);
     }
     Object.assign(state.feedback, await fetchFeedback(targets));
+    setLastBulk('feedback', `Set rating to ${rating}★ on ${n} propert${n === 1 ? 'y' : 'ies'}`, ids);
     applyFiltersAndRender();
   } catch (e) { alert('Could not set ratings: ' + e.message); }
+}
+
+// Bulk add note: one note text added (never edited) to every selected property,
+// as the active person, via n standard note writes. Server-side created_at
+// timestamps them today.
+function openBulkNote() {
+  if (!state.gridSelection.size) return;
+  if (!state.activePerson) { alert('Select who you are (top right) first.'); return; }
+  $('bulkNoteText').value = '';
+  $('bulkNoteStatus').textContent = '';
+  const n = state.gridSelection.size;
+  $('bulkNoteTitle').textContent = `Add a note to ${n} propert${n === 1 ? 'y' : 'ies'}`;
+  $('bulkNoteOverlay').hidden = false;
+  $('bulkNoteModal').hidden = false;
+}
+function closeBulkNote() { $('bulkNoteOverlay').hidden = true; $('bulkNoteModal').hidden = true; }
+async function bulkNoteGo() {
+  const note = $('bulkNoteText').value.trim();
+  if (!note) { $('bulkNoteStatus').textContent = 'Enter some note text first.'; return; }
+  const targets = [...state.gridSelection];
+  if (!targets.length) { closeBulkNote(); return; }
+  const n = targets.length;
+  const preview = note.length > 80 ? note.slice(0, 80) + '…' : note;
+  const ok = await confirmBulk(`Add this note to ${n} propert${n === 1 ? 'y' : 'ies'}: "${preview}". This can be undone immediately after, but not later. Continue?`);
+  if (!ok) return;
+  closeBulkNote();
+  try {
+    const ids = [];
+    for (const mls of targets) {
+      const d = await postFeedback({ person_id: state.activePerson, listing_id: mls, action_type: 'note', note });
+      if (d && d.id) ids.push(d.id);
+    }
+    Object.assign(state.feedback, await fetchFeedback(targets));
+    setLastBulk('feedback', `Added a note to ${n} propert${n === 1 ? 'y' : 'ies'}`, ids);
+    applyFiltersAndRender();
+  } catch (e) { alert('Could not add notes: ' + e.message); }
 }
 
 async function geocodeAddress(query) {
@@ -3327,6 +3429,13 @@ async function bulkAttachGo() {
   if (!targets.length) { closeBulkAttach(); return; }
   let poiId = $('bulkAttachPoi').value ? Number($('bulkAttachPoi').value) : null;
   const addr = $('bulkAttachAddr').value.trim();
+  if (!poiId && !addr) { status('Pick an existing place or enter an address.'); return; }
+  // Name the specific place in the confirmation, so the dialog proofreads it.
+  const poiSelEl = $('bulkAttachPoi');
+  const placeName = poiId ? poiSelEl.options[poiSelEl.selectedIndex].text : addr;
+  const nSel = targets.length;
+  const okGate = await confirmBulk(`Attach "${placeName}" to ${nSel} propert${nSel === 1 ? 'y' : 'ies'}. This can be undone immediately after, but not later. Continue?`);
+  if (!okGate) return;
   try {
     if (!poiId && addr) {
       status('Finding the address…');
@@ -3346,15 +3455,19 @@ async function bulkAttachGo() {
     // large selection under the 300 requests/min limit (~8/sec here). For very
     // large selections this queues rather than bursting.
     let done = 0;
+    const attIds = [];
     for (const mls of targets) {
       const res = await fetch('/api/place-attachments', { method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ listing_id: mls, person_id: state.activePerson, poi_id: poiId }) });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || 'attach failed'); }
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.detail || 'attach failed');
+      if (d.attachment && d.attachment.id) attIds.push(d.attachment.id);
       done++;
       status(`Attaching… ${done} of ${targets.length}`);
       await sleep(120);
     }
     state.placeAttachments = await fetchPlaceAttachments(state.rawListings.map(x => x.mls));
+    setLastBulk('attachment', `Attached "${placeName}" to ${nSel} propert${nSel === 1 ? 'y' : 'ies'}`, attIds);
     closeBulkAttach();
     applyFiltersAndRender();
   } catch (e) { status('Error: ' + e.message); }
@@ -3897,11 +4010,21 @@ window.addEventListener('DOMContentLoaded', () => {
     rateBtns.innerHTML = [1, 2, 3, 4, 5].map(n => `<button type="button" class="grid-rate-btn" data-rate="${n}">${n}★</button>`).join('');
     rateBtns.addEventListener('click', e => { const b = e.target.closest('[data-rate]'); if (b) bulkSetRating(Number(b.dataset.rate)); });
   }
+  $('cmdAddNote')?.addEventListener('click', openBulkNote);
   $('cmdAttachPlace')?.addEventListener('click', openBulkAttach);
   $('cmdClearSel')?.addEventListener('click', gridClearSelection);
   $('bulkAttachClose')?.addEventListener('click', closeBulkAttach);
   $('bulkAttachOverlay')?.addEventListener('click', closeBulkAttach);
   $('bulkAttachGo')?.addEventListener('click', () => bulkAttachGo());
+  $('bulkNoteClose')?.addEventListener('click', closeBulkNote);
+  $('bulkNoteOverlay')?.addEventListener('click', closeBulkNote);
+  $('bulkNoteGo')?.addEventListener('click', () => bulkNoteGo());
+  $('gridUndoBtn')?.addEventListener('click', () => undoLastBulk());
+  // Bulk confirmation gate: explicit Confirm click only; Enter must not confirm.
+  $('bulkConfirmOk')?.addEventListener('click', () => resolveBulkConfirm(true));
+  $('bulkConfirmCancel')?.addEventListener('click', () => resolveBulkConfirm(false));
+  $('bulkConfirmOverlay')?.addEventListener('click', () => resolveBulkConfirm(false));
+  $('bulkConfirmModal')?.addEventListener('keydown', e => { if (e.key === 'Enter') e.preventDefault(); });
   // Export
   $('gridExportBtn')?.addEventListener('click', openExport);
   $('exportClose')?.addEventListener('click', closeExport);

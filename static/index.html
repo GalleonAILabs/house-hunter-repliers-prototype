@@ -275,6 +275,8 @@
     <div class="grid-toolbar">
       <span id="gridCount" class="grid-count">0 listings</span>
       <div class="grid-toolbar-right">
+        <!-- Session-level undo of the most recent bulk action; hidden until one runs. -->
+        <button id="gridUndoBtn" class="secondary" hidden>↺ Undo last bulk</button>
         <button id="gridExportBtn" class="secondary">⤓ Export</button>
       </div>
     </div>
@@ -285,6 +287,7 @@
       <div class="grid-commands">
         <span class="grid-cmd-label">Set rating</span>
         <span class="grid-rate-btns" id="gridRateBtns"></span>
+        <button id="cmdAddNote" class="secondary">📝 Add note</button>
         <button id="cmdAttachPlace" class="secondary">📍 Attach place</button>
         <button id="cmdClearSel" class="secondary">Clear</button>
       </div>
@@ -325,6 +328,34 @@
   <div class="app-modal" id="exportModal" hidden>
     <div class="app-modal-head"><span id="exportTitle">Export</span><button class="close-btn" id="exportClose">✕</button></div>
     <div class="app-modal-body" id="exportBody"></div>
+  </div>
+
+  <!-- Bulk add-note modal: one note text applied to every selected property. -->
+  <div class="modal-overlay" id="bulkNoteOverlay" hidden></div>
+  <div class="app-modal" id="bulkNoteModal" hidden>
+    <div class="app-modal-head"><span id="bulkNoteTitle">Add a note</span><button class="close-btn" id="bulkNoteClose">✕</button></div>
+    <div class="app-modal-body">
+      <label>Note (added as a new note to every selected property)
+        <textarea id="bulkNoteText" rows="4" placeholder="e.g. Drove past 2026-07-08, busy corner lot"></textarea>
+      </label>
+      <div class="app-modal-status" id="bulkNoteStatus"></div>
+      <button id="bulkNoteGo">Add note to selected</button>
+    </div>
+  </div>
+
+  <!-- Confirmation gate for every bulk action. Names the exact action + count so
+       it doubles as a proofread. Requires an explicit Confirm click; Enter does
+       not confirm (see confirmBulk). -->
+  <div class="modal-overlay" id="bulkConfirmOverlay" hidden></div>
+  <div class="app-modal bulk-confirm" id="bulkConfirmModal" hidden role="alertdialog" aria-modal="true">
+    <div class="app-modal-head"><span>Confirm bulk action</span></div>
+    <div class="app-modal-body">
+      <p id="bulkConfirmMsg" class="bulk-confirm-msg"></p>
+      <div class="bulk-confirm-btns">
+        <button id="bulkConfirmCancel" class="secondary">Cancel</button>
+        <button id="bulkConfirmOk">Confirm</button>
+      </div>
+    </div>
   </div>
 
   <!-- SETTINGS PANEL: a main list of sections, each opening its own
