@@ -708,3 +708,91 @@ The on-map interactions are for real-device verification via the phone tunnel.
 **Codex review: still blocked** ("Quota exceeded / check your plan and billing")
 on both feature diffs, same OpenAI billing limit as the previous two sessions.
 Stood in with the headless verification above + 118 stdlib tests.
+
+## Info pills for individual pins (correcting Realm's price-pill pattern)
+
+Realm shows price pills but fails two ways: inconsistent number formatting on a
+single view, and overlapping pill pileups where clustering should engage. This
+build is the corrected version.
+
+**Pill content + metric identity.** A pill shows the active "I am" person's
+star rating (numeric + glyph, e.g. 5★) when they have rated the listing, then a
+money figure; money only when unrated. The money metric is the SAME shared
+setting that drives the card headline (loadSummaryValueChoice: Price / Cost to
+close / Monthly PIT), so a pin and its card can never show different metrics.
+Value rules, matching the card everywhere it computes money:
+- Price prefers the potential purchase price when one is entered (the card's
+  Estimate line and the whole mortgage breakdown are already keyed off it).
+- Monthly PIT uses Total monthly (PIT + condo fees) when the listing has condo
+  fees, identical to the card's Financial summary "Total monthly" line. POC has
+  no condo listings today, so in practice this equals Monthly PIT; the branch
+  is there for correctness.
+Pill background keeps the existing fit-score colour (markerColor, including the
+grey used when the active person has rejected the listing), so no information is
+lost moving from dots to pills.
+
+**Formatting, strictly one rule per metric type (Realm failure #1).**
+- Prices + cost to close: compact ALWAYS. M carries the decimal setting; K is
+  whole thousands ($875K, $247K); under $1K is exact. Never raw digits.
+- Monthly figures: exact dollars ($5,645); monthly amounts are too small for
+  compact rounding to carry information.
+- Compact decimals (1/2/3, default 2) is an Appearance setting beside the
+  clustering controls, localStorage per device (hh_pill_compact_decimals).
+  Verified: $1.0M / $1.05M / $1.049M at 1/2/3 for 1,049,000.
+
+**Rendering choice: HTML markers, not a GeoJSON symbol layer.** A filled pill
+with an exact fit colour and shaped background is painful with Mapbox symbol
+layers (needs a stretchable icon image per colour). mapboxgl.Marker with a DOM
+button gives exact control and native click handling, and 105 POC markers (or a
+60-listing Sample page) is well within budget. The old GeoJSON listings-circles
+/ listings-labels layers stay defined but are fed empty; pills replace them.
+
+**Clustering handoff (Realm failure #2): pills never pile up.** A greedy
+screen-space collapse (collapsePillGroups): a listing joins an existing group
+when its projected pixel centre is within a pill footprint of that group's
+anchor (~92px wide, ~30px tall). Groups of one render as a pill; groups of two
+or more collapse into a fit-coloured count circle that the existing chooser
+popup expands. Recomputed on every moveend (debounced), so pills separate as you
+zoom in and re-merge where they would overlap. Over-collapsing slightly is the
+safe direction (Realm's failure is the opposite).
+
+**Cluster-circle colour = highest fit among contents.** Client collapse groups
+always know their contents, so they colour by max fit exactly. Server (Repliers)
+clusters colour by max fit of their inline listings when present (small
+clusters at/under clusterListingsThreshold); a big server cluster carries no
+inline listings, so nothing to colour by, and it falls back to a neutral slate.
+Noted as a known limit: the fit palette is exact for POC (the case that
+matters, and where the stress test lives) and for small Sample clusters.
+
+**Transition behaviour, tuned against the real POC distribution.** Measured the
+104 POC coordinates (see the analysis in the session):
+- TWO pairs sit at EXACTLY 0m (coincident coordinates): Clearview
+  (2553 County Rd 42 / 3904 Concession 12) and Springwater (26 Paddy Dunn's
+  Circ / 2946 92 County Rd). These can never be distinct pills at any zoom, so
+  they always collapse to a count-of-2 circle. This is the true worst case, more
+  than the named Orangeville stack.
+- The "Orangeville" stress case is really a Mono/Orangeville cluster: 11 Lynda
+  Ave and 22 Randy Ave (Mono) are 202m apart, with 5 Beechnut St (Mono) and
+  118 Oak Ridge Dr (Orangeville) nearby (~365-422m). At a 92px collapse width
+  these merge through about zoom 14 and separate into individual pills at zoom
+  15+ (at z15, 90px ~= 309m, so the 365m pair clears; the 202m pair clears
+  around z16). Only one listing is literally addressed "Orangeville"; the pile
+  is the surrounding Mono cluster.
+- Chosen approach: fixed pixel-footprint collapse (not a fixed geographic
+  radius), because overlap is a screen-space property, so the threshold tracks
+  zoom automatically and the coincident pairs are handled for free. Far zoom =
+  count circles; near zoom = pills where spacing allows; this matches the brief.
+
+**Chooser mini-cards** now lead with the same star+money line and the same
+compact/exact formatting (pillLabel), so a listing reads identically as a pill
+or in the chooser.
+
+**Verification limit (unchanged from the map-features work).** The Mapbox map
+needs a WebGL canvas the headless test browser does not provide, so the on-map
+appearance was not verified here. Verified headless: compact vs exact rules,
+decimals 1/2/3, star presence/absence, potential substitution, condo
+total-monthly, cluster colour by max fit, and the collapse grouping (coincident
+-> one circle, near -> merged, apart -> separate). Phone-pass items on the live
+domain: pill rendering + legibility, the Mono/Orangeville collapse-then-split as
+you zoom, count-circle colours, and the Appearance decimals/clustering controls
+taking visible effect on the map.
