@@ -1060,3 +1060,34 @@ desktop hover-to-highlight.
 - **Testability:** export bytes are unit-tested (numeric typing, valid zip,
   well-formed XML for every part, escaping, filename sanitizing) and verified
   end-to-end against the live endpoint (CSV + xlsx).
+
+## Overnight session (2026-07-08) — Task 1: POC merge — SKIPPED (no export found)
+
+Per the task's own instruction ("If no new export file can be found on this
+machine, log that plainly and skip this task entirely, do not guess at a
+source"), Task 1 is skipped. Searched exhaustively for a new POC listings export
+from the Hermes-side pipeline:
+- ~/Downloads, ~/Desktop, ~/Documents, and the entire Galleon Drive workspace
+  for json/csv/xlsx/ndjson named *poc*/*listing*/*hermes-export* (21 days), and
+  all such files modified in the last 7 days.
+- The `Galleon/hermes` directory: it holds the Hermes agent's soul.md, memories,
+  and a fastmail script, NOT a listings pipeline. No export there.
+- The legacy `projects/house_hunter` project: no data dir.
+
+Only two listing-shaped files exist on this machine:
+- `data/poc_listings.json` — the current live data, Jul 6 15:22, 105 listings.
+- `vault-private/poc_listings.json` — Jul 3 15:50, 105 listings, differs from
+  the live file by 26 bytes. It is OLDER than the live data, so it is a stale
+  backup/mirror, NOT a new export.
+
+Reconciliation (as far as it can be stated): there is no newer dataset to
+reconcile against. No total/new/changed/disappeared delta exists because no new
+export was produced. No data mutation was performed.
+
+Safety backup was still taken before concluding (unattended-session hygiene):
+`data/backups/house_hunter.db.<ts>.bak` and `poc_listings.json.<ts>.bak` (the
+gitignored data/ dir, so not committed).
+
+NEEDS MARK: if a new Hermes POC export exists, it is not on MM1. Point me at the
+file path (or sync it into `data/` or the vault) and I will run the keyed merge
+as specified.
