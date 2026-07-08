@@ -2972,6 +2972,8 @@ function initDrawerDrag() {
   };
   handle.addEventListener('pointerdown', e => {
     if (!isMobile()) return;
+    // Do not hijack the sort <select> that lives in the header: let it open.
+    if (e.target.closest('.sort-inline')) return;
     startY = e.clientY; dragging = true;
     try { handle.setPointerCapture(e.pointerId); } catch (_) {}
   });
@@ -2984,6 +2986,7 @@ function initDrawerDrag() {
     else if (dy > 30) setExpanded(false);     // dragged down -> collapse
     else setExpanded(!panel.classList.contains('expanded')); // tap -> toggle
   });
+  handle.addEventListener('pointercancel', () => { dragging = false; });
 }
 
 // ─── Active-filter count badge (on the collapsed Filters summary) ──────────────
