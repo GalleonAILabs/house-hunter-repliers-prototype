@@ -266,7 +266,9 @@ button.secondary { background:var(--bg); color:var(--ink); }
 
 /* Draw-an-area controls: a button + an in-draw toolbar (top-left), and an
    active-filter pill (top-centre). Same panel/shadow language as the others. */
-.map-draw-control{position:fixed;top:100px;left:12px;z-index:500;display:flex;flex-direction:column;gap:6px;align-items:flex-start;max-width:calc(100vw - 24px)}
+/* Draw lives in the right-side control stack, below Layers (right:12), same as
+   its siblings; its toolbar drops down right-aligned beneath the chip. */
+.map-draw-control{position:fixed;top:140px;right:12px;left:auto;z-index:500;display:flex;flex-direction:column;gap:6px;align-items:flex-end;max-width:calc(100vw - 24px)}
 /* Draw trigger matches the shared control chip size; keeps only its active-state
    blue, not its former larger size. */
 .map-draw-btn{min-height:0;padding:6px 10px;font-size:12px;font-weight:800;border-radius:12px;box-shadow:var(--shadow)}
@@ -278,8 +280,10 @@ button.secondary { background:var(--bg); color:var(--ink); }
    vertically (full width) because the three full labels do not fit one
    horizontal row at 390px without shrinking. Finish keeps FILL emphasis (it is
    the only non-.secondary button), not size emphasis. */
-.draw-toolbar-btns{display:flex;flex-direction:column;gap:6px}
-.draw-toolbar-btns button{width:100%;min-height:34px;padding:7px 10px;font-size:13px;white-space:nowrap}
+/* Undo / Finish / Cancel: one row, three equal-width buttons (flex:1), identical
+   size. Finish keeps FILL emphasis (only non-.secondary), not size emphasis. */
+.draw-toolbar-btns{display:flex;gap:6px}
+.draw-toolbar-btns button{flex:1;min-height:34px;padding:7px 6px;font-size:12px;white-space:nowrap}
 .map-draw-indicator{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:501;display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--blue);border-radius:999px;box-shadow:var(--shadow);padding:5px 6px 5px 14px;max-width:calc(100vw - 24px)}
 .map-draw-indicator[hidden]{display:none}
 .map-draw-indicator>span{font-size:12px;font-weight:700;color:var(--blue);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -326,7 +330,8 @@ button.secondary { background:var(--bg); color:var(--ink); }
   .combined-cards .mini-card{width:100%}
   body.combined #viewMap{left:var(--combined-w)}
   body.combined .filterbox{left:calc(var(--combined-w) + 10px)}
-  body.combined .map-draw-control{left:calc(var(--combined-w) + 12px)}
+  /* Draw is now right-anchored (right:12) like Layers/Legend, so it sits over
+     the map in the Combined split with no left shift needed. */
   body.combined .status-bar{display:none}
 }
 /* Mobile: a bottom drawer over the map. Collapsed = a strip + a row of

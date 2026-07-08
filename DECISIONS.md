@@ -1225,3 +1225,34 @@ needs a WebGL map (unavailable headless). Verified: the GeoJSON is valid, statio
 counts vs published, the two /layers/ endpoints serve after deploy, and the
 Layers menu DOM (Transit grouping + both TTC toggles). On-map appearance + the
 satellite casing are a visual pass.
+
+## UI cleanup session (2026-07-08) — Draw control moved to right stack
+
+State check from the overnight summary: control normalization COMPLETED (live
+measurement confirmed Draw was already 12px/800/6px-10px, identical to
+Filters/Layers/Legend), TTC layer COMPLETED, POC merge SKIPPED (no export), and
+grid view was built in an earlier session (present on live: #btnGrid exists).
+So the only real remaining defect was Draw's POSITION, not its size: it floated
+alone at top-LEFT (x:12) while every sibling was top-right.
+
+Change: moved `.map-draw-control` into the right-side control stack
+(top:140px right:12, below Layers), right-aligned, so Draw sits with Filters
+(mobile), Layers, and Legend. This OVERRIDES the overnight "keep Draw left"
+call, which Mark has now explicitly reversed ("move it into the right-side
+control stack"). The overnight rationale (expandable-toolbar overlap) is
+mitigated: the toolbar drops beneath the Draw chip over open map, and Layers
+sits above it. Removed the now-moot `body.combined .map-draw-control` left-shift
+(Draw is right-anchored, already over the map in the Combined split).
+
+Draw-mode toolbar: Undo / Finish / Cancel now on ONE ROW, three equal-width
+buttons (flex:1), identical size; labels shortened from "Undo point"/"Finish
+area" to "Undo"/"Finish" (full text kept as title=) so three fit one row at
+390px. Finish keeps FILL emphasis (only non-secondary), not size.
+
+Full control-family audit (Filters, Layers, Legend, Sort, Draw): all report
+font-size 12px / weight 800 / padding 6px 10px at both 390 and 1280, both
+themes. Consistent.
+
+Orphaned/floating element sweep via CDP at 390 (and 1280): every fixed/absolute
+visible element checked against the viewport box; ZERO clipped or off-screen
+elements found. Nothing orphaned.
