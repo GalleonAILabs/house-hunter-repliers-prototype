@@ -1124,3 +1124,51 @@ Verified consistency via CDP: all five controls report font-size 12px / weight
 800; the four disclosure chips share 6px 10px padding. Both themes, and both
 basemaps share these solid-panel control chips (satellite legibility confirmed
 in the earlier per-layer pass).
+
+## Overnight session — Task 2b: TTC subway layer
+
+Source: TTC GTFS from Toronto Open Data (CKAN dataset ttc-routes-and-schedules,
+opendata_ttc_schedules.zip), downloaded at build time on 2026-07-08. Same layer
+pattern as the GO layers (static GeoJSON in static/layers/, /layers/ routes,
+toggle in the Layers menu, white satellite casing on the lines).
+
+Line status, VERIFIED from the live feed (active calendar Jun 21 - Jul 25 2026),
+not assumed:
+- Line 1 Yonge-University, Line 2 Bloor-Danforth, Line 4 Sheppard: route_type 1
+  (subway), active scheduled service -> EXISTING.
+- Line 3 Scarborough RT: NOT PRESENT in the feed at all -> confirmed removed
+  (closed 2023). Not added. This is the "verify rather than assume" check the
+  task asked for; the answer is Line 3 no longer exists.
+- Line 5 Eglinton: present as route_type 0 (LRT), 1064 active trips ->
+  EXISTING. Line 6 Finch West: route_type 0, 751 active trips -> EXISTING.
+  FINDING: contrary to the task's framing (5/6 possibly planned/under-
+  construction), the live 2026 feed carries both in revenue service, so both
+  are tiered EXISTING with real geometry + stations.
+
+Colors: used the GTFS route_color (the agency-published official value): Line 1
+#D5C82B (yellow), Line 2 #008000 (green), Line 4 #B300B3 (purple), Line 5
+#FF8000 (orange), Line 6 #808080 (grey). JUDGMENT CALL: kept #808080 for Line 6
+though grey is low-contrast on the street basemap; it is the official colour, and
+the satellite white-casing plus being the only grey line mitigate. Did not
+substitute a made-up hex.
+
+Stations: platforms deduped to stations by normalizing names (strip "- <dir>
+Platform" and "<dir> Platform" suffixes), station point = mean of its platform
+coords, interchanges deduped across lines (e.g. Cedarvale on Lines 1 & 5) with
+all serving lines listed. Station counts match TTC published figures EXACTLY:
+Line 1 = 38, Line 2 = 31, Line 4 = 5, Line 5 = 25, Line 6 = 18. 110 unique
+stations total.
+
+Coordinate sanity (the "Lakeview treatment"): every platform checked against a
+GTA bbox (lat 43.55-43.95, lng -79.75 to -79.10). ZERO out-of-GTA coordinates,
+so no stations were removed. Logged: none suspicious.
+
+Transit grouping: ADOPTED. With TTC added, the Layers list is 5 transit toggles
++ Highway 413 + Places + Satellite; a flat list read long, so entries are now
+under "Transit" (GO + TTC) and "Roads & places" subheadings. Logged call.
+
+Verification limit: on-map rendering of the lines/stations + the satellite casing
+needs a WebGL map (unavailable headless). Verified: the GeoJSON is valid, station
+counts vs published, the two /layers/ endpoints serve after deploy, and the
+Layers menu DOM (Transit grouping + both TTC toggles). On-map appearance + the
+satellite casing are a visual pass.

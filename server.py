@@ -2320,6 +2320,12 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == "/layers/highway-413.geojson":
                 self.send_static(STATIC / "layers" / "highway_413.geojson", "application/geo+json; charset=utf-8")
                 return
+            if parsed.path == "/layers/ttc-subway-lines.geojson":
+                self.send_static(STATIC / "layers" / "ttc_subway_lines.geojson", "application/geo+json; charset=utf-8")
+                return
+            if parsed.path == "/layers/ttc-subway-stations.geojson":
+                self.send_static(STATIC / "layers" / "ttc_subway_stations.geojson", "application/geo+json; charset=utf-8")
+                return
             if parsed.path in ("/", "/index.html"):
                 self.send_static(STATIC / "index.html", "text/html; charset=utf-8")
                 return

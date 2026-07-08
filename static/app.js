@@ -1397,6 +1397,38 @@ function addMapLayers() {
     paint: { 'line-color': ['get', 'color'], 'line-width': 3 },
   });
 
+  // TTC subway: same pattern as GO. Lines coloured by the official TTC route
+  // colour (from the TTC GTFS route_color), stations as filled dots. Off by
+  // default. Lines get the same white satellite-mode casing as GO lines.
+  map.addSource('ttc-lines', { type: 'geojson', data: '/layers/ttc-subway-lines.geojson' });
+  map.addLayer({
+    id: 'ttc-lines-casing',
+    type: 'line',
+    source: 'ttc-lines',
+    layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': '#ffffff', 'line-width': 6, 'line-opacity': 0.9 },
+  });
+  map.addLayer({
+    id: 'ttc-lines-layer',
+    type: 'line',
+    source: 'ttc-lines',
+    layout: { visibility: 'none' },
+    paint: { 'line-color': ['get', 'color'], 'line-width': 4 },
+  });
+  map.addSource('ttc-stations', { type: 'geojson', data: '/layers/ttc-subway-stations.geojson' });
+  map.addLayer({
+    id: 'ttc-stations-circles',
+    type: 'circle',
+    source: 'ttc-stations',
+    layout: { visibility: 'none' },
+    paint: {
+      'circle-radius': 5,
+      'circle-color': ['get', 'statusColor'],
+      'circle-stroke-width': 2,
+      'circle-stroke-color': '#fff',
+    },
+  });
+
   map.addSource('hwy413', { type: 'geojson', data: '/layers/highway-413.geojson' });
   // Same casing treatment for the dark-red Highway 413 corridor, which is the
   // overlay most at risk of vanishing against imagery.
@@ -1505,6 +1537,21 @@ function wireMapHandlers() {
     });
   });
 
+  let ttcStationPopup = null;
+  map.on('mouseenter', 'ttc-stations-circles', e => {
+    map.getCanvas().style.cursor = 'pointer';
+    const p = e.features[0].properties;
+    ttcStationPopup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false, className: 'go-station-tooltip', offset: 10 })
+      .setLngLat(e.features[0].geometry.coordinates)
+      .setHTML(`<strong>${esc(p.name)}</strong><br>${esc(p.lines || '')}`)
+      .addTo(map);
+  });
+  map.on('mouseleave', 'ttc-stations-circles', () => {
+    map.getCanvas().style.cursor = '';
+    ttcStationPopup?.remove();
+    ttcStationPopup = null;
+  });
+
   let poiPopup = null;
   map.on('mouseenter', 'poi-pins-circles', e => {
     map.getCanvas().style.cursor = 'pointer';
@@ -1566,8 +1613,10 @@ function updateOverlayLegibility() {
   const sat = mapStyleChoice() === 'satellite';
   const goOn = !!($('layerGoLines') && $('layerGoLines').checked);
   const hwyOn = !!($('layerHwy413') && $('layerHwy413').checked);
+  const ttcOn = !!($('layerTtcLines') && $('layerTtcLines').checked);
   if (map.getLayer('go-lines-casing')) map.setLayoutProperty('go-lines-casing', 'visibility', (sat && goOn) ? 'visible' : 'none');
   if (map.getLayer('hwy413-casing')) map.setLayoutProperty('hwy413-casing', 'visibility', (sat && hwyOn) ? 'visible' : 'none');
+  if (map.getLayer('ttc-lines-casing')) map.setLayoutProperty('ttc-lines-casing', 'visibility', (sat && ttcOn) ? 'visible' : 'none');
   if (map.getLayer('hwy413-line')) map.setPaintProperty('hwy413-line', 'line-opacity', sat ? 0.9 : 0.55);
 }
 
@@ -3636,7 +3685,8 @@ const PERSISTED_FIELD_IDS = [
 ];
 const PERSISTED_CHECKBOX_IDS = [
   'hideVetoed',
-  'layerGoStations', 'layerGoStationsPlanned', 'layerGoLines', 'layerHwy413', 'layerPoiPins',
+  'layerGoStations', 'layerGoStationsPlanned', 'layerGoLines',
+  'layerTtcLines', 'layerTtcStations', 'layerHwy413', 'layerPoiPins',
 ];
 
 function saveFilterState() {
@@ -3670,6 +3720,8 @@ function applyPersistedLayerVisibility() {
     layerGoStations: 'go-stations-existing-circles',
     layerGoStationsPlanned: 'go-stations-planned-circles',
     layerGoLines: 'go-lines-layer',
+    layerTtcLines: 'ttc-lines-layer',
+    layerTtcStations: 'ttc-stations-circles',
     layerHwy413: 'hwy413-line',
     layerPoiPins: 'poi-pins-circles',
   };
@@ -3740,6 +3792,15 @@ window.addEventListener('DOMContentLoaded', () => {
     if (!state.mapReady) return;
     state.map.setLayoutProperty('hwy413-line', 'visibility', e.target.checked ? 'visible' : 'none');
     updateOverlayLegibility();
+  });
+  $('layerTtcLines')?.addEventListener('change', e => {
+    if (!state.mapReady) return;
+    state.map.setLayoutProperty('ttc-lines-layer', 'visibility', e.target.checked ? 'visible' : 'none');
+    updateOverlayLegibility(); // TTC line casing follows the toggle in satellite mode
+  });
+  $('layerTtcStations')?.addEventListener('change', e => {
+    if (!state.mapReady) return;
+    state.map.setLayoutProperty('ttc-stations-circles', 'visibility', e.target.checked ? 'visible' : 'none');
   });
   $('whoAmI').addEventListener('change', e => setActivePerson(Number(e.target.value) || null));
   $('load').addEventListener('click', () => load().catch(showError));
