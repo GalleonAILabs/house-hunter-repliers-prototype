@@ -405,6 +405,15 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .grid-table tbody tr:hover{background:var(--bg)}
 .grid-row-sel,.grid-row-sel:hover{background:rgba(43,103,214,0.10)}
 .grid-td-num{text-align:right;font-variant-numeric:tabular-nums}
+/* Inline editors: rating stars + editable potential-price cell in the grid. */
+.grid-td-rating{white-space:nowrap}
+.gr-star{border:none;background:transparent;cursor:pointer;font-size:15px;line-height:1;padding:1px;color:var(--line)}
+.gr-star.on{color:var(--gold)}
+.gr-star:hover{color:var(--gold)}
+.grid-td-price{cursor:pointer}
+.grid-td-price:hover{background:rgba(43,103,214,0.08)}
+.grid-td-price.has-potential{color:var(--blue);font-weight:700}
+.grid-price-input{width:100px;text-align:right;padding:2px 6px;font-size:13px;border:1px solid var(--blue);border-radius:6px;background:var(--panel);color:var(--ink)}
 .grid-td-thumb img{width:44px;height:32px;object-fit:cover;border-radius:4px;display:block}
 .grid-thumb-empty{font-size:18px}
 .grid-td-sel,.grid-th-sel{width:30px;text-align:center}

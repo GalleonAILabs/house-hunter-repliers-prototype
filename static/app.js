@@ -3262,7 +3262,7 @@ function renderGrid() {
     html += `<tr data-mls="${esc(item.mls)}" class="${sel ? 'grid-row-sel' : ''}">`;
     html += `<td class="grid-td-sel"><input type="checkbox" class="grid-row-cb" ${sel ? 'checked' : ''} /></td>`;
     html += `<td class="grid-td-thumb">${item.image ? `<img src="${esc(item.image)}" alt="" loading="lazy"/>` : '<span class="grid-thumb-empty">🏠</span>'}</td>`;
-    cols.forEach(c => { html += `<td class="${c.type === 'number' ? 'grid-td-num' : ''}">${esc(c.fmt(item))}</td>`; });
+    cols.forEach(c => { html += gridCellHtml(c, item); });
     html += '</tr>';
   });
   html += '</tbody>';
@@ -3271,6 +3271,81 @@ function renderGrid() {
   updateGridCommandBar();
   updateUndoButton();
 }
+// A grid cell. The two columns that are editable on the property card -- the
+// active person's rating and the group's potential purchase price -- render as
+// inline editors here so they can be edited without opening the card. Everything
+// else (listing facts) is read-only text.
+function gridCellHtml(c, item) {
+  if (c.key === 'myRating') {
+    const r = personFeedbackFor(item.mls, state.activePerson)?.rating ?? 0;
+    let stars = '';
+    for (let s = 1; s <= 5; s++) {
+      stars += `<button type="button" class="gr-star${s <= r ? ' on' : ''}" data-mls="${esc(item.mls)}" data-rate="${s}" title="Rate ${s} star${s === 1 ? '' : 's'}">★</button>`;
+    }
+    return `<td class="grid-td-rating">${stars}</td>`;
+  }
+  if (c.key === 'price') {
+    const val = effectivePrice(item).value;
+    const isPotential = item.potentialPurchasePrice != null;
+    return `<td class="grid-td-num grid-td-price${isPotential ? ' has-potential' : ''}" data-mls="${esc(item.mls)}" tabindex="0" title="Click to edit the group's potential purchase price">${esc(money(val) || '—')}</td>`;
+  }
+  return `<td class="${c.type === 'number' ? 'grid-td-num' : ''}">${esc(c.fmt(item))}</td>`;
+}
+// Inline single-property rating write (same path as the card's stars).
+async function setInlineRating(mls, rating) {
+  if (!state.activePerson) { alert('Select who you are (top right) first.'); return; }
+  try {
+    await postFeedback({ person_id: state.activePerson, listing_id: mls, action_type: 'rating', rating });
+    Object.assign(state.feedback, await fetchFeedback([mls]));
+    applyFiltersAndRender();
+  } catch (e) { alert('Could not set rating: ' + e.message); }
+}
+// Inline edit of the group's potential purchase price (same endpoint as the
+// card): a number input in the cell; Enter/blur saves, Escape cancels, blank
+// clears back to list price.
+function startPriceEdit(cell) {
+  if (cell.querySelector('input')) return;
+  if (!state.activePerson) { alert('Select who you are (top right) first.'); return; }
+  const mls = cell.dataset.mls;
+  const item = findListing(mls) || state.rawListings.find(x => x.mls === mls);
+  if (!item) return;
+  const input = document.createElement('input');
+  input.type = 'number'; input.className = 'grid-price-input';
+  input.value = item.potentialPurchasePrice != null ? item.potentialPurchasePrice.price : '';
+  input.placeholder = item.price != null ? String(item.price) : 'price';
+  cell.textContent = '';
+  cell.appendChild(input);
+  input.focus(); input.select();
+  let done = false;
+  const finish = async (save) => {
+    if (done) return; done = true;
+    if (save) {
+      const v = input.value.trim();
+      try {
+        if (v === '') {
+          if (item.potentialPurchasePrice != null) {
+            await fetch('/api/potential-purchase-prices', { method: 'DELETE', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ listing_id: mls }) });
+          }
+        } else {
+          const price = Number(v);
+          if (!price || price <= 0) { alert('Enter a positive number, or leave blank to clear.'); done = false; input.focus(); return; }
+          await fetch('/api/potential-purchase-prices', { method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ person_id: state.activePerson, listing_id: mls, price }) });
+        }
+        await reloadAfterPotentialPriceChange(item); // reloads + re-renders the grid
+        return;
+      } catch (e) { alert('Could not save price: ' + e.message); }
+    }
+    renderGrid(); // cancel path: restore the cell
+  };
+  input.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+    else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+  });
+  input.addEventListener('blur', () => finish(true));
+  input.addEventListener('click', e => e.stopPropagation());
+}
+
 function updateGridCommandBar() {
   const n = state.gridSelection.size;
   const bar = $('gridCommandBar');
@@ -3991,6 +4066,12 @@ window.addEventListener('DOMContentLoaded', () => {
       const th = e.target.closest('th[data-col]');
       if (th) { const c = gridColumns().find(x => x.key === th.dataset.col); if (c?.sortable) toggleGridSort(c.key); return; }
       if (e.target.matches('input[type=checkbox]')) return; // handled on change
+      // Inline edits: a rating star, or the price cell. Handle before the row
+      // click so they edit in place instead of opening the card.
+      const star = e.target.closest('.gr-star');
+      if (star) { e.stopPropagation(); setInlineRating(star.dataset.mls, Number(star.dataset.rate)); return; }
+      const priceCell = e.target.closest('.grid-td-price');
+      if (priceCell) { e.stopPropagation(); startPriceEdit(priceCell); return; }
       const tr = e.target.closest('tbody tr[data-mls]');
       if (tr) { const item = findListing(tr.dataset.mls) || state.rawListings.find(x => x.mls === tr.dataset.mls); if (item) showMapCard(item); }
     });
