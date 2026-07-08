@@ -796,3 +796,74 @@ total-monthly, cluster colour by max fit, and the collapse grouping (coincident
 domain: pill rendering + legibility, the Mono/Orangeville collapse-then-split as
 you zoom, count-circle colours, and the Appearance decimals/clustering controls
 taking visible effect on the map.
+
+## Satellite imagery toggle (Streets / Satellite)
+
+**Style choice.** Satellite mode uses `satellite-streets-v12` (the Mapbox hybrid:
+imagery with roads + labels overlaid), NOT bare `satellite-v9`, so orientation
+and street context are preserved like Google Maps' satellite view. Streets mode
+stays `streets-v12`. Both are native Mapbox styles, so no new vendor or key.
+
+**Control + persistence.** An on-map segmented Streets/Satellite switch sits
+bottom-left (the conventional basemap corner, clear of the legend bottom-right
+and the draw control top-left), mirrored by a "Map imagery" select in Appearance
+settings. Both call applyMapStyle(); the choice persists in localStorage per
+device (hh_map_style), consistent with the clustering and pill-decimal settings.
+
+**The setStyle() gotcha, handled.** setStyle() destroys every custom source and
+layer. setupMapSources() was therefore split:
+- addMapLayers() adds all sources + layers; re-run after every style load.
+- wireMapHandlers() registers all map event handlers; run ONCE from initMap and
+  never again. Handlers bind to layer ids, and addMapLayers() re-creates those
+  ids, so the same handlers keep firing after a switch. Re-running the wiring
+  would double-register (duplicate popups/clicks), so it is deliberately not.
+After style.load, applyMapStyle rebuilds and re-populates every overlay: GO
+stations / GO lines / Highway 413 reload from their URLs; drawn polygons via
+renderDrawLayer (from state.drawPolygons); POI pins via refreshPoiLayer (from
+state.poi); listing pills + cluster circles via applyFiltersAndRender; and layer
+toggle visibility via applyPersistedLayerVisibility. HTML-marker pills are DOM
+overlays and survive setStyle() on their own; only the GeoJSON cluster source
+needs rebuilding. A state flag (state.mapStyle) skips a redundant setStyle to the
+already-loaded style -- tracked explicitly rather than by sprite-URL matching,
+because the satellite-streets sprite URL itself contains the substring "streets"
+and a naive check would refuse to switch back.
+
+**Only Highway 413 is a rendered corridor.** The other highway_*.geojson files
+(400/401/403/404/407/410/427/QEW) exist for server-side highway-distance
+calculation only; they are not map layers, so the sole highway overlay to
+survive a switch and get a legibility pass is Highway 413.
+
+**Per-layer legibility against imagery (streets appearance unchanged in all
+cases):**
+- GO lines: thin GTFS-coloured lines can blend into dark imagery. Added a white
+  casing layer (go-lines-casing) beneath the coloured line, shown ONLY in
+  satellite mode and only when the GO Lines toggle is on.
+- Highway 413: dark red at 0.55 opacity is the overlay most likely to vanish.
+  Added a white casing (hwy413-casing) on the same satellite-only rule, and
+  bumped the line opacity to 0.9 in satellite mode.
+- Listing pills: already have a white border + text-shadow -> legible, unchanged.
+- Cluster count circles: white border -> unchanged.
+- GO stations (existing filled, planned hollow ring): white / yellow strokes
+  read on imagery -> unchanged.
+- POI pins: coloured fill with a 2px white stroke -> unchanged.
+- Drawn-area polygons: blue fill + blue dashed outline read acceptably on
+  imagery -> unchanged (revisit only if field testing shows otherwise).
+
+**Billing (verified, not assumed).** Checked Mapbox's pricing page: "A map load
+occurs whenever a Map object is initialized." Map loads are counted per Map
+init, independent of style; satellite-streets-v12 is a standard GL JS vector
+style (imagery is a raster source inside the style, not a separate billed
+Raster Tiles API call at the app layer), and setStyle() at runtime does not
+initialize a new Map object, so it mints no additional load. Net: no billing
+difference at our scale (free tier 50k loads/month). Worth a glance at the
+account usage dashboard after real use to confirm empirically, but the pricing
+model says no change.
+
+**Verification limit.** WebGL is unavailable in the headless test browser, so
+the actual style switch and on-map overlay restoration could not be exercised
+here. Verified headless: style URLs (hybrid), the persisted choice round-trip,
+the on-map control + Appearance select both present, and updateMapStyleUI
+syncing them. Phone-pass items on the live domain: imagery actually loading,
+every overlay surviving a toggle both directions (GO lines/stations, Highway
+413, POI pins, pills/clusters, a drawn polygon), legibility of GO lines and
+pills against imagery, and the toggle persisting across reload.
