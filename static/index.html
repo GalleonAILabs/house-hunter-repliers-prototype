@@ -230,11 +230,6 @@
       <button class="secondary" id="drawIndicatorClear">Clear</button>
     </div>
 
-    <div id="mapCard" class="map-card" hidden>
-      <button class="map-card-close" id="mapCardClose">✕</button>
-      <div class="map-card-inner" id="mapCardInner"></div>
-    </div>
-
     <!-- Cluster / stacked-pin chooser: a scrollable list of mini-cards for the
          listings under a clicked cluster bubble or a stack of overlapping pins.
          Tapping a mini-card opens the full property card. -->
@@ -245,6 +240,13 @@
       </div>
       <div class="cluster-popup-inner" id="clusterPopupInner"></div>
     </div>
+  </div>
+
+  <!-- Property card: a body-level sibling (NOT inside #viewMap) so it opens over
+       any view, including Grid and List, where #viewMap is display:none. -->
+  <div id="mapCard" class="map-card" hidden>
+    <button class="map-card-close" id="mapCardClose">✕</button>
+    <div class="map-card-inner" id="mapCardInner"></div>
   </div>
 
   <!-- 5. LIST VIEW, flex: 1 1 0, scrollable -->
