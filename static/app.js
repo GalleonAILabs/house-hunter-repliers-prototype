@@ -1250,7 +1250,11 @@ function initMap() {
     const narrow = isNarrowViewport();
     if (narrow === _wasNarrowViewport) return;
     _wasNarrowViewport = narrow;
-    if (state.activeView === 'combined' && narrow) switchView('map');
+    // Crossing into phone width drops the desktop-only views (Both -> Map,
+    // Grid -> List). Otherwise re-derive the current view for the new width
+    // (mobile Map has the drawer, desktop Map does not).
+    if (narrow && state.activeView === 'combined') switchView('map');
+    else if (narrow && state.activeView === 'grid') switchView('list');
     else switchView(state.activeView);
   });
 }
