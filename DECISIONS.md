@@ -867,3 +867,72 @@ syncing them. Phone-pass items on the live domain: imagery actually loading,
 every overlay surviving a toggle both directions (GO lines/stations, Highway
 413, POI pins, pills/clusters, a drawn polygon), legibility of GO lines and
 pills against imagery, and the toggle persisting across reload.
+
+## Mobile map: fragment fixes, satellite-in-Layers, named saved areas
+
+**Fragment investigation (item 1).** The map is a full-screen fixed layer
+(`.view-section{position:fixed;inset:0}`); the topbar, filters bar, and status
+bar are also `position:fixed` and float over it. So anything anchored to a
+screen corner overlaps that chrome. A full DOM scan at 390px (every fixed/
+absolute element's rect) found the ONLY app-owned floater overlapping chrome was
+the on-map Streets/Satellite toggle (bottom-left, y778-820, over the status bar
+at y786-834). The other two reported fragments ("top-right near the person
+selector", "right of the Filters bar") were not in the headless DOM at all,
+because WebGL is unavailable there and Mapbox only injects its own controls once
+the GL map initializes. By elimination they are Mapbox's own controls, which on
+this full-screen map render in the screen corners under the app chrome:
+- NavigationControl (added top-right) -> the zoom stack sits under the topbar /
+  person selector. Fix: removed it. A mobile-first map zooms by pinch / double
+  tap (touch) and scroll / double-click (desktop); on-screen zoom buttons are
+  redundant and were the collision.
+- Mapbox logo + attribution (bottom corners, required, kept) -> hidden behind /
+  poking around the bottom status bar. Fix: CSS lifts `.mapboxgl-ctrl-bottom-*`
+  to `bottom:52px` on mobile so they clear the status bar.
+- The on-map style toggle -> removed (moved to Layers, item 2).
+Only noticeable in satellite mode because white controls disappear against the
+light streets basemap but stand out against imagery. Reported the confirmed one
+explicitly and the two Mapbox ones as identified-by-elimination, given the
+headless WebGL limit on inspecting Mapbox's injected DOM.
+
+**Satellite in Layers (item 2).** The basemap is a layer decision, so the
+Streets/Satellite control is now a "Satellite imagery" on/off entry in the
+Layers menu; the separate on-map control is gone. The Appearance-settings select
+stays and mirrors the Layers toggle: both call applyMapStyle(), and
+updateMapStyleUI() writes both surfaces from the persisted choice
+(hh_map_style), so they always agree. Persistence is unchanged.
+
+**Named saved areas (item 3).** Drawn polygons went from session-only to
+persistent named zones, because a search zone (a "Barrie area") is a household
+concept, not a per-device one.
+- Storage mirrors POI pins exactly: a `saved_areas` table (name, polygon JSON
+  ring, created_by), shared across the household, with GET/POST/DELETE
+  /api/areas under the same shared-secret auth. created_by is attribution, not
+  ownership: any household member can toggle or delete any area.
+- On/off state is a per-device VIEW preference (localStorage hh_active_area_ids)
+  like the other layer toggles; the area itself is shared. On = drawn on the map
+  AND active as a filter, off = neither. A newly saved area is auto-activated for
+  its creator; others see it in their Layers menu (off) until they toggle it.
+- Finishing a polygon prompts for a name (default "Area N") and POSTs it.
+  Multiple active areas keep OR semantics between polygons, AND with the filter
+  panel (Sample Data via the Repliers map param, POC via the client-side
+  point-in-polygon, both reading activeAreaPolygons()).
+- The active-filter pill now NAMES the active areas when few ("Filtering to
+  Barrie area + Orangeville"), else a count, so a filtered view is always
+  explicable. This replaces the old session-only safety rationale (a filter that
+  vanished on reload) with persistent, explained visibility.
+- Reset turns every area OFF (clears the filter) but does NOT delete them, since
+  they are shared data others may rely on. Session-only unsaved-polygon
+  behaviour is gone; the "Clear all" toolbar button became "Cancel" (discard the
+  in-progress drawing only).
+
+**Verification.** WebGL is unavailable headless, so the on-map rendering (imagery
+loading, overlay survival, the drawing gesture) is a phone-pass item. Verified
+headlessly / in tests: the full saved-area API lifecycle end to end against the
+live server (create attributed to Mark -> load -> render a Layers row with
+toggle+delete -> activate -> POC point-in-polygon inside/outside -> Repliers map
+param set -> indicator names it -> delete -> gone), the Satellite Layers toggle
+syncing with the Appearance select, the on-map style toggle removed from the DOM,
+the mobile Mapbox-offset CSS live, and 126 server tests (8 new for /api/areas).
+Phone-pass items: the three fragments resolved in satellite mode, the Satellite
+toggle actually switching the basemap from Layers, and draw -> name -> toggle an
+area on the live domain.
