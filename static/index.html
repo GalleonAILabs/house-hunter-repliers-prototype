@@ -196,6 +196,14 @@
       </div>
     </details>
 
+    <!-- Basemap style switch (Streets / Satellite). Satellite uses Mapbox's
+         satellite-streets hybrid so roads + labels stay overlaid. Choice is
+         also mirrored in Appearance settings and persisted per device. -->
+    <div class="map-style-toggle" id="mapStyleToggle" role="group" aria-label="Map style">
+      <button type="button" class="map-style-btn active" data-style="streets">Map</button>
+      <button type="button" class="map-style-btn" data-style="satellite">Satellite</button>
+    </div>
+
     <!-- Draw-an-area search: tap "Draw area", tap the map to place a polygon's
          points, Finish to close it. Multiple areas (OR). Filters both sources. -->
     <div class="map-draw-control">
@@ -319,6 +327,16 @@
             <option value="1">1</option>
             <option value="2">2</option>
             <option value="3">3</option>
+          </select>
+        </div>
+        <div class="settings-row settings-number-row">
+          <div>
+            <div>Map imagery</div>
+            <div class="field-desc">Streets map or satellite imagery (hybrid, with roads and labels kept on top). Also switchable from the control on the map itself.</div>
+          </div>
+          <select id="mapStyleSelect" class="settings-number-input" style="width:auto">
+            <option value="streets">Map</option>
+            <option value="satellite">Satellite</option>
           </select>
         </div>
       </div>

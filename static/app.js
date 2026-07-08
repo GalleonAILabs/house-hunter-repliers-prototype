@@ -60,6 +60,24 @@ function pillCompactDecimals() {
 }
 function setPillCompactDecimals(n) { localStorage.setItem(COMPACT_DECIMALS_KEY, String(n)); }
 
+// ─── Basemap style (Streets / Satellite) ────────────────────────────────────────
+// Mapbox serves both natively (no new vendor or key). Satellite mode uses the
+// satellite-streets hybrid (imagery with roads + labels overlaid), not bare
+// satellite, so orientation is preserved like Google's satellite view. Stored
+// as an Appearance preference per device, like the clustering + decimal
+// settings. Billing note (see DECISIONS.md): a map load is billed per Map
+// object init regardless of style, and setStyle() at runtime mints no new load,
+// so this costs nothing extra at our scale.
+const MAP_STYLE_KEY = 'hh_map_style';
+const MAP_STYLES = {
+  streets: 'mapbox://styles/mapbox/streets-v12',
+  satellite: 'mapbox://styles/mapbox/satellite-streets-v12',
+};
+function mapStyleChoice() {
+  return localStorage.getItem(MAP_STYLE_KEY) === 'satellite' ? 'satellite' : 'streets';
+}
+function setMapStyleChoice(s) { localStorage.setItem(MAP_STYLE_KEY, s === 'satellite' ? 'satellite' : 'streets'); }
+
 // ─── Map pill labels ────────────────────────────────────────────────────────────
 // Strictly one formatting rule per metric type, never mixed on a view:
 //   prices + cost to close -> compact ($1.05M, $875K, $247K), decimals per the
@@ -350,7 +368,7 @@ async function loadConfig() {
 
 // ─── State ────────────────────────────────────────────────────────────────────
 const state = { map: null, mapReady: false, rawListings: [], listings: [], activeView: 'map', people: [], activePerson: null, feedback: {}, openMapItem: null, source: 'poc', sourceCount: 0, clusters: [], poi: [], householdSettings: {}, personThresholds: {}, personThresholdsError: false, placeAttachments: {}, clusterPopupOpen: false,
-  drawMode: false, drawPolygons: [], drawCurrent: [], pillListings: [] };
+  drawMode: false, drawPolygons: [], drawCurrent: [], pillListings: [], mapStyle: 'streets' };
 let cardSettings = loadSettings();
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -1115,15 +1133,19 @@ function initMap() {
   mapboxgl.accessToken = MAPBOX_TOKEN;
   state.map = new mapboxgl.Map({
     container: 'map',
-    style: 'mapbox://styles/mapbox/streets-v12',
+    style: MAP_STYLES[mapStyleChoice()], // persisted Streets/Satellite choice
     center: [-79.5, 44.0],
     zoom: 9,
   });
+  state.mapStyle = mapStyleChoice(); // tracks the loaded basemap for applyMapStyle
   state.map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
 
   state.map.on('load', () => {
-    setupMapSources();
+    addMapLayers();
+    wireMapHandlers(); // event handlers register ONCE (survive setStyle)
+    refreshPoiLayer();
     state.mapReady = true;
+    updateMapStyleUI();
     // Layer checkboxes may already be checked from restored state (T10) --
     // apply their visibility now that the layers actually exist.
     applyPersistedLayerVisibility();
@@ -1140,7 +1162,13 @@ function initMap() {
   window.addEventListener('resize', () => state.map?.resize());
 }
 
-function setupMapSources() {
+// All custom sources + layers. Split out from event wiring because setStyle()
+// (the Streets/Satellite toggle) destroys every custom source and layer, so
+// this is re-run after each style load to rebuild them; the event handlers in
+// wireMapHandlers() bind to layer ids and survive a style switch, so they must
+// register exactly once. Keep the two in sync: every layer added here has its
+// handlers (if any) in wireMapHandlers.
+function addMapLayers() {
   const map = state.map;
 
   map.addSource('listings', { type: 'geojson', data: emptyFC() });
@@ -1176,31 +1204,6 @@ function setupMapSources() {
       'text-halo-width': 1,
     },
   });
-  map.on('click', 'listings-circles', e => {
-    if (state.drawMode) return; // in draw mode, the tap drops a vertex instead
-    // Stops this click from also reaching the global click-outside-to-
-    // dismiss listener, which would otherwise immediately close whatever
-    // this same click just opened.
-    e.originalEvent?.stopPropagation();
-    closeOutsideDetailsPanels(document.body);
-    // Gather every listing pin stacked within a few pixels of the click, so
-    // multiple listings at close coordinates (some POC pins overlap) open the
-    // chooser popup instead of silently showing only the topmost pin.
-    const r = 14;
-    const near = state.map.queryRenderedFeatures(
-      [[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]],
-      { layers: ['listings-circles'] });
-    const seen = new Set();
-    const items = [];
-    [e.features[0], ...near].forEach(f => {
-      const mls = f.properties.mls;
-      if (mls && !seen.has(mls)) { seen.add(mls); const it = findListing(mls); if (it) items.push(it); }
-    });
-    if (items.length === 1) showMapCard(items[0]);
-    else if (items.length > 1) openListingChooser(items);
-  });
-  map.on('mouseenter', 'listings-circles', () => { map.getCanvas().style.cursor = 'pointer'; });
-  map.on('mouseleave', 'listings-circles', () => { map.getCanvas().style.cursor = ''; });
 
   map.addSource('clusters', { type: 'geojson', data: emptyFC() });
   map.addLayer({
@@ -1229,24 +1232,6 @@ function setupMapSources() {
     },
     paint: { 'text-color': '#18211f' },
   });
-  map.on('click', 'clusters-circles', e => {
-    if (state.drawMode) return; // in draw mode, the tap drops a vertex instead
-    e.originalEvent?.stopPropagation();
-    closeOutsideDetailsPanels(document.body);
-    const p = e.features[0].properties;
-    const c = state.clusters[Number(p.clusterIdx)];
-    if (c) handleClusterClick(c, p);
-  });
-  map.on('mouseenter', 'clusters-circles', () => { map.getCanvas().style.cursor = 'pointer'; });
-  map.on('mouseleave', 'clusters-circles', () => { map.getCanvas().style.cursor = ''; });
-
-  // Recompute clusters for the new viewport (and precision) after any pan/zoom,
-  // so bubbles split as the user zooms in. Debounced; a no-op unless clustering
-  // is active (Sample Data + toggle on).
-  // On pan/zoom: refetch server clusters when clustering is active, else
-  // re-collapse the individual pill markers for the new zoom so pills separate
-  // as you zoom in and merge into count circles where they would pile up.
-  map.on('moveend', () => { if (clusteringActive()) scheduleClusterRefetch(); else schedulePillRelayout(); });
 
   // Draw-an-area: completed polygons (fill + outline), the in-progress ring
   // (dashed line), and its vertices (dots).
@@ -1259,10 +1244,6 @@ function setupMapSources() {
   map.addLayer({ id: 'draw-verts', type: 'circle', source: 'draw',
     filter: ['==', '$type', 'Point'],
     paint: { 'circle-radius': 5, 'circle-color': '#2b67d6', 'circle-stroke-width': 2, 'circle-stroke-color': '#fff' } });
-  // In draw mode every map click drops a polygon vertex (works with touch: one
-  // tap = one vertex). The listing/cluster click handlers early-return in draw
-  // mode so a tap never opens a card mid-draw.
-  map.on('click', e => { if (state.drawMode) { addDrawVertex(e.lngLat); } });
 
   // GO Stations + GO Lines + Highway 413 -- off by default (layer toggle panel).
   // Stations and lines are DELIBERATELY separate sources/files (go-stations.geojson
@@ -1297,25 +1278,20 @@ function setupMapSources() {
       'circle-stroke-color': '#e8b400',
     },
   });
-  let goStationPopup = null;
-  const GO_STATION_LAYERS = ['go-stations-existing-circles', 'go-stations-planned-circles'];
-  GO_STATION_LAYERS.forEach(layerId => {
-    map.on('mouseenter', layerId, e => {
-      map.getCanvas().style.cursor = 'pointer';
-      const p = e.features[0].properties;
-      goStationPopup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false, className: 'go-station-tooltip', offset: 10 })
-        .setLngLat(e.features[0].geometry.coordinates)
-        .setHTML(`<strong>${esc(p.name)}</strong>${p.status !== 'Existing' ? ' (planned)' : ''}<br>${esc(p.lines || '')}`)
-        .addTo(map);
-    });
-    map.on('mouseleave', layerId, () => {
-      map.getCanvas().style.cursor = '';
-      goStationPopup?.remove();
-      goStationPopup = null;
-    });
-  });
 
   map.addSource('go-lines', { type: 'geojson', data: '/layers/go-lines.geojson' });
+  // White casing beneath the coloured GO line, hidden by default and shown only
+  // in satellite mode (see updateOverlayLegibility): the GTFS route colours are
+  // legible on the street basemap but can vanish against dark imagery, so the
+  // casing gives them a light halo. Added before the coloured line so it sits
+  // underneath.
+  map.addLayer({
+    id: 'go-lines-casing',
+    type: 'line',
+    source: 'go-lines',
+    layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': '#ffffff', 'line-width': 6, 'line-opacity': 0.9 },
+  });
   map.addLayer({
     id: 'go-lines-layer',
     type: 'line',
@@ -1325,6 +1301,15 @@ function setupMapSources() {
   });
 
   map.addSource('hwy413', { type: 'geojson', data: '/layers/highway-413.geojson' });
+  // Same casing treatment for the dark-red Highway 413 corridor, which is the
+  // overlay most at risk of vanishing against imagery.
+  map.addLayer({
+    id: 'hwy413-casing',
+    type: 'line',
+    source: 'hwy413',
+    layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': '#ffffff', 'line-width': 8, 'line-opacity': 0.85 },
+  });
   map.addLayer({
     id: 'hwy413-line',
     type: 'line',
@@ -1348,6 +1333,78 @@ function setupMapSources() {
       'circle-stroke-color': '#fff',
     },
   });
+}
+
+// Map event handlers. Registered ONCE (from initMap's load), never re-run on a
+// style switch: handlers bind to layer ids, and addMapLayers() re-creates those
+// ids, so the same handlers keep firing after setStyle().
+function wireMapHandlers() {
+  const map = state.map;
+
+  map.on('click', 'listings-circles', e => {
+    if (state.drawMode) return; // in draw mode, the tap drops a vertex instead
+    // Stops this click from also reaching the global click-outside-to-
+    // dismiss listener, which would otherwise immediately close whatever
+    // this same click just opened.
+    e.originalEvent?.stopPropagation();
+    closeOutsideDetailsPanels(document.body);
+    // Gather every listing pin stacked within a few pixels of the click, so
+    // multiple listings at close coordinates (some POC pins overlap) open the
+    // chooser popup instead of silently showing only the topmost pin.
+    const r = 14;
+    const near = state.map.queryRenderedFeatures(
+      [[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]],
+      { layers: ['listings-circles'] });
+    const seen = new Set();
+    const items = [];
+    [e.features[0], ...near].forEach(f => {
+      const mls = f.properties.mls;
+      if (mls && !seen.has(mls)) { seen.add(mls); const it = findListing(mls); if (it) items.push(it); }
+    });
+    if (items.length === 1) showMapCard(items[0]);
+    else if (items.length > 1) openListingChooser(items);
+  });
+  map.on('mouseenter', 'listings-circles', () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', 'listings-circles', () => { map.getCanvas().style.cursor = ''; });
+
+  map.on('click', 'clusters-circles', e => {
+    if (state.drawMode) return; // in draw mode, the tap drops a vertex instead
+    e.originalEvent?.stopPropagation();
+    closeOutsideDetailsPanels(document.body);
+    const p = e.features[0].properties;
+    const c = state.clusters[Number(p.clusterIdx)];
+    if (c) handleClusterClick(c, p);
+  });
+  map.on('mouseenter', 'clusters-circles', () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', 'clusters-circles', () => { map.getCanvas().style.cursor = ''; });
+
+  // On pan/zoom: refetch server clusters when clustering is active, else
+  // re-collapse the individual pill markers for the new zoom so pills separate
+  // as you zoom in and merge into count circles where they would pile up.
+  map.on('moveend', () => { if (clusteringActive()) scheduleClusterRefetch(); else schedulePillRelayout(); });
+
+  // In draw mode every map click drops a polygon vertex (works with touch: one
+  // tap = one vertex). The listing/cluster click handlers early-return in draw
+  // mode so a tap never opens a card mid-draw.
+  map.on('click', e => { if (state.drawMode) { addDrawVertex(e.lngLat); } });
+
+  let goStationPopup = null;
+  ['go-stations-existing-circles', 'go-stations-planned-circles'].forEach(layerId => {
+    map.on('mouseenter', layerId, e => {
+      map.getCanvas().style.cursor = 'pointer';
+      const p = e.features[0].properties;
+      goStationPopup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false, className: 'go-station-tooltip', offset: 10 })
+        .setLngLat(e.features[0].geometry.coordinates)
+        .setHTML(`<strong>${esc(p.name)}</strong>${p.status !== 'Existing' ? ' (planned)' : ''}<br>${esc(p.lines || '')}`)
+        .addTo(map);
+    });
+    map.on('mouseleave', layerId, () => {
+      map.getCanvas().style.cursor = '';
+      goStationPopup?.remove();
+      goStationPopup = null;
+    });
+  });
+
   let poiPopup = null;
   map.on('mouseenter', 'poi-pins-circles', e => {
     map.getCanvas().style.cursor = 'pointer';
@@ -1363,7 +1420,54 @@ function setupMapSources() {
     poiPopup?.remove();
     poiPopup = null;
   });
-  refreshPoiLayer();
+}
+
+// ─── Basemap style switching ────────────────────────────────────────────────────
+// setStyle() destroys all custom sources/layers, so after the new style loads we
+// rebuild every overlay (addMapLayers), re-apply toggle visibility + satellite
+// legibility, and re-populate the data-driven overlays (drawn areas, POI pins,
+// listings pills/clusters). HTML-marker pills survive a style switch on their
+// own (they are DOM overlays, not part of the style), but the GeoJSON cluster
+// source is destroyed, so applyFiltersAndRender re-renders it.
+function applyMapStyle(choice) {
+  if (!state.map) return;
+  const target = choice === 'satellite' ? 'satellite' : 'streets';
+  setMapStyleChoice(target);
+  updateMapStyleUI();
+  // Skip a redundant setStyle to the style already loaded (it would drop every
+  // overlay and rebuild for nothing). Tracked with an explicit state flag, not
+  // sprite-string matching: the satellite-streets sprite URL itself contains
+  // "streets", so a substring check would misfire switching back.
+  if (state.mapStyle === target) { updateOverlayLegibility(); return; }
+  state.mapStyle = target;
+  state.map.setStyle(MAP_STYLES[target]);
+  state.map.once('style.load', () => {
+    addMapLayers();
+    applyPersistedLayerVisibility(); // also calls updateOverlayLegibility()
+    renderDrawLayer();
+    refreshPoiLayer();
+    if (state.rawListings.length) applyFiltersAndRender();
+  });
+}
+function updateMapStyleUI() {
+  const choice = mapStyleChoice();
+  document.querySelectorAll('.map-style-btn').forEach(b => b.classList.toggle('active', b.dataset.style === choice));
+  const sel = $('mapStyleSelect');
+  if (sel) sel.value = choice;
+}
+// Satellite-mode legibility: show the white line casings (only meaningful in
+// satellite mode, and only when their parent line layer is toggled on), and
+// bump the Highway 413 line opacity so it reads against imagery. Streets mode
+// keeps the casings hidden and the original appearance unchanged.
+function updateOverlayLegibility() {
+  if (!state.mapReady || !state.map) return;
+  const map = state.map;
+  const sat = mapStyleChoice() === 'satellite';
+  const goOn = !!($('layerGoLines') && $('layerGoLines').checked);
+  const hwyOn = !!($('layerHwy413') && $('layerHwy413').checked);
+  if (map.getLayer('go-lines-casing')) map.setLayoutProperty('go-lines-casing', 'visibility', (sat && goOn) ? 'visible' : 'none');
+  if (map.getLayer('hwy413-casing')) map.setLayoutProperty('hwy413-casing', 'visibility', (sat && hwyOn) ? 'visible' : 'none');
+  if (map.getLayer('hwy413-line')) map.setPaintProperty('hwy413-line', 'line-opacity', sat ? 0.9 : 0.55);
 }
 
 // ─── POI pins (T14) ─────────────────────────────────────────────────────────
@@ -2866,6 +2970,8 @@ function applyPersistedLayerVisibility() {
     const cb = $(checkboxId);
     if (cb) state.map.setLayoutProperty(layerId, 'visibility', cb.checked ? 'visible' : 'none');
   });
+  // Satellite-mode casings mirror the GO lines / Highway 413 toggle state.
+  updateOverlayLegibility();
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
@@ -2914,10 +3020,12 @@ window.addEventListener('DOMContentLoaded', () => {
   $('layerGoLines')?.addEventListener('change', e => {
     if (!state.mapReady) return;
     state.map.setLayoutProperty('go-lines-layer', 'visibility', e.target.checked ? 'visible' : 'none');
+    updateOverlayLegibility(); // keep the satellite casing in step with the toggle
   });
   $('layerHwy413')?.addEventListener('change', e => {
     if (!state.mapReady) return;
     state.map.setLayoutProperty('hwy413-line', 'visibility', e.target.checked ? 'visible' : 'none');
+    updateOverlayLegibility();
   });
   $('whoAmI').addEventListener('change', e => setActivePerson(Number(e.target.value) || null));
   $('load').addEventListener('click', () => load().catch(showError));
@@ -2948,6 +3056,16 @@ window.addEventListener('DOMContentLoaded', () => {
     decSel.value = String(pillCompactDecimals());
     // Re-render both views so pills and cards pick up the new decimals at once.
     decSel.addEventListener('change', e => { setPillCompactDecimals(parseInt(e.target.value, 10)); applyFiltersAndRender(); });
+  }
+  // Basemap Streets/Satellite: the on-map segmented control and the Appearance
+  // select drive the same applyMapStyle(); updateMapStyleUI keeps both in sync.
+  document.querySelectorAll('.map-style-btn').forEach(btn => {
+    btn.addEventListener('click', () => applyMapStyle(btn.dataset.style));
+  });
+  const styleSel = $('mapStyleSelect');
+  if (styleSel) {
+    styleSel.value = mapStyleChoice();
+    styleSel.addEventListener('change', e => applyMapStyle(e.target.value));
   }
   $('clusterPopupClose')?.addEventListener('click', closeClusterPopup);
   // Draw-an-area controls
