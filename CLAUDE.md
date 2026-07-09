@@ -84,12 +84,21 @@ Phone test tunnel: stable named Cloudflare Tunnel at
 on restart). Tunnel name `house-hunter`, UUID
 `cd2a79c3-145f-4c17-8702-c56b18554230`, config in `~/.cloudflared/
 config.yml` mapping that hostname to `http://localhost:8787`, DNS is a
-proxied CNAME on the `galleonglobal.ai` Cloudflare zone. Start/stop the
-forwarder with `cloudflared tunnel run house-hunter` (currently run
-on demand, not yet a launchd service, so it stops when the Mac
-restarts; run `cloudflared service install` to make it always-on). The
-server binds 127.0.0.1 only (server.py), so the tunnel is required;
-direct LAN access would need binding 0.0.0.0.
+proxied CNAME on the `galleonglobal.ai` Cloudflare zone. The tunnel is
+always-on: `cloudflared service install` set up a system LaunchDaemon
+`/Library/LaunchDaemons/com.cloudflare.cloudflared.plist` (root, RunAtLoad,
+config copied to `/etc/cloudflared/config.yml` + credentials in
+`/etc/cloudflared/`), so `househunter.galleonglobal.ai` comes back after a
+restart with no manual command. It is a system LaunchDaemon (starts at boot),
+unlike the server which is a per-user LaunchAgent (needs the Drive mount that
+only exists after login); the tunnel just retries until the origin at
+localhost:8787 is up post-login. Manage:
+`sudo launchctl bootout system/com.cloudflare.cloudflared` /
+`sudo launchctl bootstrap system /Library/LaunchDaemons/com.cloudflare.cloudflared.plist`,
+or `cloudflared service uninstall`. Logs go to the system log. To run it
+manually instead (service stopped), `cloudflared tunnel run house-hunter`
+reads `~/.cloudflared/config.yml`. The server binds 127.0.0.1 only (server.py),
+so the tunnel is required; direct LAN access would need binding 0.0.0.0.
 
 Replaced two earlier tunnel setups: localtunnel (dead URLs
 `repliers-mark.loca.lt` / `house-hunter-repliers-mark.loca.lt`, forced
