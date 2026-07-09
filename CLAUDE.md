@@ -66,7 +66,15 @@ Endpoints: /api/health, /api/config, /api/listings, /api/poc-listings,
 resolved per-person grants + personal grid picks + admin_id; POST
 admin-only group grant), /api/grid-prefs (POST personal column
 show/hide), /api/transfer-admin (POST admin-only), /api/person-thresholds,
+/api/poi (GET/POST/DELETE; DELETE refuses a pin still attached to a listing
+unless force=true), /api/report-issue (POST; in-app tester bug report that
+files a Linear Triage issue with an AI first-pass, GAL-42),
 /layers/go-stations.geojson, /layers/highway-413.geojson.
+Report-issue env vars (server-side only, never sent to the browser):
+LINEAR_API_KEY enables the feature and the Report button (see /api/config
+report_enabled); ANTHROPIC_API_KEY (a per-project console key) turns on the
+AI title/label/duplicate first-pass, otherwise reports fall back to a derived
+title plus the needs-triage label; LINEAR_TEAM_KEY defaults to GAL.
 Column-permission model: /api/poc-listings and /api/feedback take an
 optional person_id and strip data for any column group that person is
 denied (server-side enforcement, denied data absent from the payload,
