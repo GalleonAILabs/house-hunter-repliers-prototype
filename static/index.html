@@ -28,6 +28,7 @@
         <button class="view-btn" id="btnGrid">▦ Grid</button>
       </div>
       <select class="who-am-i" id="whoAmI" title="Who you are: every rating, note, reject, and research request is recorded as this person"></select>
+      <button class="icon-btn" id="reportIssueBtn" title="Report an issue" hidden>⚑</button>
       <button class="icon-btn" id="settingsBtn" title="Settings">⚙</button>
     </div>
   </header>
@@ -348,6 +349,25 @@
   </div>
 
   <!-- Bulk add-note modal: one note text applied to every selected property. -->
+  <!-- In-app issue reporter (GAL-42). Testers file a bug straight from the app;
+       the server attaches captured context, runs a Claude first-pass, and
+       creates a Linear Triage issue. Button is hidden until /api/config reports
+       report_enabled (a Linear key is set on the server). -->
+  <div class="modal-overlay" id="reportOverlay" hidden></div>
+  <div class="app-modal" id="reportModal" hidden>
+    <div class="app-modal-head"><span>Report an issue</span><button class="close-btn" id="reportClose">✕</button></div>
+    <div class="app-modal-body" id="reportBody">
+      <label>What happened? What did you expect?
+        <textarea id="reportText" rows="5" placeholder="e.g. The map pins disappear when I rotate my phone"></textarea>
+      </label>
+      <label>Screenshot or photo (optional)
+        <input type="file" id="reportImage" accept="image/*" />
+      </label>
+      <div class="app-modal-status" id="reportStatus"></div>
+      <button id="reportSend">Send report</button>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="bulkNoteOverlay" hidden></div>
   <div class="app-modal" id="bulkNoteModal" hidden>
     <div class="app-modal-head"><span id="bulkNoteTitle">Add a note</span><button class="close-btn" id="bulkNoteClose">✕</button></div>

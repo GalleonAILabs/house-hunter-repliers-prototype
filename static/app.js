@@ -418,6 +418,7 @@ function lotDimsLabel(item) {
 // .env can't drift out of sync.
 let APP_TOKEN = null;
 let MAPBOX_TOKEN = null;
+let REPORT_ENABLED = false;
 const WHO_KEY = 'hh_who_am_i';
 const authHeaders = () => ({ 'X-App-Token': APP_TOKEN });
 
@@ -426,6 +427,7 @@ async function loadConfig() {
   const data = await res.json();
   APP_TOKEN = data.auth_token;
   MAPBOX_TOKEN = data.mapbox_token;
+  REPORT_ENABLED = !!data.report_enabled;
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -2087,6 +2089,132 @@ async function deletePoi(poi, force = false) {
   } catch (e) {
     alert('Could not delete the place: ' + e.message);
   }
+}
+
+// ─── In-app issue reporter (GAL-42) ─────────────────────────────────────────
+// A tester describes a bug, optionally attaches a photo/screenshot, and the
+// server files it in Linear Triage with captured context and an AI first-pass.
+// The button only appears when the server has a Linear key (REPORT_ENABLED).
+function initReportButton() {
+  const btn = $('reportIssueBtn');
+  if (!btn) return;
+  if (!REPORT_ENABLED) { btn.hidden = true; return; }
+  btn.hidden = false;
+  btn.addEventListener('click', openReportModal);
+  $('reportClose')?.addEventListener('click', closeReportModal);
+  $('reportOverlay')?.addEventListener('click', closeReportModal);
+  $('reportSend')?.addEventListener('click', () => sendReport().catch(err => {
+    showFeedbackStatus($('reportStatus'), err.message || 'Could not send. Try again.', true);
+  }));
+}
+
+function openReportModal() {
+  const body = $('reportBody');
+  // Reset the form each open (it may have been replaced by a thanks message).
+  body.innerHTML = ''
+    + '<label>What happened? What did you expect?'
+    + '<textarea id="reportText" rows="5" placeholder="e.g. The map pins disappear when I rotate my phone"></textarea></label>'
+    + '<label>Screenshot or photo (optional)'
+    + '<input type="file" id="reportImage" accept="image/*" /></label>'
+    + '<div class="app-modal-status" id="reportStatus"></div>'
+    + '<button id="reportSend">Send report</button>';
+  $('reportSend').addEventListener('click', () => sendReport().catch(err => {
+    showFeedbackStatus($('reportStatus'), err.message || 'Could not send. Try again.', true);
+  }));
+  $('reportOverlay').hidden = false;
+  $('reportModal').hidden = false;
+  $('reportText').focus();
+}
+
+function closeReportModal() {
+  $('reportOverlay').hidden = true;
+  $('reportModal').hidden = true;
+}
+
+// Downscale a chosen image to a phone-friendly JPEG (max 1600px long edge) and
+// return { image_base64, image_mimetype }, or null if there is no usable image.
+// Keeps the JSON body well under the server's 8 MB cap even for 12 MP photos.
+function prepareReportImage(file) {
+  return new Promise(resolve => {
+    if (!file) { resolve(null); return; }
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const maxEdge = 1600;
+      const scale = Math.min(1, maxEdge / Math.max(img.width, img.height));
+      const w = Math.max(1, Math.round(img.width * scale));
+      const h = Math.max(1, Math.round(img.height * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+      resolve({ image_base64: dataUrl.split(',', 2)[1], image_mimetype: 'image/jpeg' });
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+    img.src = url;
+  });
+}
+
+function reportContext() {
+  const person = state.people.find(p => p.id === state.activePerson) || {};
+  const token = (document.querySelector('script[src*="app.js"]')?.src.match(/[?&]v=([\w.-]+)/) || [])[1] || null;
+  let viewport = null;
+  if (state.map) {
+    const c = state.map.getCenter();
+    viewport = {
+      lat: +c.lat.toFixed(5), lng: +c.lng.toFixed(5),
+      zoom: +state.map.getZoom().toFixed(2), bearing: +state.map.getBearing().toFixed(1),
+    };
+  }
+  return {
+    person_id: state.activePerson,
+    person_name: person.name || null,
+    listing_id: state.openMapItem?.mls || null,
+    listing_address: state.openMapItem?.address || null,
+    view: state.activeView,
+    source: state.source,
+    filters: filterParams().toString(),
+    viewport,
+    deploy_token: token,
+    user_agent: navigator.userAgent,
+  };
+}
+
+async function sendReport() {
+  const description = ($('reportText')?.value || '').trim();
+  const status = $('reportStatus');
+  if (!description) { showFeedbackStatus(status, 'Please describe the issue first.', true); return; }
+  const sendBtn = $('reportSend');
+  sendBtn.disabled = true;
+  showFeedbackStatus(status, 'Sending...', false);
+
+  const file = $('reportImage')?.files?.[0] || null;
+  const image = await prepareReportImage(file);
+
+  const payload = { description, context: reportContext() };
+  if (image) { payload.image_base64 = image.image_base64; payload.image_mimetype = image.image_mimetype; }
+
+  let res, data;
+  try {
+    res = await fetch('/api/report-issue', {
+      method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    data = await res.json().catch(() => ({}));
+  } catch (e) {
+    sendBtn.disabled = false;
+    showFeedbackStatus(status, 'Network error. Try again.', true);
+    return;
+  }
+  if (!res.ok) {
+    sendBtn.disabled = false;
+    showFeedbackStatus(status, data.detail || data.error || 'Could not send. Try again.', true);
+    return;
+  }
+  // Replace the form with a thanks confirmation, then auto-close.
+  $('reportBody').innerHTML = `<p class="report-thanks">Thanks, filed as ${esc(data.identifier || 'a new issue')}.</p>`;
+  setTimeout(closeReportModal, 2500);
 }
 
 // Household-level settings: one shared value per key across the whole
@@ -4615,6 +4743,7 @@ window.addEventListener('DOMContentLoaded', () => {
       // not take down the rest of the app -- List view has nothing to do
       // with the map and should keep working regardless.
       try { initMap(); } catch (err) { console.error('Map init failed:', err); }
+      initReportButton();  // show the Report button when the server has a Linear key
       loadPeople().then(() => {
         applyFiltersAndRender();
         loadPersonThresholds();

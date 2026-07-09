@@ -441,6 +441,7 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .poi-by{color:var(--muted);font-weight:400}
 .poi-del{flex-shrink:0;border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:14px;line-height:1;padding:4px 8px;min-height:32px;border-radius:8px}
 .poi-del:hover{color:#b3261e;background:var(--bg)}
+.report-thanks{margin:8px 0;font-size:15px;text-align:center}
 
 .go-station-tooltip{background:var(--panel);color:var(--ink);border-radius:8px;font-size:12px;padding:2px 4px}
 .go-station-tooltip .mapboxgl-popup-tip{border-top-color:var(--panel);border-bottom-color:var(--panel)}

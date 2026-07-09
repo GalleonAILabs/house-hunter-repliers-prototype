@@ -6,7 +6,9 @@ normalizes sample listing data, and serves a Leaflet/card UI.
 """
 from __future__ import annotations
 
+import base64
 import csv
+import datetime
 import functools
 import io
 import json
@@ -57,6 +59,21 @@ APP_AUTH_TOKEN = os.getenv("APP_AUTH_TOKEN", "")
 # Mapbox account, not by secrecy) -- unlike REPLIERS_API_KEY, it's fine for
 # this to travel through the unprotected /api/config bootstrap endpoint.
 MAPBOX_TOKEN = os.getenv("MAPBOX_TOKEN", "")
+# In-app issue reporter (GAL-42). Testers file bugs from the app; the server
+# creates a Linear issue in team GAL's Triage state and runs a cheap Claude
+# first-pass for the title/label/dup. Both keys are server-side only and never
+# travel to the browser or through /api/config. The ANTHROPIC key must be a
+# per-project console key (per the CLAUDE.md per-project billing rule). When
+# LINEAR_API_KEY is unset the feature is off: the endpoint returns 503 and the
+# client hides the Report button (see /api/config report_enabled).
+LINEAR_API_KEY = os.getenv("LINEAR_API_KEY", "")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+LINEAR_TEAM_KEY = os.getenv("LINEAR_TEAM_KEY", "GAL")
+LINEAR_API_URL = "https://api.linear.app/graphql"
+ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
+ANTHROPIC_TRIAGE_MODEL = "claude-haiku-4-5-20251001"
+REPORT_IMAGE_MAX_BYTES = 8 * 1024 * 1024
+REPORT_IMAGE_MIMETYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 ALLOWED_ACTION_TYPES = {"rating", "note", "reject", "research_request"}
 ALLOWED_POI_TYPES = {"school", "hospital", "work", "worship", "other"}
 
@@ -2584,6 +2601,350 @@ def enrich_with_mortgage_breakdown(listings: list[dict[str, Any]], conn: sqlite3
         item["mortgageBreakdown"] = compute_mortgage_breakdown(base_price, settings, is_toronto)
 
 
+# ─── In-app issue reporter (GAL-42) ──────────────────────────────────────────
+# Outbound HTTP is stdlib urllib only (same constraint as fetch_repliers and
+# mapbox_drive: no pip deps). Every network helper degrades to a safe default
+# on failure so a tester's report is still filed. The small named functions
+# (linear_*, anthropic_triage_firstpass) are the seams the tests monkeypatch,
+# so they are module-level and called as globals from handle_report_issue_post.
+
+# Resolved once per process: {team_id, triage_state_id, labels{name_lower: id}}.
+# Never populated at import/startup, so the server boots with no Linear key.
+_REPORT_TRIAGE_CACHE: dict[str, Any] | None = None
+
+
+def _strip_dashes(text: str) -> str:
+    """Project rule: no em or en dashes in anything we author or forward.
+    Tester free text may contain them, so scrub before sending to Linear."""
+    return text.replace("—", ", ").replace("–", "-")
+
+
+def linear_graphql(query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
+    """POST a GraphQL request to Linear. Raises RuntimeError when the key is
+    missing, urllib.error.* on transport failure, ValueError on GraphQL errors."""
+    if not LINEAR_API_KEY:
+        raise RuntimeError("LINEAR_API_KEY is not set")
+    payload = json.dumps({"query": query, "variables": variables or {}}).encode("utf-8")
+    req = urllib.request.Request(
+        LINEAR_API_URL, data=payload, method="POST",
+        headers={"Authorization": LINEAR_API_KEY, "Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    if data.get("errors"):
+        raise ValueError(str(data["errors"])[:500])
+    return data["data"]
+
+
+def linear_resolve_triage_context() -> dict[str, Any]:
+    """Team id, Triage state id, and label ids for team GAL, cached per process.
+    Raises if the team or a Triage state cannot be found."""
+    global _REPORT_TRIAGE_CACHE
+    if _REPORT_TRIAGE_CACHE is not None:
+        return _REPORT_TRIAGE_CACHE
+    query = (
+        "query ResolveTeam($key: String!) {"
+        "  teams(filter: { key: { eq: $key } }) {"
+        "    nodes { id key states { nodes { id name type } } labels { nodes { id name } } }"
+        "  }"
+        "}"
+    )
+    data = linear_graphql(query, {"key": LINEAR_TEAM_KEY})
+    nodes = data.get("teams", {}).get("nodes", [])
+    if not nodes:
+        raise ValueError(f"Linear team {LINEAR_TEAM_KEY!r} not found")
+    team = nodes[0]
+    states = team.get("states", {}).get("nodes", [])
+    triage = next((s for s in states if s.get("type") == "triage"), None)
+    if triage is None:
+        triage = next((s for s in states if (s.get("name") or "").lower() == "triage"), None)
+    if triage is None:
+        raise ValueError("No Triage state on team " + LINEAR_TEAM_KEY)
+    labels = {
+        (lbl.get("name") or "").lower(): lbl.get("id")
+        for lbl in team.get("labels", {}).get("nodes", [])
+    }
+    _REPORT_TRIAGE_CACHE = {
+        "team_id": team["id"],
+        "triage_state_id": triage["id"],
+        "labels": labels,
+    }
+    return _REPORT_TRIAGE_CACHE
+
+
+def linear_open_triage_titles() -> list[dict[str, Any]]:
+    """Open Triage issues (identifier + title) for dup detection. Best-effort:
+    returns [] on any failure so a report is never blocked by this lookup."""
+    query = (
+        "query OpenTriage($key: String!) {"
+        "  issues(filter: { team: { key: { eq: $key } }, state: { type: { eq: \"triage\" } } }, first: 50) {"
+        "    nodes { identifier title }"
+        "  }"
+        "}"
+    )
+    try:
+        data = linear_graphql(query, {"key": LINEAR_TEAM_KEY})
+        return [
+            {"identifier": n["identifier"], "title": n.get("title") or ""}
+            for n in data.get("issues", {}).get("nodes", [])
+        ]
+    except (urllib.error.URLError, TimeoutError, ValueError, KeyError, RuntimeError):
+        return []
+
+
+def linear_upload_image(data: bytes, mimetype: str, filename: str) -> str | None:
+    """Upload bytes to Linear and return the asset URL, or None on any failure.
+    fileUpload gives a presigned URL and the headers to echo on the PUT."""
+    mutation = (
+        "mutation UploadFile($contentType: String!, $filename: String!, $size: Int!) {"
+        "  fileUpload(contentType: $contentType, filename: $filename, size: $size) {"
+        "    success uploadFile { uploadUrl assetUrl headers { key value } }"
+        "  }"
+        "}"
+    )
+    try:
+        result = linear_graphql(
+            mutation,
+            {"contentType": mimetype, "filename": filename, "size": len(data)},
+        )
+        upload = result.get("fileUpload", {}).get("uploadFile")
+        if not upload:
+            return None
+        headers = {"Content-Type": mimetype}
+        for pair in upload.get("headers") or []:
+            headers[pair["key"]] = pair["value"]
+        put = urllib.request.Request(upload["uploadUrl"], data=data, method="PUT", headers=headers)
+        with urllib.request.urlopen(put, timeout=30):
+            pass
+        return upload["assetUrl"]
+    except (urllib.error.URLError, TimeoutError, ValueError, KeyError, RuntimeError):
+        return None
+
+
+def linear_create_issue(
+    title: str, description: str, team_id: str, state_id: str, label_ids: list[str],
+) -> dict[str, Any]:
+    """Create the Triage issue. Returns {identifier, url, id}. Raises on failure
+    (this is the one hard error path: a report that cannot be filed is a 502)."""
+    mutation = (
+        "mutation CreateIssue($input: IssueCreateInput!) {"
+        "  issueCreate(input: $input) { success issue { id identifier url } }"
+        "}"
+    )
+    issue_input: dict[str, Any] = {
+        "teamId": team_id,
+        "title": title,
+        "description": description,
+        "stateId": state_id,
+    }
+    if label_ids:
+        issue_input["labelIds"] = label_ids
+    data = linear_graphql(mutation, {"input": issue_input})
+    result = data.get("issueCreate", {})
+    if not result.get("success") or not result.get("issue"):
+        raise ValueError("issueCreate did not succeed")
+    issue = result["issue"]
+    return {"identifier": issue["identifier"], "url": issue["url"], "id": issue["id"]}
+
+
+def anthropic_triage_firstpass(
+    description: str, open_issues: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Claude first-pass: imperative title, type label, possible duplicate.
+    Returns None when unconfigured or on any failure (the caller then files the
+    issue anyway with a derived title and the needs-triage label)."""
+    if not ANTHROPIC_API_KEY:
+        return None
+    open_lines = "\n".join(f"{i['identifier']}: {i['title']}" for i in open_issues) or "none"
+    user = (
+        "A tester filed this report:\n\n<report>\n" + description + "\n</report>\n\n"
+        "Open issues already in Triage:\n" + open_lines + "\n\n"
+        "Return a JSON object with exactly these keys:\n"
+        '- "title": an imperative issue title under 70 characters\n'
+        '- "type_label": one of "Bug", "Improvement", "Feature"\n'
+        '- "duplicate_of": the identifier of the single most similar open issue '
+        "above if the report describes the same problem, otherwise null\n"
+        "Do not use em dashes anywhere. Respond with the JSON object only, no code fences."
+    )
+    body = json.dumps({
+        "model": ANTHROPIC_TRIAGE_MODEL,
+        "max_tokens": 512,
+        "system": "You triage bug reports for a home-search web app prototype. Respond with JSON only.",
+        "messages": [{"role": "user", "content": user}],
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        ANTHROPIC_API_URL, data=body, method="POST",
+        headers={
+            "x-api-key": ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=25) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        text = next(
+            (b.get("text", "") for b in payload.get("content", []) if b.get("type") == "text"),
+            "",
+        ).strip()
+        # Tolerate a stray code fence even though the prompt forbids it.
+        if text.startswith("```"):
+            text = text.strip("`")
+            text = text[text.find("{"):text.rfind("}") + 1]
+        result = json.loads(text)
+        title = (result.get("title") or "").strip()
+        label = result.get("type_label")
+        dup = result.get("duplicate_of")
+        if not title or label not in ("Bug", "Improvement", "Feature"):
+            return None
+        if not (isinstance(dup, str) and re.fullmatch(r"[A-Z]+-\d+", dup)):
+            dup = None
+        if dup is not None and dup not in {i["identifier"] for i in open_issues}:
+            dup = None  # the model must not invent identifiers
+        return {"title": _strip_dashes(title)[:70], "type_label": label, "duplicate_of": dup}
+    except (urllib.error.URLError, TimeoutError, ValueError, KeyError, json.JSONDecodeError):
+        return None
+
+
+def _report_description(
+    description: str, ctx: dict[str, Any], user_agent: str | None,
+    asset_url: str | None, image_present: bool, duplicate_of: str | None,
+    ai_ok: bool,
+) -> str:
+    """Assemble the issue body: tester text, optional image, optional dup note,
+    and the captured context block."""
+    def g(key: str) -> str:
+        val = ctx.get(key)
+        return str(val).strip() if val not in (None, "") else ""
+
+    lines = ["## Tester report", "", _strip_dashes(description).strip(), ""]
+    if image_present:
+        if asset_url:
+            lines += [f"![tester screenshot]({asset_url})", ""]
+        else:
+            lines += ["(Image upload failed.)", ""]
+    if duplicate_of:
+        lines += ["## Possible duplicate", f"Looks similar to {duplicate_of}.", ""]
+
+    reporter = g("person_name") or "unknown"
+    pid = g("person_id")
+    if pid:
+        reporter += f" (person_id {pid})"
+    listing = g("listing_id")
+    if listing:
+        addr = g("listing_address")
+        listing = listing + (f", {addr}" if addr else "")
+    else:
+        listing = "none"
+    vp = ctx.get("viewport") if isinstance(ctx.get("viewport"), dict) else None
+    viewport = (
+        f"{vp.get('lat')}, {vp.get('lng')}, zoom {vp.get('zoom')}" if vp else "none"
+    )
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    lines += [
+        "## Captured context",
+        f"- Reported by: {reporter}",
+        f"- Listing open: {listing}",
+        f"- View: {g('view') or 'unknown'}, source: {g('source') or 'unknown'}",
+        f"- Filters: {g('filters') or 'none'}",
+        f"- Map viewport: {viewport}",
+        f"- Deploy token: {g('deploy_token') or 'unknown'}",
+        f"- User agent: {(user_agent or g('user_agent') or 'unknown')}",
+        f"- Reported at: {now} (server time)",
+    ]
+    if not ai_ok:
+        lines += ["", "AI triage was unavailable for this report."]
+    lines += ["", "Filed automatically by the in-app Report issue button."]
+    return _strip_dashes("\n".join(lines))
+
+
+def handle_report_issue_post(
+    body: dict[str, Any], user_agent: str | None,
+) -> tuple[dict[str, Any], int]:
+    """Create a Linear Triage issue from an in-app tester report (GAL-42)."""
+    if not LINEAR_API_KEY:
+        return {"error": "report_unconfigured", "detail": "LINEAR_API_KEY is not set on the server"}, 503
+
+    description = body.get("description")
+    if not isinstance(description, str) or not description.strip():
+        return {"error": "invalid_request", "detail": "description is required"}, 400
+    description = description.strip()
+    if len(description) > 5000:
+        return {"error": "invalid_request", "detail": "description must be 5000 characters or fewer"}, 400
+
+    image_b64 = body.get("image_base64")
+    image_bytes: bytes | None = None
+    mimetype = body.get("image_mimetype")
+    if image_b64:
+        if not isinstance(image_b64, str):
+            return {"error": "invalid_request", "detail": "image_base64 must be a string"}, 400
+        # Strip a data: URL prefix defensively.
+        if "," in image_b64 and image_b64.strip().lower().startswith("data:"):
+            image_b64 = image_b64.split(",", 1)[1]
+        try:
+            # binascii.Error (raised on bad base64) is a subclass of ValueError.
+            image_bytes = base64.b64decode(image_b64, validate=True)
+        except ValueError:
+            return {"error": "invalid_request", "detail": "image_base64 is not valid base64"}, 400
+        if mimetype not in REPORT_IMAGE_MIMETYPES:
+            return {"error": "invalid_request", "detail": "image_mimetype must be one of " + ", ".join(sorted(REPORT_IMAGE_MIMETYPES))}, 400
+        if len(image_bytes) > REPORT_IMAGE_MAX_BYTES:
+            return {"error": "image_too_large", "detail": "image exceeds the 8 MB limit"}, 413
+
+    ctx = body.get("context") if isinstance(body.get("context"), dict) else {}
+
+    try:
+        triage = linear_resolve_triage_context()
+    except (urllib.error.URLError, TimeoutError, ValueError, KeyError, RuntimeError) as exc:
+        return {"error": "linear_error", "detail": str(exc)[:300]}, 502
+
+    open_titles = linear_open_triage_titles()
+    ai = anthropic_triage_firstpass(description, open_titles)
+
+    labels = triage["labels"]
+    if ai:
+        title = _strip_dashes(ai["title"])[:70]
+        label_name = ai["type_label"]
+        duplicate_of = ai["duplicate_of"]
+        label_id = labels.get(label_name.lower())
+    else:
+        first_line = description.splitlines()[0] if description.splitlines() else description
+        title = _strip_dashes("Tester report: " + first_line)[:70]
+        label_name = None
+        duplicate_of = None
+        label_id = labels.get("needs-triage")
+    label_ids = [label_id] if label_id else []
+
+    asset_url = None
+    if image_bytes is not None:
+        ext = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}.get(mimetype, "img")
+        asset_url = linear_upload_image(image_bytes, mimetype, f"report.{ext}")
+
+    description_md = _report_description(
+        description, ctx, user_agent, asset_url,
+        image_present=image_bytes is not None,
+        duplicate_of=duplicate_of, ai_ok=bool(ai),
+    )
+
+    try:
+        created = linear_create_issue(
+            title, description_md, triage["team_id"], triage["triage_state_id"], label_ids,
+        )
+    except (urllib.error.URLError, TimeoutError, ValueError, KeyError, RuntimeError) as exc:
+        return {"error": "linear_error", "detail": str(exc)[:300]}, 502
+
+    return {
+        "ok": True,
+        "identifier": created["identifier"],
+        "url": created["url"],
+        "title": title,
+        "label": label_name,
+        "duplicate_of": duplicate_of,
+        "ai_triage": bool(ai),
+        "image_attached": bool(asset_url),
+    }, 200
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: Any) -> None:
         print(f"{self.address_string()} - {fmt % args}")
@@ -2811,7 +3172,14 @@ class Handler(BaseHTTPRequestHandler):
                 # Unprotected by design: the frontend needs this to bootstrap
                 # the auth token before it can call anything else. Same
                 # deterrent-not-security tradeoff as the token itself (D3/D11).
-                self.send_json({"auth_token": APP_AUTH_TOKEN, "mapbox_token": MAPBOX_TOKEN})
+                # report_enabled is a plain feature flag, not a secret: it only
+                # says whether the server has a Linear key, so the client knows
+                # whether to show the Report button. Neither API key is exposed.
+                self.send_json({
+                    "auth_token": APP_AUTH_TOKEN,
+                    "mapbox_token": MAPBOX_TOKEN,
+                    "report_enabled": bool(LINEAR_API_KEY),
+                })
                 return
             if parsed.path == "/layers/go-stations.geojson":
                 self.send_static(STATIC / "layers" / "go_stations.geojson", "application/geo+json; charset=utf-8")
@@ -2896,6 +3264,23 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
                     return
                 data, status = handle_poi_post(body)
+                self.send_json(data, status)
+                return
+            if parsed.path == "/api/report-issue":
+                if not require_auth(self):
+                    self.send_json({"error": "unauthorized"}, 401)
+                    return
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                raw_body = self.rfile.read(length) if length else b""
+                try:
+                    body = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    self.send_json({"error": "invalid_request", "detail": "malformed JSON body"}, 400)
+                    return
+                if not isinstance(body, dict):
+                    self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
+                    return
+                data, status = handle_report_issue_post(body, self.headers.get("User-Agent"))
                 self.send_json(data, status)
                 return
             if parsed.path == "/api/areas":

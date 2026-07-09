@@ -8,6 +8,7 @@ the actual HTTP routing in server.Handler, not just isolated functions.
 """
 from __future__ import annotations
 
+import base64
 import json
 import shutil
 import sqlite3
@@ -1513,6 +1514,191 @@ class PlaceAttachmentTests(ServerTestCase):
 
     def test_mapbox_drive_returns_none_without_token(self) -> None:
         self.assertEqual(server.mapbox_drive(43.6, -79.4, 43.7, -79.5), (None, None))
+
+
+class ReportIssueTests(ServerTestCase):
+    """GAL-42 in-app issue reporter. The Linear and Anthropic calls are the
+    named module-level seams monkeypatched here, so no network is touched and
+    no live API keys are needed. The handler calls them as module globals, so
+    replacing server.<name> takes effect for the live threaded server."""
+
+    SEAMS = (
+        "LINEAR_API_KEY", "ANTHROPIC_API_KEY", "REPORT_IMAGE_MAX_BYTES",
+        "linear_resolve_triage_context", "linear_open_triage_titles",
+        "linear_upload_image", "linear_create_issue", "anthropic_triage_firstpass",
+    )
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._seam_orig = {name: getattr(server, name) for name in self.SEAMS}
+        server._REPORT_TRIAGE_CACHE = None
+        server.LINEAR_API_KEY = "lin_api_test"
+        server.ANTHROPIC_API_KEY = "sk-ant-test"
+
+        self.created: list[dict] = []
+        self.uploaded: list[dict] = []
+        server.linear_resolve_triage_context = lambda: {
+            "team_id": "team-1", "triage_state_id": "state-1",
+            "labels": {"bug": "lbl-bug", "improvement": "lbl-imp",
+                       "feature": "lbl-feat", "needs-triage": "lbl-nt"},
+        }
+        server.linear_open_triage_titles = lambda: [
+            {"identifier": "GAL-31", "title": "Fix cluster popup overflow"}
+        ]
+
+        def fake_upload(data, mimetype, filename):
+            self.uploaded.append({"data": data, "mimetype": mimetype, "filename": filename})
+            return "https://uploads.linear.app/asset-1"
+        server.linear_upload_image = fake_upload
+
+        def fake_create(title, description, team_id, state_id, label_ids):
+            self.created.append({
+                "title": title, "description": description, "team_id": team_id,
+                "state_id": state_id, "label_ids": label_ids,
+            })
+            return {"identifier": "GAL-57", "url": "https://linear.app/gal/issue/GAL-57", "id": "iss-1"}
+        server.linear_create_issue = fake_create
+
+        server.anthropic_triage_firstpass = lambda desc, issues: {
+            "title": "Fix map pins vanishing on rotation", "type_label": "Bug", "duplicate_of": None,
+        }
+
+    def tearDown(self) -> None:
+        for name, val in self._seam_orig.items():
+            setattr(server, name, val)
+        server._REPORT_TRIAGE_CACHE = None
+        super().tearDown()
+
+    def test_unauthorized(self) -> None:
+        status, _ = self.request("POST", "/api/report-issue", body={"description": "x"})
+        self.assertEqual(status, 401)
+
+    def test_missing_description(self) -> None:
+        status, data = self.request("POST", "/api/report-issue", token=self.TOKEN, body={})
+        self.assertEqual(status, 400)
+        self.assertEqual(data["error"], "invalid_request")
+        status, _ = self.request("POST", "/api/report-issue", token=self.TOKEN, body={"description": "   "})
+        self.assertEqual(status, 400)
+
+    def test_unconfigured_returns_503_and_config_hides_button(self) -> None:
+        server.LINEAR_API_KEY = ""
+        status, data = self.request("POST", "/api/report-issue", token=self.TOKEN, body={"description": "hi"})
+        self.assertEqual(status, 503)
+        self.assertEqual(data["error"], "report_unconfigured")
+        # /api/config advertises the feature off and leaks neither key.
+        status, cfg = self.request("GET", "/api/config")
+        self.assertEqual(status, 200)
+        self.assertFalse(cfg["report_enabled"])
+        blob = json.dumps(cfg)
+        self.assertNotIn("sk-ant", blob)
+        self.assertNotIn("lin_api", blob)
+
+    def test_happy_path_uses_ai_title_and_label(self) -> None:
+        ctx = {
+            "person_id": 2, "person_name": "Katie", "listing_id": "POC-2",
+            "listing_address": "123 Example St", "view": "map", "source": "poc",
+            "filters": "minPrice=500000&maxBeds=4", "deploy_token": "20260709-012811",
+            "viewport": {"lat": 44.01, "lng": -79.45, "zoom": 11.2, "bearing": 0},
+        }
+        status, data = self.request(
+            "POST", "/api/report-issue", token=self.TOKEN,
+            body={"description": "Pins vanish on rotation", "context": ctx},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(data["identifier"], "GAL-57")
+        self.assertTrue(data["ai_triage"])
+        self.assertEqual(data["label"], "Bug")
+        c = self.created[0]
+        self.assertEqual(c["title"], "Fix map pins vanishing on rotation")
+        self.assertEqual(c["label_ids"], ["lbl-bug"])
+        self.assertEqual(c["state_id"], "state-1")
+        for needle in ("Pins vanish on rotation", "Katie", "POC-2",
+                       "minPrice=500000&maxBeds=4", "20260709-012811"):
+            self.assertIn(needle, c["description"])
+
+    def test_ai_failure_falls_back(self) -> None:
+        server.anthropic_triage_firstpass = lambda desc, issues: None
+        status, data = self.request(
+            "POST", "/api/report-issue", token=self.TOKEN,
+            body={"description": "Something broke on the grid view"},
+        )
+        self.assertEqual(status, 200)
+        self.assertFalse(data["ai_triage"])
+        c = self.created[0]
+        self.assertTrue(c["title"].startswith("Tester report: "))
+        self.assertEqual(c["label_ids"], ["lbl-nt"])
+        self.assertIn("AI triage was unavailable", c["description"])
+
+    def test_duplicate_note_recorded(self) -> None:
+        server.anthropic_triage_firstpass = lambda desc, issues: {
+            "title": "Fix cluster popup overflow again", "type_label": "Bug", "duplicate_of": "GAL-31",
+        }
+        status, data = self.request(
+            "POST", "/api/report-issue", token=self.TOKEN,
+            body={"description": "cluster popup overflows"},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(data["duplicate_of"], "GAL-31")
+        self.assertIn("GAL-31", self.created[0]["description"])
+
+    def test_image_included_and_embedded(self) -> None:
+        img = base64.b64encode(b"hello-bytes").decode("ascii")
+        status, data = self.request(
+            "POST", "/api/report-issue", token=self.TOKEN,
+            body={"description": "with image", "image_base64": img, "image_mimetype": "image/png"},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(data["image_attached"])
+        self.assertEqual(self.uploaded[0]["data"], b"hello-bytes")
+        self.assertIn("https://uploads.linear.app/asset-1", self.created[0]["description"])
+
+    def test_image_upload_failure_still_files(self) -> None:
+        server.linear_upload_image = lambda data, mimetype, filename: None
+        img = base64.b64encode(b"bytes").decode("ascii")
+        status, data = self.request(
+            "POST", "/api/report-issue", token=self.TOKEN,
+            body={"description": "img fails", "image_base64": img, "image_mimetype": "image/png"},
+        )
+        self.assertEqual(status, 200)
+        self.assertFalse(data["image_attached"])
+        self.assertIn("Image upload failed", self.created[0]["description"])
+
+    def test_bad_base64_rejected(self) -> None:
+        status, data = self.request(
+            "POST", "/api/report-issue", token=self.TOKEN,
+            body={"description": "x", "image_base64": "!!!not base64!!!", "image_mimetype": "image/png"},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(data["error"], "invalid_request")
+
+    def test_oversized_image_413(self) -> None:
+        server.REPORT_IMAGE_MAX_BYTES = 4
+        img = base64.b64encode(b"way too many bytes").decode("ascii")
+        status, data = self.request(
+            "POST", "/api/report-issue", token=self.TOKEN,
+            body={"description": "big", "image_base64": img, "image_mimetype": "image/png"},
+        )
+        self.assertEqual(status, 413)
+        self.assertEqual(data["error"], "image_too_large")
+
+    def test_bad_mimetype_rejected(self) -> None:
+        img = base64.b64encode(b"bytes").decode("ascii")
+        status, data = self.request(
+            "POST", "/api/report-issue", token=self.TOKEN,
+            body={"description": "x", "image_base64": img, "image_mimetype": "application/pdf"},
+        )
+        self.assertEqual(status, 400)
+
+    def test_no_network_when_unkeyed(self) -> None:
+        # Mirrors test_mapbox_drive_returns_none_without_token: the low-level
+        # helpers must not attempt a call when their key is blank. Restore the
+        # real function first (setUp stubbed it out as a seam).
+        server.anthropic_triage_firstpass = self._seam_orig["anthropic_triage_firstpass"]
+        server.ANTHROPIC_API_KEY = ""
+        self.assertIsNone(server.anthropic_triage_firstpass("desc", []))
+        server.LINEAR_API_KEY = ""
+        with self.assertRaises(RuntimeError):
+            server.linear_graphql("query { viewer { id } }")
 
 
 class RoleMigrationTests(unittest.TestCase):
