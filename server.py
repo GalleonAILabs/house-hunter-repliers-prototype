@@ -1068,6 +1068,48 @@ def handle_poi_post(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         conn.close()
 
 
+def handle_poi_delete(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """Delete a shared POI pin. A pin is the single source of truth for a
+    place, so deleting it is group-wide, the same way adding it is. Refuses
+    (409) when the pin is still referenced by any listing place attachment,
+    returning the reference count so the UI can warn before destroying that
+    per-listing distance data. Pass force=true to cascade: the referencing
+    attachments are deleted first, then the pin. A pin also referenced by a
+    person threshold (travel_dest_ref) is left for that separate cleanup:
+    thresholds fall back gracefully to an unknown ref, attachments do not."""
+    poi_id = body.get("id")
+    force = bool(body.get("force"))
+    if not isinstance(poi_id, int) or isinstance(poi_id, bool):
+        return {"error": "invalid_request", "detail": "id is required"}, 400
+    conn = get_db()
+    try:
+        if conn.execute("SELECT 1 FROM poi_pins WHERE id = ?", (poi_id,)).fetchone() is None:
+            return {"error": "not_found", "detail": f"poi id {poi_id!r} not found"}, 404
+        ref_count = conn.execute(
+            "SELECT COUNT(*) FROM listing_place_attachments WHERE poi_id = ?", (poi_id,)
+        ).fetchone()[0]
+        if ref_count and not force:
+            plural = "s" if ref_count != 1 else ""
+            return {
+                "error": "poi_referenced",
+                "detail": (
+                    f"This place is attached to {ref_count} listing{plural}. "
+                    "Pass force=true to delete it and those attachments."
+                ),
+                "attachment_count": ref_count,
+            }, 409
+        removed_attachments = 0
+        if force and ref_count:
+            removed_attachments = conn.execute(
+                "DELETE FROM listing_place_attachments WHERE poi_id = ?", (poi_id,)
+            ).rowcount
+        conn.execute("DELETE FROM poi_pins WHERE id = ?", (poi_id,))
+        conn.commit()
+        return {"ok": True, "id": poi_id, "removed_attachments": removed_attachments}, 200
+    finally:
+        conn.close()
+
+
 def _valid_polygon(polygon: Any) -> bool:
     """A closed-ring [[lng,lat],...] with at least 3 vertices, all numbers."""
     if not isinstance(polygon, list) or len(polygon) < 3:
@@ -3018,6 +3060,23 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
                     return
                 data, status = handle_place_attachment_delete(body)
+                self.send_json(data, status)
+                return
+            if parsed.path == "/api/poi":
+                if not require_auth(self):
+                    self.send_json({"error": "unauthorized"}, 401)
+                    return
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                raw_body = self.rfile.read(length) if length else b""
+                try:
+                    body = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    self.send_json({"error": "invalid_request", "detail": "malformed JSON body"}, 400)
+                    return
+                if not isinstance(body, dict):
+                    self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
+                    return
+                data, status = handle_poi_delete(body)
                 self.send_json(data, status)
                 return
             if parsed.path == "/api/feedback":

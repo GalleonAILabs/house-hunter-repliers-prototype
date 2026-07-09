@@ -2027,6 +2027,66 @@ async function loadPoi() {
     console.error(err);
   }
   refreshPoiLayer();
+  renderPoiList();
+}
+
+// Manage-list for the shared POI pins, shown under "Add place" in the Layers
+// menu, mirroring the saved-areas list. Each row names the place and offers a
+// group-wide delete. Deletion is refused server-side when the pin is still
+// attached to listings; on that 409 we surface the count and let the user
+// force a cascade.
+function renderPoiList() {
+  const list = $('poiLayerList');
+  if (!list) return;
+  list.innerHTML = '';
+  state.poi.forEach(p => {
+    const meta = POI_TYPE_META[p.type] || POI_TYPE_META.other;
+    const row = document.createElement('div');
+    row.className = 'poi-row';
+    const label = document.createElement('span');
+    label.className = 'poi-chip';
+    const dot = document.createElement('span');
+    dot.className = 'poi-dot';
+    dot.style.background = meta.color;
+    label.appendChild(dot);
+    label.appendChild(document.createTextNode(' ' + (p.label || meta.label)));
+    if (p.created_by_name) {
+      const by = document.createElement('span');
+      by.className = 'poi-by';
+      by.textContent = ' · ' + p.created_by_name;
+      label.appendChild(by);
+    }
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'poi-del';
+    del.title = 'Delete this place for everyone';
+    del.textContent = '✕';
+    del.addEventListener('click', () => deletePoi(p));
+    row.appendChild(label);
+    row.appendChild(del);
+    list.appendChild(row);
+  });
+}
+
+async function deletePoi(poi, force = false) {
+  const meta = POI_TYPE_META[poi.type] || POI_TYPE_META.other;
+  const name = poi.label || meta.label;
+  if (!force && !window.confirm(`Delete the place "${name}"? This removes it for everyone.`)) return;
+  try {
+    const res = await fetch('/api/poi', {
+      method: 'DELETE', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: poi.id, force }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 409 && data.error === 'poi_referenced') {
+      if (window.confirm(`${data.detail} Delete anyway?`)) return deletePoi(poi, true);
+      return;
+    }
+    if (!res.ok) throw new Error(data.detail || data.error || 'delete failed');
+    await loadPoi();
+  } catch (e) {
+    alert('Could not delete the place: ' + e.message);
+  }
 }
 
 // Household-level settings: one shared value per key across the whole

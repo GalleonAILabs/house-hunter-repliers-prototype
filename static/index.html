@@ -194,6 +194,9 @@
         <label class="chip"><input type="checkbox" id="layerHwy413" /> Highway 413</label>
         <label class="chip"><input type="checkbox" id="layerPoiPins" /> Places (school, hospital, etc.)</label>
         <button class="secondary" id="addPoiBtn" title="Search for a place and drop a pin, shared with the whole group">📍 Add place</button>
+        <!-- Shared POI pins. Each row: the place label/type, who added it, and a
+             delete button. Rendered by renderPoiList(). -->
+        <div class="poi-layer-list" id="poiLayerList"></div>
         <!-- Saved draw areas (shared across the household). Each row: on/off
              toggle (visible + filtering) and a delete button. Rendered by
              renderAreaLayers(). -->

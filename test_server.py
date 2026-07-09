@@ -616,6 +616,58 @@ class PoiEndpointTests(ServerTestCase):
         status, data = self.request("GET", "/api/poi", token=self.TOKEN)
         self.assertEqual(len(data["poi"]), 2)
 
+    def test_delete_poi_without_token_401(self) -> None:
+        status, _ = self.request("DELETE", "/api/poi", body={"id": 1})
+        self.assertEqual(status, 401)
+
+    def test_delete_poi_requires_id(self) -> None:
+        status, data = self.request("DELETE", "/api/poi", token=self.TOKEN, body={})
+        self.assertEqual(status, 400)
+        self.assertEqual(data["error"], "invalid_request")
+
+    def test_delete_unknown_poi_404(self) -> None:
+        status, data = self.request("DELETE", "/api/poi", token=self.TOKEN, body={"id": 9999})
+        self.assertEqual(status, 404)
+        self.assertEqual(data["error"], "not_found")
+
+    def test_delete_unreferenced_poi_removes_it(self) -> None:
+        _, created = self.request(
+            "POST", "/api/poi", token=self.TOKEN,
+            body={"person_id": 1, "type": "school", "label": "Gone soon", "lat": 43.6, "lng": -79.4},
+        )
+        poi_id = created["id"]
+        status, data = self.request("DELETE", "/api/poi", token=self.TOKEN, body={"id": poi_id})
+        self.assertEqual(status, 200)
+        self.assertEqual(data["removed_attachments"], 0)
+        _, read = self.request("GET", "/api/poi", token=self.TOKEN)
+        self.assertFalse(any(p["id"] == poi_id for p in read["poi"]))
+
+    def test_delete_referenced_poi_refused_then_forced(self) -> None:
+        # Attaching a new place creates a POI pin and a referencing attachment.
+        _, att = self.request(
+            "POST", "/api/place-attachments", token=self.TOKEN,
+            body={"listing_id": "POC-2", "person_id": 1,
+                  "new_place": {"type": "work", "label": "Job", "lat": 43.7, "lng": -79.4}},
+        )
+        poi_id = att["attachment"]["poi_id"]
+
+        # Refused while referenced, and the pin is left intact.
+        status, data = self.request("DELETE", "/api/poi", token=self.TOKEN, body={"id": poi_id})
+        self.assertEqual(status, 409)
+        self.assertEqual(data["error"], "poi_referenced")
+        self.assertEqual(data["attachment_count"], 1)
+        _, read = self.request("GET", "/api/poi", token=self.TOKEN)
+        self.assertTrue(any(p["id"] == poi_id for p in read["poi"]))
+
+        # force cascades: the attachment and the pin both go.
+        status, data = self.request("DELETE", "/api/poi", token=self.TOKEN, body={"id": poi_id, "force": True})
+        self.assertEqual(status, 200)
+        self.assertEqual(data["removed_attachments"], 1)
+        _, read = self.request("GET", "/api/poi", token=self.TOKEN)
+        self.assertFalse(any(p["id"] == poi_id for p in read["poi"]))
+        _, atts = self.request("GET", "/api/place-attachments?listing_ids=POC-2", token=self.TOKEN)
+        self.assertEqual(atts["place_attachments"]["POC-2"], [])
+
 
 class SavedAreaTests(ServerTestCase):
     """Named draw areas are shared across the whole buyer group like POI pins:
