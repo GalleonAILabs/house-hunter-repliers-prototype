@@ -53,6 +53,61 @@ file under "Overnight session" headings.
 
 ---
 
+## 2026-07-08 — Recovery + 12-item fix session
+
+Audit first: the prior batch (grid parity, cluster-popup z-order, layers scroll,
+Map-imagery removal, clustering rename, exclusive panels) was committed (e0fca10)
+AND live (token 20260708-212534, verified by fetching live assets). Two prior
+items were half-done and are the source of new items: layers scroll worked on
+desktop only (mobile touch, item 2), and the z-order fix covered the popup but
+not the control-icons-over-panel case (item 4). A "filter panel reflow" the user
+recalled had never been committed at all (item 5). Nothing was reverted.
+
+Decisions in this session:
+
+- **POC clustering now has its own toggle** (reversing the earlier "no separate
+  toggle" call): Mark wants to turn POC pill overlap-collapse on/off, so it is a
+  real Appearance setting (`hh_poc_clustering`, default on), independent of the
+  Sample Data (server) clustering toggle. `collapsePillGroups` stays pure; the
+  toggle is applied in `renderPillMarkers`.
+- **Map refit is now opt-in.** `refreshMap` runs on every re-render (incl. after
+  a feedback write), so it no longer fits the viewport by default. A one-shot
+  `state.fitMapNext` flag, set only by explicit actions (load/Apply/Reset), is
+  consumed per render. Area selection does its own `fitMapToArea` (item 9), which
+  frames the polygon boundary, not the listings inside it.
+- **Enter-to-submit** is one delegated document handler (covers dynamically
+  built card/mini-card compose boxes); textareas keep Shift+Enter for newline.
+  Native `prompt()` flows (area naming, POI, research) already submit on Enter.
+- **Mini-cards are the one component** (cluster popup + Both view); made
+  configurable (Settings > Mini-card fields, incl. fit score) and interactive
+  (editable stars + inline note, standard write paths, active-person attributed).
+  Restructured from a `<button>` to a `<div>` (a button cannot contain buttons):
+  a clickable `.mini-open` region opens the card, an `.mini-actions` footer holds
+  the controls.
+- **Basemap dimming** for transit legibility: a world-covering fill layer in
+  `--map-dim`, added first in `addMapLayers` so only the basemap darkens while
+  transit lines/stations stay crisp above it. Opacity driven by
+  `updateBasemapDim` (0 unless transit lines are on), Appearance select
+  0/5/10/15/20/25% (`hh_basemap_dim`, default 10).
+- **Compass**: a custom control (not Mapbox NavigationControl, which the app
+  deliberately omits for the mobile zoom-stack reason) styled to the icon family,
+  bottom-left; needle rotates with bearing, tap resets north.
+- **Design tokens consolidated.** `:root` in styles.css is the single source for
+  ALL colours, CSS and JS. Map/pin/POI/transit colours are theme-independent
+  `:root` vars; app.js reads them once into `MAP_COLORS` via `loadMapColors()`
+  (a getComputedStyle read). No hardcoded hex remains in JS logic (only the
+  `MAP_COLORS` fallback literal). Documented in docs/design-spec.md as the place
+  colours change.
+- **Panel z-order**: an open Filters/Layers/Legend panel is z-index 550 (above
+  the z-500 floating control icons, below the z-600 header), so control icons no
+  longer paint over the expanded panel.
+
+Verified headlessly at 390/600/768/900/1024/1280 in both themes: no overflow, no
+JS errors. 156 tests pass. Codex still quota-blocked (OpenAI billing); structured
+self-review substituted.
+
+---
+
 ## 2026-07-08 — Grid card-parity + map/UI fixes (batch)
 
 Eight-item batch. Notable decisions:

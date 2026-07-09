@@ -43,6 +43,35 @@ function mapClusterGranularity() {
 function setMapClusterGranularity(g) { localStorage.setItem(MAP_CLUSTER_GRAN_KEY, g); }
 // Clustering is only meaningful for the Repliers Sample Data source.
 function clusteringActive() { return currentSource() === 'repliers' && mapClusteringOn(); }
+// POC clustering is a separate control: whether POC price pills collapse into a
+// fit-coloured count circle where they would overlap. Distinct from Sample Data
+// (server) clustering above. Default ON (the long-standing behaviour); turning
+// it off shows every POC pill individually, overlapping and all.
+const POC_CLUSTER_KEY = 'hh_poc_clustering';
+function pocClusteringOn() { return localStorage.getItem(POC_CLUSTER_KEY) !== 'off'; }
+function setPocClustering(on) { localStorage.setItem(POC_CLUSTER_KEY, on ? 'on' : 'off'); }
+// Basemap dimming for transit legibility: darken the basemap by N% (only while
+// transit lines are shown) so coloured transit lines read clearly against it.
+// Implemented as a dim fill layer under the transit overlays (see addMapLayers /
+// updateBasemapDim). Persisted like other appearance settings. Default 10%.
+const BASEMAP_DIM_KEY = 'hh_basemap_dim';
+const BASEMAP_DIM_OPTIONS = [0, 5, 10, 15, 20, 25];
+function basemapDimPct() { const v = parseInt(localStorage.getItem(BASEMAP_DIM_KEY), 10); return BASEMAP_DIM_OPTIONS.includes(v) ? v : 10; }
+function setBasemapDimPct(v) { localStorage.setItem(BASEMAP_DIM_KEY, String(v)); }
+function transitLinesOn() { return !!($('layerGoLines')?.checked || $('layerTtcLines')?.checked); }
+function updateBasemapDim() {
+  if (!state.mapReady || !state.map || !state.map.getLayer('basemap-dim-layer')) return;
+  const pct = transitLinesOn() ? basemapDimPct() : 0;
+  state.map.setPaintProperty('basemap-dim-layer', 'fill-opacity', pct / 100);
+}
+// Compass: rotate the needle to reflect the current bearing so it reads as a
+// live compass; the button click (wired in the bootstrap) resets to north.
+function updateCompass() {
+  const btn = $('compassBtn');
+  if (!btn || !state.map) return;
+  const glyph = btn.querySelector('.ctrl-glyph');
+  if (glyph) glyph.style.transform = `rotate(${-state.map.getBearing()}deg)`;
+}
 function clusterPrecisionForZoom() {
   const z = state.map ? state.map.getZoom() : 9;
   const offset = (CLUSTER_GRANULARITIES.find(o => o.value === mapClusterGranularity()) || {}).offset || 0;
@@ -127,12 +156,45 @@ function pillLabel(item) {
   const rating = fb && fb.rating != null ? fb.rating : null;
   return (rating != null ? rating + '★ ' : '') + money;
 }
+// Map palette: mirrored from the CSS :root map vars, which are the single
+// source of truth for every colour in the app (see design-spec.md). Seeded with
+// the same literals as a fallback for any call before loadMapColors() runs;
+// loadMapColors() overwrites them from CSS at startup so :root stays canonical.
+// Change a map colour in :root, never here.
+const MAP_COLORS = {
+  fitStrong: '#16803a', fitGood: '#e8b400', fitPossible: '#e8720c', fitRejected: '#8a94a6',
+  poiSchool: '#2b67d6', poiHospital: '#b3261e', poiWork: '#8e44ad', poiWorship: '#e8b400', poiOther: '#68726f',
+  hwy413: '#b3261e', goPlanned: '#e8b400', rejectedPin: '#aaaaaa',
+  white: '#ffffff', labelInk: '#18211f', blue: '#2b67d6', dim: '#0b1622',
+};
+function loadMapColors() {
+  try {
+    const cs = getComputedStyle(document.documentElement);
+    const v = (n, d) => (cs.getPropertyValue(n).trim() || d);
+    MAP_COLORS.fitStrong = v('--fit-strong', MAP_COLORS.fitStrong);
+    MAP_COLORS.fitGood = v('--fit-good', MAP_COLORS.fitGood);
+    MAP_COLORS.fitPossible = v('--fit-possible', MAP_COLORS.fitPossible);
+    MAP_COLORS.fitRejected = v('--fit-rejected', MAP_COLORS.fitRejected);
+    MAP_COLORS.poiSchool = v('--poi-school', MAP_COLORS.poiSchool);
+    MAP_COLORS.poiHospital = v('--poi-hospital', MAP_COLORS.poiHospital);
+    MAP_COLORS.poiWork = v('--poi-work', MAP_COLORS.poiWork);
+    MAP_COLORS.poiWorship = v('--poi-worship', MAP_COLORS.poiWorship);
+    MAP_COLORS.poiOther = v('--poi-other', MAP_COLORS.poiOther);
+    MAP_COLORS.hwy413 = v('--transit-hwy413', MAP_COLORS.hwy413);
+    MAP_COLORS.goPlanned = v('--go-planned', MAP_COLORS.goPlanned);
+    MAP_COLORS.rejectedPin = v('--pin-rejected', MAP_COLORS.rejectedPin);
+    MAP_COLORS.white = v('--map-overlay-white', MAP_COLORS.white);
+    MAP_COLORS.labelInk = v('--map-label-ink', MAP_COLORS.labelInk);
+    MAP_COLORS.blue = v('--blue', MAP_COLORS.blue);
+    MAP_COLORS.dim = v('--map-dim', MAP_COLORS.dim);
+  } catch (_) { /* keep fallback literals */ }
+}
 // Fit palette shared by pills and cluster circles. Cluster circles take the
 // highest fit among their contents (no fit information lost when pins collapse).
 function fitRatioColor(ratio) {
-  if (ratio >= 0.75) return '#16803a';
-  if (ratio >= 0.5) return '#e8b400';
-  return '#e8720c';
+  if (ratio >= 0.75) return MAP_COLORS.fitStrong;
+  if (ratio >= 0.5) return MAP_COLORS.fitGood;
+  return MAP_COLORS.fitPossible;
 }
 function clusterFitColor(items) {
   let best = -1;
@@ -141,7 +203,7 @@ function clusterFitColor(items) {
     const ratio = (it.fit && it.fit.met != null ? it.fit.met : 0) / total;
     if (ratio > best) best = ratio;
   });
-  return best < 0 ? '#8a94a6' : fitRatioColor(best);
+  return best < 0 ? MAP_COLORS.fitRejected : fitRatioColor(best);
 }
 // Greedy screen-space collapse so pills never pile up: a listing joins an
 // existing group when its projected pixel centre is within a pill's footprint
@@ -390,6 +452,46 @@ function loadSettings() {
 }
 function saveSettings() { localStorage.setItem(SETTINGS_KEY, JSON.stringify(cardSettings)); }
 
+// ─── Mini-card field config (cluster popup + Both view) ─────────────────────────
+// Which values a mini-card shows, chosen in Settings like the card sections.
+// myRating and note are also the interactive controls (editable stars + inline
+// note), so hiding them removes both the display and the control.
+const MINICARD_SETTINGS_KEY = 'hh_minicard_fields_v1';
+const MINICARD_FIELDS = [
+  { key: 'thumb',    label: 'Thumbnail',            defaultOn: true },
+  { key: 'price',    label: 'Price',                defaultOn: true },
+  { key: 'address',  label: 'Address',              defaultOn: true },
+  { key: 'stat',     label: 'Beds / baths / sqft',  defaultOn: true },
+  { key: 'fit',      label: 'Fit score',            defaultOn: false },
+  { key: 'chips',    label: 'Group sentiment',      defaultOn: true },
+  { key: 'myRating', label: 'My rating (editable stars)', defaultOn: true },
+  { key: 'note',     label: 'Add a note',           defaultOn: true },
+];
+function loadMiniCardSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(MINICARD_SETTINGS_KEY) || '{}');
+    return Object.fromEntries(MINICARD_FIELDS.map(f => [f.key, f.key in saved ? saved[f.key] : f.defaultOn]));
+  } catch { return Object.fromEntries(MINICARD_FIELDS.map(f => [f.key, f.defaultOn])); }
+}
+let miniCardSettings = loadMiniCardSettings();
+function saveMiniCardSettings() { localStorage.setItem(MINICARD_SETTINGS_KEY, JSON.stringify(miniCardSettings)); }
+function miniFieldVisible(key) { return miniCardSettings[key] !== false; }
+// Re-render every surface that shows mini-cards, after a config change or a
+// mini-card write, without refitting the map.
+function refreshMiniCards() {
+  renderCombined();
+  if (state.clusterPopupOpen && state.pillListings) {
+    // Rebuild the open chooser's cards in place from current state.
+    const inner = $('clusterPopupInner');
+    if (inner && inner.dataset.mlsList) {
+      const ids = inner.dataset.mlsList.split(',');
+      const items = ids.map(id => findListing(id) || state.rawListings.find(x => x.mls === id)).filter(Boolean);
+      inner.innerHTML = '';
+      items.forEach(it => inner.appendChild(buildMiniCard(it)));
+    }
+  }
+}
+
 function fieldVisible(key) {
   if (!cardSettings[key]) return false;
   const def = CARD_FIELDS.find(f => f.key === key);
@@ -495,7 +597,24 @@ function showSettingsPage(target, title) {
   $('settingsTitle').textContent = title;
   $('settingsBack').hidden = false;
 }
-function openSettings() { buildSettingsPanel(); buildThresholdSettings(); buildColumnAccessSettings(); showSettingsMain(); $('settingsDrawer').hidden = false; $('settingsOverlay').hidden = false; }
+// Mini-card field toggles, same shape as the card-sections panel.
+function buildMiniCardSettings() {
+  const container = $('miniCardFields');
+  if (!container) return;
+  container.innerHTML = '';
+  MINICARD_FIELDS.forEach(f => {
+    const label = document.createElement('label');
+    label.className = 'settings-row';
+    const cb = Object.assign(document.createElement('input'), { type: 'checkbox', checked: miniCardSettings[f.key] !== false });
+    cb.dataset.key = f.key;
+    cb.addEventListener('change', () => { miniCardSettings[f.key] = cb.checked; saveMiniCardSettings(); refreshMiniCards(); });
+    const text = document.createElement('div');
+    text.innerHTML = `<div>${esc(f.label)}</div>`;
+    label.append(cb, text);
+    container.appendChild(label);
+  });
+}
+function openSettings() { buildSettingsPanel(); buildThresholdSettings(); buildColumnAccessSettings(); buildMiniCardSettings(); showSettingsMain(); $('settingsDrawer').hidden = false; $('settingsOverlay').hidden = false; }
 function closeSettings() { $('settingsDrawer').hidden = true; $('settingsOverlay').hidden = true; }
 
 // ─── Admin: per-member column-group permissions + admin transfer ───────────────
@@ -870,6 +989,16 @@ function setAreaActive(id, on) {
 // The polygons of every currently-active saved area (as [lng,lat] rings).
 function activeAreaPolygons() {
   return state.savedAreas.filter(a => isAreaActive(a.id)).map(a => a.polygon);
+}
+// Fit the map to a saved area's polygon boundary itself (not to the listings
+// inside it). Turning an area on in the Layers panel jumps here so you see the
+// whole zone you drew, even the empty parts, rather than snapping to whatever
+// single property happens to sit inside.
+function fitMapToArea(area) {
+  if (!state.map || !state.mapReady || !area || !Array.isArray(area.polygon)) return;
+  const pts = area.polygon.filter(p => Array.isArray(p) && p.length >= 2).map(p => [p[0], p[1]]);
+  const b = lngLatBoundsOf(pts);
+  if (b) state.map.fitBounds(b, { padding: 40, maxZoom: 15 });
 }
 function drawnPolygonsParam() {
   const polys = activeAreaPolygons();
@@ -1406,6 +1535,8 @@ function initMap() {
     refreshPoiLayer();
     state.mapReady = true;
     updateMapStyleUI();
+    state.map.on('rotate', updateCompass); // keep the compass needle in step with the bearing
+    updateCompass();
     // Layer checkboxes may already be checked from restored state (T10) --
     // apply their visibility now that the layers actually exist.
     applyPersistedLayerVisibility();
@@ -1446,6 +1577,17 @@ function initMap() {
 function addMapLayers() {
   const map = state.map;
 
+  // Basemap dimming layer (item: transit legibility). A world-covering fill in
+  // the app dim colour, added FIRST so every custom overlay (transit lines,
+  // stations, pins) paints above it and stays crisp while only the basemap is
+  // darkened. Opacity is driven by updateBasemapDim (0 unless transit lines on).
+  map.addSource('basemap-dim', {
+    type: 'geojson',
+    data: { type: 'Feature', geometry: { type: 'Polygon', coordinates: [[[-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85]]] }, properties: {} },
+  });
+  map.addLayer({ id: 'basemap-dim-layer', type: 'fill', source: 'basemap-dim',
+    paint: { 'fill-color': MAP_COLORS.dim, 'fill-opacity': 0 } });
+
   map.addSource('listings', { type: 'geojson', data: emptyFC() });
   map.addLayer({
     id: 'listings-circles',
@@ -1456,7 +1598,7 @@ function addMapLayers() {
       'circle-color': ['get', 'color'],
       'circle-opacity': 0.92,
       'circle-stroke-width': 2,
-      'circle-stroke-color': '#fff',
+      'circle-stroke-color': MAP_COLORS.white,
     },
   });
   // T17: the active person's own star rating, shown on their pin. Empty
@@ -1474,7 +1616,7 @@ function addMapLayers() {
       'text-ignore-placement': true,
     },
     paint: {
-      'text-color': '#fff',
+      'text-color': MAP_COLORS.white,
       'text-halo-color': 'rgba(0,0,0,0.45)',
       'text-halo-width': 1,
     },
@@ -1493,7 +1635,7 @@ function addMapLayers() {
       'circle-color': ['get', 'color'],
       'circle-opacity': 0.82,
       'circle-stroke-width': 2,
-      'circle-stroke-color': '#fff',
+      'circle-stroke-color': MAP_COLORS.white,
     },
   });
   map.addLayer({
@@ -1505,20 +1647,20 @@ function addMapLayers() {
       'text-size': 12,
       'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
     },
-    paint: { 'text-color': '#18211f' },
+    paint: { 'text-color': MAP_COLORS.labelInk },
   });
 
   // Draw-an-area: completed polygons (fill + outline), the in-progress ring
   // (dashed line), and its vertices (dots).
   map.addSource('draw', { type: 'geojson', data: emptyFC() });
   map.addLayer({ id: 'draw-fill', type: 'fill', source: 'draw',
-    filter: ['==', '$type', 'Polygon'], paint: { 'fill-color': '#2b67d6', 'fill-opacity': 0.12 } });
+    filter: ['==', '$type', 'Polygon'], paint: { 'fill-color': MAP_COLORS.blue, 'fill-opacity': 0.12 } });
   map.addLayer({ id: 'draw-line', type: 'line', source: 'draw',
     filter: ['in', '$type', 'Polygon', 'LineString'],
-    paint: { 'line-color': '#2b67d6', 'line-width': 2, 'line-dasharray': [2, 1] } });
+    paint: { 'line-color': MAP_COLORS.blue, 'line-width': 2, 'line-dasharray': [2, 1] } });
   map.addLayer({ id: 'draw-verts', type: 'circle', source: 'draw',
     filter: ['==', '$type', 'Point'],
-    paint: { 'circle-radius': 5, 'circle-color': '#2b67d6', 'circle-stroke-width': 2, 'circle-stroke-color': '#fff' } });
+    paint: { 'circle-radius': 5, 'circle-color': MAP_COLORS.blue, 'circle-stroke-width': 2, 'circle-stroke-color': MAP_COLORS.white } });
 
   // GO Stations + GO Lines + Highway 413 -- off by default (layer toggle panel).
   // Stations and lines are DELIBERATELY separate sources/files (go-stations.geojson
@@ -1535,7 +1677,7 @@ function addMapLayers() {
       'circle-radius': 6,
       'circle-color': ['get', 'statusColor'],
       'circle-stroke-width': 1,
-      'circle-stroke-color': '#fff',
+      'circle-stroke-color': MAP_COLORS.white,
     },
   });
   map.addLayer({
@@ -1550,7 +1692,7 @@ function addMapLayers() {
       'circle-radius': 6,
       'circle-color': 'rgba(0,0,0,0)',
       'circle-stroke-width': 2,
-      'circle-stroke-color': '#e8b400',
+      'circle-stroke-color': MAP_COLORS.goPlanned,
     },
   });
 
@@ -1565,7 +1707,7 @@ function addMapLayers() {
     type: 'line',
     source: 'go-lines',
     layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
-    paint: { 'line-color': '#ffffff', 'line-width': 6, 'line-opacity': 0.9 },
+    paint: { 'line-color': MAP_COLORS.white, 'line-width': 6, 'line-opacity': 0.9 },
   });
   map.addLayer({
     id: 'go-lines-layer',
@@ -1584,7 +1726,7 @@ function addMapLayers() {
     type: 'line',
     source: 'ttc-lines',
     layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
-    paint: { 'line-color': '#ffffff', 'line-width': 6, 'line-opacity': 0.9 },
+    paint: { 'line-color': MAP_COLORS.white, 'line-width': 6, 'line-opacity': 0.9 },
   });
   map.addLayer({
     id: 'ttc-lines-layer',
@@ -1603,7 +1745,7 @@ function addMapLayers() {
       'circle-radius': 5,
       'circle-color': ['get', 'statusColor'],
       'circle-stroke-width': 2,
-      'circle-stroke-color': '#fff',
+      'circle-stroke-color': MAP_COLORS.white,
     },
   });
 
@@ -1615,14 +1757,14 @@ function addMapLayers() {
     type: 'line',
     source: 'hwy413',
     layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
-    paint: { 'line-color': '#ffffff', 'line-width': 8, 'line-opacity': 0.85 },
+    paint: { 'line-color': MAP_COLORS.white, 'line-width': 8, 'line-opacity': 0.85 },
   });
   map.addLayer({
     id: 'hwy413-line',
     type: 'line',
     source: 'hwy413',
     layout: { visibility: 'none' },
-    paint: { 'line-color': '#b3261e', 'line-opacity': 0.55, 'line-width': 4 },
+    paint: { 'line-color': MAP_COLORS.hwy413, 'line-opacity': 0.55, 'line-width': 4 },
   });
 
   // T14: POI pins. Own source (server data, not a static file), off by
@@ -1637,7 +1779,7 @@ function addMapLayers() {
       'circle-radius': 7,
       'circle-color': ['get', 'color'],
       'circle-stroke-width': 2,
-      'circle-stroke-color': '#fff',
+      'circle-stroke-color': MAP_COLORS.white,
     },
   });
 }
@@ -1792,6 +1934,7 @@ const CONTROL_ICONS = {
   pencil: '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>',
   legend: '<circle cx="4" cy="6" r="1.6"/><circle cx="4" cy="12" r="1.6"/><circle cx="4" cy="18" r="1.6"/><line x1="9" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="9" y1="18" x2="21" y2="18"/>',
   sort: '<polyline points="7 4 7 20"/><polyline points="3.5 8 7 4 10.5 8"/><polyline points="17 20 17 4"/><polyline points="13.5 16 17 20 20.5 16"/>',
+  compass: '<circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>',
 };
 function ctrlSvg(name) {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20" aria-hidden="true">${CONTROL_ICONS[name] || ''}</svg>`;
@@ -1846,11 +1989,13 @@ function updateOverlayLegibility() {
 // calculation. Shared across the whole buyer group the same way listing
 // feedback is shared -- created_by just records who added it.
 const POI_TYPE_META = {
-  school: { label: 'School', color: '#2b67d6' },
-  hospital: { label: 'Hospital', color: '#b3261e' },
-  work: { label: 'Workplace', color: '#8e44ad' },
-  worship: { label: 'Place of worship', color: '#e8b400' },
-  other: { label: 'Other', color: '#68726f' },
+  // color is a live getter so it always reflects MAP_COLORS (the CSS :root map
+  // palette), never a captured literal.
+  school: { label: 'School', get color() { return MAP_COLORS.poiSchool; } },
+  hospital: { label: 'Hospital', get color() { return MAP_COLORS.poiHospital; } },
+  work: { label: 'Workplace', get color() { return MAP_COLORS.poiWork; } },
+  worship: { label: 'Place of worship', get color() { return MAP_COLORS.poiWorship; } },
+  other: { label: 'Other', get color() { return MAP_COLORS.poiOther; } },
 };
 
 function refreshPoiLayer() {
@@ -2529,12 +2674,9 @@ async function reloadAfterAttachmentChange(item) {
 // listing the active actor never rejected.
 function markerColor(item) {
   const f = personFeedbackFor(item.mls, state.activePerson);
-  if (f?.status === 'rejected') return '#aaa';
+  if (f?.status === 'rejected') return MAP_COLORS.rejectedPin;
   const total = item.fit?.total || 8;
-  const ratio = (item.fit?.met ?? 0) / total;
-  if (ratio >= 0.75) return '#16803a'; // green -- strong fit
-  if (ratio >= 0.5) return '#e8b400';  // yellow -- good fit
-  return '#e8720c';                    // orange -- possible fit
+  return fitRatioColor((item.fit?.met ?? 0) / total);
 }
 
 function clusterRadius(count) {
@@ -2588,7 +2730,7 @@ function renderClusterLayer() {
         count: c.count, radius: clusterRadius(c.count), clusterIdx: idx,
         // Fit colour from the cluster's known contents; slate when a big
         // cluster carries no inline listings (nothing to colour by).
-        color: (c.listings && c.listings.length) ? clusterFitColor(c.listings) : '#8a94a6',
+        color: (c.listings && c.listings.length) ? clusterFitColor(c.listings) : MAP_COLORS.fitRejected,
         swLng: b ? b.top_left.longitude : null, swLat: b ? b.bottom_right.latitude : null,
         neLng: b ? b.bottom_right.longitude : null, neLat: b ? b.top_left.latitude : null,
       },
@@ -2640,6 +2782,7 @@ async function openListingChooser(listings) {
   try { Object.assign(state.feedback, await fetchFeedback(listings.map(l => l.mls))); } catch (err) { console.error(err); }
   const inner = $('clusterPopupInner');
   inner.innerHTML = '';
+  inner.dataset.mlsList = listings.map(l => l.mls).join(','); // for in-place refresh after a mini-card write
   listings.forEach(item => inner.appendChild(buildMiniCard(item)));
   const cnt = $('clusterPopupCount');
   if (cnt) cnt.textContent = `${listings.length} listings here`;
@@ -2648,29 +2791,114 @@ async function openListingChooser(listings) {
 }
 function closeClusterPopup() { const p = $('clusterPopup'); if (p) { p.hidden = true; } state.clusterPopupOpen = false; }
 function buildMiniCard(item) {
-  const card = document.createElement('button');
-  card.type = 'button';
+  const card = document.createElement('div');
   card.className = 'mini-card';
-  const thumb = item.image
-    ? `<img class="mini-thumb" src="${esc(item.image)}" alt="" loading="lazy" />`
-    : `<div class="mini-thumb mini-thumb-empty">🏠</div>`;
+  card.dataset.mls = item.mls;
+
+  // The "open the full card" region: everything except the interactive footer.
+  const open = document.createElement('div');
+  open.className = 'mini-open';
+  const thumb = miniFieldVisible('thumb')
+    ? (item.image
+        ? `<img class="mini-thumb" src="${esc(item.image)}" alt="" loading="lazy" />`
+        : `<div class="mini-thumb mini-thumb-empty">🏠</div>`)
+    : '';
   const stat = [item.beds && item.beds + ' bd', item.baths != null && num(item.baths) + ' ba', item.sqft && num(item.sqft) + ' sqft'].filter(Boolean).join(' · ');
   const feedbackList = state.feedback[item.mls] || [];
   const byPerson = new Map(feedbackList.map(f => [f.person_id, f]));
   const chips = state.people.length ? state.people.map(p => groupSentimentChip(p, byPerson.get(p.id) || null)).join('') : '';
-  // Same star-plus-money line as the map pill (same metric + formatting rules),
-  // so a listing reads identically whether shown as a pill or in the chooser.
-  card.innerHTML = thumb
-    + '<div class="mini-body">'
-    + `<div class="mini-price">${esc(pillLabel(item) || 'Price n/a')}</div>`
-    + `<div class="mini-addr">${esc(item.address || '')}</div>`
-    + (stat ? `<div class="mini-stat">${esc(stat)}</div>` : '')
-    + (chips ? `<div class="mini-chips">${chips}</div>` : '')
-    + '</div>';
+  let body = '<div class="mini-body">';
+  if (miniFieldVisible('price')) body += `<div class="mini-price">${esc(pillLabel(item) || 'Price n/a')}</div>`;
+  if (miniFieldVisible('address')) body += `<div class="mini-addr">${esc(item.address || '')}</div>`;
+  if (miniFieldVisible('stat') && stat) body += `<div class="mini-stat">${esc(stat)}</div>`;
+  if (miniFieldVisible('fit') && item.fit) body += `<div class="mini-fit">Fit ${item.fit.met}/${item.fit.total}</div>`;
+  if (miniFieldVisible('chips') && chips) body += `<div class="mini-chips">${chips}</div>`;
+  body += '</div>';
+  open.innerHTML = thumb + body;
   // stopPropagation so this tap does not also reach the global click-outside
   // listener, which would otherwise immediately close the card it just opened.
-  card.addEventListener('click', e => { e.stopPropagation(); closeClusterPopup(); showMapCard(item); });
+  open.addEventListener('click', e => { e.stopPropagation(); closeClusterPopup(); showMapCard(item); });
+  card.appendChild(open);
+
+  // Interactive footer: editable stars + inline note, active-person attributed,
+  // standard write paths. Only rendered if at least one is enabled.
+  if (miniFieldVisible('myRating') || miniFieldVisible('note')) {
+    const foot = document.createElement('div');
+    foot.className = 'mini-actions';
+    foot.addEventListener('click', e => e.stopPropagation()); // never opens the card
+    if (miniFieldVisible('myRating')) foot.appendChild(buildMiniStars(item));
+    if (miniFieldVisible('note')) foot.appendChild(buildMiniNote(item));
+    card.appendChild(foot);
+  }
   return card;
+}
+// Editable rating stars for a mini-card (same write path + attribution as the
+// grid inline stars). Re-renders in place after a write and refreshes the views.
+function buildMiniStars(item) {
+  const wrap = document.createElement('div');
+  wrap.className = 'mini-stars';
+  const render = () => {
+    const r = personFeedbackFor(item.mls, state.activePerson)?.rating ?? 0;
+    wrap.innerHTML = '';
+    for (let s = 1; s <= 5; s++) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'gr-star' + (s <= r ? ' on' : '');
+      b.textContent = '★';
+      b.title = `Rate ${s} star${s === 1 ? '' : 's'}`;
+      b.addEventListener('click', async e => {
+        e.stopPropagation();
+        if (!state.activePerson) { alert('Select who you are (top right) first.'); return; }
+        try {
+          await postFeedback({ person_id: state.activePerson, listing_id: item.mls, action_type: 'rating', rating: s });
+          Object.assign(state.feedback, await fetchFeedback([item.mls]));
+          render();
+          applyFiltersAndRender(); // updates pills/grid; no refit (item 7)
+        } catch (err) { alert('Could not set rating: ' + err.message); }
+      });
+      wrap.appendChild(b);
+    }
+  };
+  render();
+  return wrap;
+}
+// Inline "Add a note" for a mini-card. A .feedback-compose so the global
+// Enter-to-submit handler applies. Active-person attributed.
+function buildMiniNote(item) {
+  const wrap = document.createElement('div');
+  wrap.className = 'mini-note';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'mini-note-btn secondary';
+  btn.textContent = '📝 Note';
+  const box = document.createElement('div');
+  box.className = 'feedback-compose mini-note-box';
+  box.hidden = true;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.placeholder = 'Add a note…';
+  const save = document.createElement('button');
+  save.type = 'button';
+  save.textContent = 'Save';
+  const status = document.createElement('div');
+  status.className = 'feedback-status';
+  save.addEventListener('click', async e => {
+    e.stopPropagation();
+    if (!state.activePerson) { showFeedbackStatus(status, 'Select who you are first.', true); return; }
+    const note = input.value.trim();
+    if (!note) return;
+    try {
+      await postFeedback({ person_id: state.activePerson, listing_id: item.mls, action_type: 'note', note });
+      Object.assign(state.feedback, await fetchFeedback([item.mls]));
+      input.value = '';
+      box.hidden = true;
+      applyFiltersAndRender();
+    } catch (err) { showFeedbackStatus(status, err.message, true); }
+  });
+  btn.addEventListener('click', e => { e.stopPropagation(); box.hidden = !box.hidden; if (!box.hidden) input.focus(); });
+  box.append(input, save, status);
+  wrap.append(btn, box);
+  return wrap;
 }
 
 // ─── Saved draw areas: drawing, saving, toggling ────────────────────────────────
@@ -2776,6 +3004,8 @@ function renderAreaLayers() {
       setAreaActive(area.id, cb.checked);
       renderDrawLayer();
       onDrawAreaChanged();
+      // Turning an area on frames the polygon boundary itself.
+      if (cb.checked) fitMapToArea(area);
     });
     label.appendChild(cb);
     label.appendChild(document.createTextNode(' ' + area.name));
@@ -2879,7 +3109,10 @@ function renderPillMarkers(list) {
   if (!state.mapReady || !state.map) return;
   clearPillMarkers();
   const project = it => state.map.project([it.lng, it.lat]);
-  const groups = collapsePillGroups(list, project);
+  // POC clustering off -> one pill per listing, no overlap-collapse.
+  const groups = pocClusteringOn()
+    ? collapsePillGroups(list, project)
+    : list.filter(it => it.lat != null && it.lng != null).map(it => ({ items: [it] }));
   groups.forEach(g => {
     let el;
     if (g.items.length === 1) {
@@ -2931,6 +3164,14 @@ function refreshMap(list) {
   // window, bail rather than call setData on a missing source; style.load then
   // re-renders. (listings + clusters are added together, so one check covers.)
   if (!state.map.getSource('listings')) return;
+  // Only refit the viewport when an explicit user action asked for it (initial
+  // load, Apply/Reset filters). refreshMap runs on EVERY re-render, including
+  // after a rating/note write, so refitting here by default would yank the map
+  // back to fit-all every time someone leaves feedback. One-shot flag: consumed
+  // each call so it never leaks into an incidental re-render. Area selection
+  // does its own polygon fit (fitMapToArea), not this listings fit.
+  const shouldFit = state.fitMapNext === true;
+  state.fitMapNext = false;
   closeMapCard();
   closeClusterPopup();
   if (clusteringActive()) {
@@ -2953,7 +3194,7 @@ function refreshMap(list) {
   const bounds = [];
   list.forEach(item => { if (item.lat != null && item.lng != null) bounds.push([item.lng, item.lat]); });
   const b = lngLatBoundsOf(bounds);
-  if (b) state.map.fitBounds(b, { padding: 40, maxZoom: 15 });
+  if (shouldFit && b) state.map.fitBounds(b, { padding: 40, maxZoom: 15 });
   // Collapse against the just-set view. fitBounds animates; render once now for
   // an immediate result, and moveend (schedulePillRelayout) refines it after.
   renderPillMarkers(list);
@@ -4184,6 +4425,8 @@ async function load() {
   state.placeAttachments = await fetchPlaceAttachments(listingIds);
   if (source === 'poc') state.map?.jumpTo({ center: [-79.5, 44.0], zoom: 9 });
   else state.map?.jumpTo({ center: [-87.6298, 41.8781], zoom: 10 });
+  // Explicit load (initial, Apply, Reset, source switch): fit to the results.
+  state.fitMapNext = true;
   applyFiltersAndRender();
 }
 
@@ -4283,6 +4526,7 @@ function applyPersistedLayerVisibility() {
   });
   // Satellite-mode casings mirror the GO lines / Highway 413 toggle state.
   updateOverlayLegibility();
+  updateBasemapDim(); // dim the basemap iff transit lines are on
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
@@ -4293,6 +4537,7 @@ function debounce(fn, ms) {
 
 window.addEventListener('DOMContentLoaded', () => {
   loadTheme();
+  loadMapColors();          // read the CSS :root map palette into MAP_COLORS (before the map builds layers)
   setupControlIcons();      // inject the inline-SVG glyphs into the icon controls
   maybeTeachIconLabels();   // first-visit: show labels once, then collapse to icons
   setupExclusivePanels();   // one open map panel at a time (Filters/Layers/Legend/Draw)
@@ -4348,6 +4593,7 @@ window.addEventListener('DOMContentLoaded', () => {
     if (!state.mapReady) return;
     state.map.setLayoutProperty('go-lines-layer', 'visibility', e.target.checked ? 'visible' : 'none');
     updateOverlayLegibility(); // keep the satellite casing in step with the toggle
+    updateBasemapDim();        // transit lines drive the basemap dim
   });
   $('layerHwy413')?.addEventListener('change', e => {
     if (!state.mapReady) return;
@@ -4358,6 +4604,7 @@ window.addEventListener('DOMContentLoaded', () => {
     if (!state.mapReady) return;
     state.map.setLayoutProperty('ttc-lines-layer', 'visibility', e.target.checked ? 'visible' : 'none');
     updateOverlayLegibility(); // TTC line casing follows the toggle in satellite mode
+    updateBasemapDim();        // transit lines drive the basemap dim
   });
   $('layerTtcStations')?.addEventListener('change', e => {
     if (!state.mapReady) return;
@@ -4379,6 +4626,33 @@ window.addEventListener('DOMContentLoaded', () => {
   updateResultsPerFetchVisibility();
   $('keywordAddBtn')?.addEventListener('click', addKeywordFromInput);
   $('keywordAddInput')?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addKeywordFromInput(); } });
+  // Enter-to-submit for single-line inputs, one delegated handler so it also
+  // covers the card compose boxes that are created dynamically per card. A
+  // textarea keeps Shift+Enter for a newline; plain Enter submits. Inputs that
+  // manage their own Enter (grid inline price edit, keyword add) stopPropagation
+  // or sit outside these containers, so they are not double-handled.
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || e.isComposing) return;
+    const t = e.target;
+    if (!t || typeof t.closest !== 'function') return;
+    const isTextarea = t.tagName === 'TEXTAREA';
+    if (isTextarea && e.shiftKey) return; // Shift+Enter = newline in a textarea
+    // Card note / potential price / reject / attach compose boxes: click the box's button.
+    const compose = t.closest('.feedback-compose');
+    if (compose && (t.tagName === 'INPUT' || isTextarea)) {
+      const btn = compose.querySelector('button');
+      if (btn) { e.preventDefault(); btn.click(); }
+      return;
+    }
+    // Filter panel: Enter applies the filters (same as the Apply button).
+    if (t.closest('.controls') && (t.tagName === 'INPUT' || t.tagName === 'SELECT')) {
+      e.preventDefault(); $('load')?.click();
+      return;
+    }
+    // Bulk modals: Enter is the primary action.
+    const modalPrimary = { bulkNoteText: 'bulkNoteGo', bulkAttachAddr: 'bulkAttachGo' };
+    if (modalPrimary[t.id]) { e.preventDefault(); $(modalPrimary[t.id])?.click(); }
+  });
   $('source').addEventListener('change', () => { updateResultsPerFetchVisibility(); buildSettingsPanel(); load().catch(showError); });
   // Map clustering (Appearance): toggle switches the map between count bubbles
   // and individual pins immediately; granularity re-fetches at a new precision.
@@ -4386,6 +4660,11 @@ window.addEventListener('DOMContentLoaded', () => {
   if (clusterCb) {
     clusterCb.checked = mapClusteringOn();
     clusterCb.addEventListener('change', e => { setMapClustering(e.target.checked); refreshMap(state.listings); });
+  }
+  const pocClusterCb = $('pocClusterToggle');
+  if (pocClusterCb) {
+    pocClusterCb.checked = pocClusteringOn();
+    pocClusterCb.addEventListener('change', e => { setPocClustering(e.target.checked); refreshMap(state.listings); });
   }
   const granSel = $('mapClusterGranSelect');
   if (granSel) {
@@ -4398,6 +4677,11 @@ window.addEventListener('DOMContentLoaded', () => {
     // Re-render both views so pills and cards pick up the new decimals at once.
     decSel.addEventListener('change', e => { setPillCompactDecimals(parseInt(e.target.value, 10)); applyFiltersAndRender(); });
   }
+  const dimSel = $('basemapDimSelect');
+  if (dimSel) {
+    dimSel.value = String(basemapDimPct());
+    dimSel.addEventListener('change', e => { setBasemapDimPct(parseInt(e.target.value, 10)); updateBasemapDim(); });
+  }
   // Basemap Streets/Satellite: the Layers-menu "Satellite imagery" toggle and
   // the Appearance select both drive applyMapStyle(); updateMapStyleUI keeps
   // the two surfaces in sync. Basemap is a layer decision, so its primary
@@ -4408,6 +4692,7 @@ window.addEventListener('DOMContentLoaded', () => {
     satToggle.addEventListener('change', e => applyMapStyle(e.target.checked ? 'satellite' : 'streets'));
   }
   $('clusterPopupClose')?.addEventListener('click', closeClusterPopup);
+  $('compassBtn')?.addEventListener('click', () => state.map?.easeTo({ bearing: 0, pitch: 0 }));
   // Draw-an-area controls
   $('drawAreaBtn')?.addEventListener('click', toggleDrawMode);
   $('drawFinishBtn')?.addEventListener('click', () => finishPolygon().catch(err => console.error(err)));

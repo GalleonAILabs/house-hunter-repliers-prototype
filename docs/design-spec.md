@@ -21,6 +21,24 @@ Defined as CSS custom properties in `:root` (`static/styles.css:2-11`). Light is
 | `--gold` | `#c58900` | same | Star ratings only |
 | `--header` | `#14221f` | `#0c1210` | Topbar background |
 
+### Map palette (single source of truth)
+
+`:root` in `static/styles.css` is the ONE place colours are defined, for CSS **and** for the map layers drawn in JS. The map-specific colours are theme-independent custom properties (they keep their meaning across light/dark), and `static/app.js` reads them into a `MAP_COLORS` object once at startup via `loadMapColors()` (a `getComputedStyle` read of `:root`). **To change any map colour, edit the `:root` var below, nowhere else.** The `MAP_COLORS` object literal in app.js carries the same values only as a fallback for the brief moment before `loadMapColors()` runs; it is not a second source. `POI_TYPE_META[...].color` is a live getter onto `MAP_COLORS`, and every `map.addLayer` paint and `markerColor`/`fitRatioColor`/`clusterFitColor` return references `MAP_COLORS`. The Layers-panel legend swatches reference the same vars via inline `background:var(--...)`.
+
+| Token | Value | Use for |
+|---|---|---|
+| `--fit-strong` | `#16803a` | Pin/cluster colour, strong fit (>=0.75) |
+| `--fit-good` | `#e8b400` | Pin/cluster colour, good fit (>=0.5) |
+| `--fit-possible` | `#e8720c` | Pin/cluster colour, possible fit |
+| `--fit-rejected` | `#8a94a6` | Cluster slate when contents unknown / no fit |
+| `--pin-rejected` | `#aaaaaa` | Pin colour when rejected by the active person; legend "Rejected by you" |
+| `--poi-school` / `--poi-hospital` / `--poi-work` / `--poi-worship` / `--poi-other` | `#2b67d6` / `#b3261e` / `#8e44ad` / `#e8b400` / `#68726f` | POI pin fill by type |
+| `--transit-hwy413` | `#b3261e` | Highway 413 line |
+| `--go-planned` | `#e8b400` | Planned/proposed GO station ring |
+| `--map-overlay-white` | `#ffffff` | Pin strokes, transit line casing, cluster count labels |
+| `--map-label-ink` | `#18211f` | GO station symbol labels |
+| `--map-dim` | `#0b1622` | Basemap dimming fill (transit legibility) |
+
 ### Contrast (measured, WCAG 2.1)
 
 | Pair | Ratio | Verdict |

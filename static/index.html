@@ -203,10 +203,10 @@
     <details class="map-legend" id="mapLegend">
       <summary class="map-ctrl-btn" data-ctrl-icon="legend" title="Legend" aria-label="Legend"><span class="ctrl-glyph"></span><span class="ctrl-label">Legend</span></summary>
       <div class="map-legend-body">
-        <div class="legend-row"><span class="legend-swatch" style="background:#16803a"></span>Strong fit</div>
-        <div class="legend-row"><span class="legend-swatch" style="background:#e8b400"></span>Good fit</div>
-        <div class="legend-row"><span class="legend-swatch" style="background:#e8720c"></span>Possible fit</div>
-        <div class="legend-row"><span class="legend-swatch" style="background:#aaa"></span>Rejected by you</div>
+        <div class="legend-row"><span class="legend-swatch" style="background:var(--fit-strong)"></span>Strong fit</div>
+        <div class="legend-row"><span class="legend-swatch" style="background:var(--fit-good)"></span>Good fit</div>
+        <div class="legend-row"><span class="legend-swatch" style="background:var(--fit-possible)"></span>Possible fit</div>
+        <div class="legend-row"><span class="legend-swatch" style="background:var(--pin-rejected)"></span>Rejected by you</div>
         <p class="legend-hint" id="legendHint">Select "I am" (top right) to see rejected status</p>
       </div>
     </details>
@@ -229,6 +229,10 @@
       <span id="drawIndicatorLabel"></span>
       <button class="secondary" id="drawIndicatorClear">Clear</button>
     </div>
+
+    <!-- North-reset compass (the map rotates). Styled to match the icon-control
+         family; the needle rotates with the bearing, tapping reorients north. -->
+    <button class="map-ctrl-btn map-compass-btn" id="compassBtn" data-ctrl-icon="compass" title="Reset north" aria-label="Reset north"><span class="ctrl-glyph"></span></button>
   </div>
 
   <!-- Cluster / stacked-pin chooser AND the property card are both body-level
@@ -412,6 +416,13 @@
           </div>
           <span class="settings-nav-chevron">›</span>
         </button>
+        <button type="button" class="settings-row settings-nav-row" data-target="miniCard" data-title="Mini-card fields">
+          <div>
+            <div>Mini-card fields</div>
+            <div class="field-desc">Choose which values the Both-view and cluster mini-cards show</div>
+          </div>
+          <span class="settings-nav-chevron">›</span>
+        </button>
         <!-- Admin-only: shown only when the active person is the buying-party
              admin (toggled in openSettings). -->
         <button type="button" class="settings-row settings-nav-row" id="navColumnAccess" data-target="columnAccess" data-title="Column access" hidden>
@@ -455,7 +466,14 @@
           <input type="checkbox" id="mapClusterToggle" />
           <div>
             <div>Sample Data clustering</div>
-            <div class="field-desc">Server-side count bubbles for the Sample Data (Repliers) feed only, split as you zoom in. This setting does not affect your POC listings: POC price pills always collapse into a count circle wherever they would overlap and expand again as you zoom in, by design (that overlap-collapse has no separate toggle, see DECISIONS.md).</div>
+            <div class="field-desc">Server-side count bubbles for the Sample Data (Repliers) feed only, split as you zoom in. Your POC listings are governed by the separate POC clustering setting below.</div>
+          </div>
+        </label>
+        <label class="settings-row">
+          <input type="checkbox" id="pocClusterToggle" />
+          <div>
+            <div>POC clustering</div>
+            <div class="field-desc">Collapse your POC price pills into a fit-coloured count circle wherever they would overlap, expanding again as you zoom in. Turn off to show every POC pill individually, overlaps and all.</div>
           </div>
         </label>
         <div class="settings-row settings-number-row">
@@ -478,6 +496,20 @@
             <option value="1">1</option>
             <option value="2">2</option>
             <option value="3">3</option>
+          </select>
+        </div>
+        <div class="settings-row settings-number-row">
+          <div>
+            <div>Basemap dimming (transit)</div>
+            <div class="field-desc">Darken the underlying map by this much while transit lines are shown, so the coloured lines read clearly. No effect when transit lines are off.</div>
+          </div>
+          <select id="basemapDimSelect" class="settings-number-input" style="width:auto">
+            <option value="0">0%</option>
+            <option value="5">5%</option>
+            <option value="10">10%</option>
+            <option value="15">15%</option>
+            <option value="20">20%</option>
+            <option value="25">25%</option>
           </select>
         </div>
       </div>
@@ -567,6 +599,11 @@
         <button id="settingsSelectNone" class="secondary">All off</button>
         <button id="settingsReset">Defaults</button>
       </div>
+    </div>
+
+    <div class="settings-page" id="settingsPage-miniCard" hidden>
+      <p class="settings-desc">Choose which values appear on the compact mini-cards (Both view and the map cluster/stack chooser). My rating and Add a note are also editable directly on the mini-card.</p>
+      <div class="settings-fields settings-page-body" id="miniCardFields"></div>
     </div>
 
     <!-- Admin-only: per-member column-group permissions + admin transfer.

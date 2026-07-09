@@ -3,6 +3,22 @@
   --bg:#f5f3ec; --panel:#fff; --ink:#18211f; --muted:#68726f; --line:#d9d5c8;
   --green:#16803a; --blue:#2b67d6; --red:#b3261e; --gold:#c58900;
   --header:#14221f; --hdr-h:52px;
+  /* ── Map palette (single source of truth, read by app.js via loadMapColors).
+     Theme-independent on purpose: map pin/line colours stay constant across
+     light/dark so they keep their meaning. Change a map colour HERE, nowhere
+     else. See design-spec.md. ── */
+  --fit-strong:#16803a;   /* pin/cluster: strong fit  */
+  --fit-good:#e8b400;     /* pin/cluster: good fit    */
+  --fit-possible:#e8720c; /* pin/cluster: possible fit*/
+  --fit-rejected:#8a94a6; /* cluster: unknown-contents / no-fit slate */
+  --pin-rejected:#aaaaaa; /* pin: rejected by the active person */
+  --poi-school:#2b67d6; --poi-hospital:#b3261e; --poi-work:#8e44ad;
+  --poi-worship:#e8b400; --poi-other:#68726f;
+  --transit-hwy413:#b3261e;      /* Highway 413 line          */
+  --go-planned:#e8b400;          /* planned/proposed GO station ring */
+  --map-overlay-white:#ffffff;   /* pin strokes, line casing, cluster labels */
+  --map-label-ink:#18211f;       /* GO station symbol labels  */
+  --map-dim:#0b1622;             /* basemap dimming fill      */
   /* Bottom-bar sibling of --hdr-h. Holds the rendered height of the fixed
      .status-bar pill (16px padding + 30px control + 2px border) so any
      scroll container sitting beneath it can reserve exactly that much space. */
@@ -55,13 +71,23 @@ h1 { font-size:18px; color:#fff; white-space:nowrap; }
 body.icons-labeled .map-ctrl-btn{width:auto;padding:0 12px}
 body.icons-labeled .ctrl-label{display:inline;color:var(--ink)}
 .filterbox,.map-layers-panel,.map-legend{background:transparent;border:0;box-shadow:none}
-.filterbox[open],.map-layers-panel[open],.map-legend[open]{background:var(--panel);border:1px solid var(--line);box-shadow:var(--shadow);border-radius:12px}
+/* An OPEN panel sits above the other floating control icons (Draw, Legend/Layers
+   summaries, all at z-index:500), which otherwise paint over it by DOM order and
+   overlap the expanded panel. 550 keeps it below the header (600) and the card
+   popup (700). Exclusive-panels logic still closes the sibling panels first. */
+.filterbox[open],.map-layers-panel[open],.map-legend[open]{background:var(--panel);border:1px solid var(--line);box-shadow:var(--shadow);border-radius:12px;z-index:550}
 .filterbox[open] > .map-ctrl-btn,.map-layers-panel[open] > .map-ctrl-btn,.map-legend[open] > .map-ctrl-btn{background:transparent;border:0;box-shadow:none;width:auto;padding:6px 10px;justify-content:flex-start}
 .filterbox[open] > .map-ctrl-btn .ctrl-label,.map-layers-panel[open] > .map-ctrl-btn .ctrl-label,.map-legend[open] > .map-ctrl-btn .ctrl-label{display:inline;color:var(--ink)}
 
-.filterbox { position:fixed; top:calc(var(--hdr-h) + 8px); right:12px; left:auto; z-index:500; max-width:min(340px,calc(100vw - 24px)); max-height:70vh; overflow-y:auto; overflow-x:hidden; border-radius:12px; }
+.filterbox { position:fixed; top:calc(var(--hdr-h) + 8px); right:12px; left:auto; z-index:500; max-width:min(340px,calc(100vw - 24px)); max-height:80vh; overflow-y:auto; overflow-x:hidden; border-radius:12px; }
 .filterbox[open]{ width:min(340px,calc(100vw - 24px)); }
 .filterbox[open] .controls{ grid-template-columns:1fr; }
+/* The open filterbox is a single 340px column, so a Beds/Baths (etc.) row-pair
+   must span the one column and lay its two fields out with its own flexbox. The
+   legacy `@media(min-width:600px){.filter-row-pair{grid-column:span 2}}` rule
+   (built for the old full-width filter bar) otherwise forces a phantom second
+   column at >=600px, squeezing/overlapping the panel. This wins by specificity. */
+.filterbox[open] .controls .filter-row-pair{ grid-column:1/-1; }
 /* Defensive: no element inside the filter panel may force horizontal
    overflow. min-width:0 overrides the browser default (min-width:auto) that
    lets a grid/flex item's intrinsic content size force its container wider
@@ -90,7 +116,13 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .person-filter-name { font-size:11px; font-weight:800; color:var(--ink); min-width:46px; }
 .person-filter-row { display:flex; flex-wrap:wrap; gap:6px; min-width:0; flex:1 1 auto; }
 .chip { display:inline-flex; align-items:center; gap:3px; font-size:11px; font-weight:600; color:var(--ink); background:var(--bg); border:1px solid var(--line); border-radius:999px; padding:3px 8px; cursor:pointer; white-space:nowrap; max-width:100%; }
-.chip input[type=checkbox] { width:13px; height:13px; margin:0; accent-color:var(--green); cursor:pointer; }
+/* flex-shrink:0 so a long label (e.g. "GO Stations (planned/proposed)") can
+   never squeeze the checkbox down to a sliver -- the bug that made that row
+   appear to have no checkbox. */
+.chip input[type=checkbox] { width:13px; height:13px; margin:0; accent-color:var(--green); cursor:pointer; flex-shrink:0; }
+/* Layers-panel chips are full-width rows, so long labels wrap instead of
+   overflowing the panel or crushing the checkbox. */
+.map-layers-body .chip { white-space:normal; align-items:flex-start; }
 
 .feature-filter-block { grid-column:1/-1; min-width:0; display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:5px 0; border-top:1px dashed var(--line); }
 .feature-filter-caption { flex-basis:100%; font-size:12px; font-style:italic; color:var(--muted); }
@@ -121,13 +153,25 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .cluster-popup-head{display:flex;align-items:center;justify-content:space-between;padding:12px 14px 8px;flex-shrink:0}
 .cluster-popup-count{font-size:13px;font-weight:800;color:var(--muted)}
 .cluster-popup-inner{overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0 10px;display:flex;flex-direction:column;gap:8px;padding-bottom:calc(var(--bottom-bar-height) + 24px)}
-.mini-card{display:flex;gap:10px;text-align:left;align-items:center;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:8px;cursor:pointer;width:100%;flex-shrink:0;color:var(--ink);font:inherit}
+/* Mini-card is now a column: a clickable .mini-open row (thumb + values) plus an
+   optional interactive .mini-actions footer (editable stars + inline note). */
+.mini-card{display:flex;flex-direction:column;text-align:left;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:8px;width:100%;flex-shrink:0;color:var(--ink);font:inherit}
+.mini-open{display:flex;gap:10px;align-items:center;width:100%;cursor:pointer}
 .mini-card:hover{background:var(--panel)}
 .mini-thumb{width:72px;height:72px;object-fit:cover;border-radius:8px;flex-shrink:0;background:var(--line)}
 .mini-thumb-empty{display:flex;align-items:center;justify-content:center;font-size:26px}
 .mini-body{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
 .mini-price{font-weight:900;font-size:15px}.mini-addr{font-size:13px;line-height:1.25;overflow-wrap:break-word}.mini-stat{font-size:12px;color:var(--muted)}
+.mini-fit{font-size:12px;color:var(--muted);font-weight:700}
 .mini-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:2px}
+/* Interactive footer: editable stars + inline note, active-person attributed. */
+.mini-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
+.mini-stars{display:inline-flex}
+.mini-note{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.mini-note-btn{font-size:12px;padding:4px 9px;min-height:0}
+.mini-note-box{display:flex;gap:6px;align-items:center;margin-top:4px;flex-basis:100%}
+.mini-note-box input{flex:1;padding:5px 8px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font-size:13px}
+.mini-note-box button{font-size:12px;padding:4px 10px;min-height:0}
 @media (min-width:700px){ .cluster-popup{bottom:20px; left:auto; right:20px; width:400px; border-radius:18px; max-height:80vh;} .cluster-popup-inner{padding-bottom:12px} }
 
 /* Bottom padding clears the fixed .status-bar: its own 12px bottom offset
@@ -300,13 +344,22 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .draw-toolbar-btns button{flex:1;min-height:34px;padding:7px 6px;font-size:12px;white-space:nowrap}
 .map-draw-indicator{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:501;display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--blue);border-radius:999px;box-shadow:var(--shadow);padding:5px 6px 5px 14px;max-width:calc(100vw - 24px)}
 .map-draw-indicator[hidden]{display:none}
+/* North-reset compass, bottom-left above the status bar, matching the icon
+   control family. The glyph rotates with the map bearing (set in updateCompass);
+   blue needle on the panel background per the control-family styling. */
+.map-compass-btn{position:fixed;left:12px;bottom:64px;z-index:500}
+.map-compass-btn .ctrl-glyph{transition:transform .15s ease-out;transform-origin:center}
 .map-draw-indicator>span{font-size:12px;font-weight:700;color:var(--blue);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .map-draw-indicator button{min-height:28px;padding:3px 12px;font-size:12px;flex-shrink:0}
 /* The layers list can exceed the viewport once every transit/roads entry and
    saved area is present, so it scrolls within a bounded height (leaving room
    for the panel's top offset and a bottom margin) rather than running off
    screen. Small right padding keeps the scrollbar off the checkboxes. */
-.map-layers-body{padding:2px 6px 10px 10px;display:flex;flex-direction:column;gap:6px;max-height:calc(100vh - 108px - 24px);overflow-y:auto}
+/* touch-action:pan-y + -webkit-overflow-scrolling:touch make the panel scroll
+   under a finger on mobile: without them the Mapbox canvas below claims the
+   touch gesture (map pan) instead of scrolling the list. overscroll-behavior
+   keeps the scroll from chaining to the map/page at the ends. */
+.map-layers-body{padding:2px 6px 10px 10px;display:flex;flex-direction:column;gap:6px;max-height:calc(100vh - 108px - 24px);overflow-y:auto;-webkit-overflow-scrolling:touch;touch-action:pan-y;overscroll-behavior:contain}
 /* Sub-group headings in the Layers menu (Transit / Roads & places): the list
    grew long enough with TTC added that grouping reads better than a flat list. */
 .layer-group-heading{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-top:4px;padding-top:6px;border-top:1px solid var(--line)}
