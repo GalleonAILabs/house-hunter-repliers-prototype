@@ -43,6 +43,13 @@ API_KEY = os.getenv("REPLIERS_API_KEY", "")
 BASE_URL = os.getenv("REPLIERS_BASE_URL", "https://api.repliers.io").rstrip("/")
 PORT = int(os.getenv("PORT", "8787"))
 CDN_BASE = "https://cdn.repliers.io/"
+# The Repliers sample feed has no Canadian data yet, so the demo proves the
+# pipeline against the Chicago metro (~200 listings) instead of an arbitrary
+# global page. These scope /api/listings when the client sends no geo filter
+# of its own. Env-overridable so a later Ontario cutover is a config change.
+REPLIERS_DEFAULT_LAT = os.getenv("REPLIERS_DEFAULT_LAT", "41.8781")
+REPLIERS_DEFAULT_LONG = os.getenv("REPLIERS_DEFAULT_LONG", "-87.6298")
+REPLIERS_DEFAULT_RADIUS = os.getenv("REPLIERS_DEFAULT_RADIUS", "50")
 POC_DATA_PATH = ROOT / "data" / "poc_listings.json"
 DB_PATH = ROOT / "data" / "house_hunter.db"
 APP_AUTH_TOKEN = os.getenv("APP_AUTH_TOKEN", "")
@@ -2072,7 +2079,15 @@ def fetch_repliers(params: dict[str, str]) -> dict[str, Any]:
         query["map"] = params["map"]
         if params.get("mapOperator"):
             query["mapOperator"] = params["mapOperator"]
-    # Keep API-side filtering conservative until live Ontario data is available.
+    # Scope the sample to the Chicago metro (lat/long/radius) so /api/listings
+    # returns the ~200-listing metro slice the demo proves the pipeline
+    # against, not an arbitrary global page. Only applied when the client has
+    # not already scoped the request with a `map` viewport/polygon; explicit
+    # lat/long/radius params from the client still win over the defaults.
+    if not params.get("map"):
+        query["lat"] = params.get("lat") or REPLIERS_DEFAULT_LAT
+        query["long"] = params.get("long") or REPLIERS_DEFAULT_LONG
+        query["radius"] = params.get("radius") or REPLIERS_DEFAULT_RADIUS
     url = f"{BASE_URL}/listings?{urllib.parse.urlencode(query)}"
     req = urllib.request.Request(url, headers={"REPLIERS-API-KEY": API_KEY})
     with urllib.request.urlopen(req, timeout=20) as resp:

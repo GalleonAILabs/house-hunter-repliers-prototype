@@ -24,7 +24,7 @@ demo, not sequenced as separate phases.
 
 1. **Repliers proves nothing for Ontario today.** Free tier returns zero
    Canadian listings (`state=ON` and Toronto filters returned 0 as of
-   2026-07-02). Confirmed. Fix: swap the sample query to ~300 listings from
+   2026-07-02). Confirmed. Fix: swap the sample query to ~200 listings from
    one major US metro to prove the integration pipeline at realistic volume
    while paid PropTx/ITSO access is pending. This is not abandoning
    Repliers, it is proving the pipeline honestly with data it can actually
@@ -110,8 +110,8 @@ decisions.
   Test Plan artifact for the full interaction/edge-case list.
 - **D6 (batch reads):** `GET /api/listings/:id/feedback` (per-listing) is
   replaced by `GET /api/feedback?listing_ids=...` (batch). Rendering
-  ~300-400 listings on Map or List needs feedback state for all of them at
-  once; a per-listing endpoint would mean 300+ requests on page load.
+  ~200 listings on Map or List needs feedback state for all of them at
+  once; a per-listing endpoint would mean 200+ requests on page load.
 - **D7 (UI build scope, from outside voice):** `static/app.js` has **no
   interactive feedback UI today**. `populateCard()` only displays
   `markRank`/`katieRank`/comments as static read-only text. Building the
@@ -185,7 +185,7 @@ decisions.
   fallback. Risk on this specific item is Medium-High, not Low (see
   Feasibility note below); it's called out separately from the rest of
   Approach A, which is genuinely low-risk.
-- Repliers: swap the sample query to ~300 listings from one major US metro
+- Repliers: swap the sample query to ~200 listings from one major US metro
   to prove pipeline volume and realism while Canadian access is pending.
   Verify the free tier actually returns that volume in one call before
   committing to the number (see Next Steps item 5).
@@ -254,7 +254,7 @@ Both prior open items are now resolved.
   it does not change how their in-app actions are labeled or counted:
   still advisor, not buyer, per `DATA_MODEL_NOTES.md`'s rule that
   realtor/advisor input shouldn't be confused with buyer sentiment.
-- **Exact US metro to source ~300 Repliers sample listings from.** Chicago
+- **Exact US metro to source ~200 Repliers sample listings from.** Chicago
   metro is the chosen source for the verification call in Next Steps
   item 8.
 - Actor selection persists per-device via localStorage (same pattern as
@@ -308,7 +308,7 @@ Both prior open items are now resolved.
    shared component built in item 4.
 8. Before swapping the Repliers sample query, run one live call for the
    Chicago metro (resolved, see Open Questions) and confirm it actually
-   returns ~300 results in a single page (or determine the pagination
+   returns ~200 results in a single page (or determine the pagination
    behavior needed). The free tier's volume/pagination limits for this
    query shape are unverified.
 9. Add `test_server.py` (stdlib `unittest`, per D5) covering schema
