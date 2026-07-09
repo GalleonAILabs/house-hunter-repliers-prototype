@@ -170,6 +170,29 @@ On completing a request:
 
 No em dashes in any issue title, description, comment, or commit message.
 
+## Standard issue-pull procedure
+
+When Mark says "pull GAL-NN" (or /pull GAL-NN is run), execute this full
+workflow with no further instruction:
+
+1. Fetch the issue and ALL its comments from Linear via MCP.
+2. Determine mode:
+   - Status Backlog/Todo: fresh work. Build to the acceptance criteria.
+   - Status In Progress or In Review with newer review comments: rework.
+     Treat Mark's latest comments as the spec delta and fix per comments.
+3. Check the Complexity label; switch models per the Model routing
+   section if needed.
+4. Move the issue to In Progress, assign to self.
+5. Do the work. Commits reference the issue (Refs GAL-NN / Fixes GAL-NN).
+6. If the change affects the running app, deploy via scripts/deploy.sh
+   and verify per the six-width layout check when UI is touched (the
+   390/600/768/900/1024/1280 standard, see DECISIONS.md).
+7. Move to In Review, reassign to Mark, comment a testing block:
+   what changed, how to test (numbered steps), expected result,
+   deployed yes/no, model used.
+8. Anything ambiguous: comment the question on the issue and stop.
+   Side discoveries become new Triage issues, never scope creep.
+
 ## Model routing
 
 Current mapping (update here when models change):
