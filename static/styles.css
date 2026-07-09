@@ -453,3 +453,31 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .export-col-head{display:flex;align-items:center;gap:12px;font-size:13px;color:var(--muted)}
 .export-format{display:flex;align-items:center;gap:16px;font-size:14px}
 .link-btn{background:none;border:none;color:var(--blue);cursor:pointer;padding:0;min-height:0;font-size:13px;font-weight:700}
+
+/* ─── Column permissions: personal picker + admin matrix ─────────────────────── */
+/* Personal column picker: a popover anchored under the grid-toolbar "Columns"
+   button. Right-aligned so it never overflows the viewport edge. */
+.grid-cols-wrap{position:relative;display:inline-block}
+.grid-cols-menu{position:absolute;top:calc(100% + 6px);right:0;z-index:40;min-width:220px;max-height:60vh;
+  overflow-y:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  box-shadow:0 8px 24px rgba(0,0,0,.18);padding:10px 12px}
+.grid-cols-title{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);margin-bottom:6px}
+.grid-cols-group{font-size:11px;font-weight:800;color:var(--muted);margin:8px 0 3px;text-transform:uppercase;letter-spacing:.03em}
+.grid-cols-row{display:flex;align-items:center;gap:8px;font-size:13px;padding:3px 0;cursor:pointer}
+.grid-cols-row input{margin:0}
+.grid-cols-empty{font-size:13px;color:var(--muted);max-width:220px;line-height:1.4}
+
+/* Admin per-member permission matrix: members as rows, the five groups as
+   columns, each cell a checkbox (checked = permitted). Scrolls horizontally on
+   narrow screens rather than overflowing the settings drawer. */
+.col-access-scroll{overflow-x:auto}
+.col-access-table{border-collapse:collapse;width:100%;font-size:12px;table-layout:fixed}
+.col-access-table th,.col-access-table td{border:1px solid var(--line);padding:6px 3px;text-align:center;word-break:break-word}
+.col-access-table th:first-child,.col-access-table td.col-access-name{text-align:left;font-weight:700;width:32%;word-break:normal}
+.col-access-table thead th{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.01em;color:var(--muted);line-height:1.2}
+.col-access-cb{width:17px;height:17px;cursor:pointer}
+.col-access-cb:disabled{cursor:not-allowed;opacity:.55}
+.col-access-admin,.settings-admin-tag{display:inline-block;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;
+  color:var(--blue);border:1px solid var(--blue);border-radius:6px;padding:0 5px;margin-left:6px;vertical-align:middle}
+.col-access-transfer-row{display:flex;gap:10px;align-items:center;margin-top:6px}
+.col-access-transfer-row select{flex:1;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font-size:14px}

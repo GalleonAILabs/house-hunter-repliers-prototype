@@ -369,7 +369,9 @@ async function loadConfig() {
 // ─── State ────────────────────────────────────────────────────────────────────
 const state = { map: null, mapReady: false, rawListings: [], listings: [], activeView: 'map', people: [], activePerson: null, feedback: {}, openMapItem: null, source: 'poc', sourceCount: 0, clusters: [], poi: [], householdSettings: {}, personThresholds: {}, personThresholdsError: false, placeAttachments: {}, clusterPopupOpen: false,
   drawMode: false, savedAreas: [], drawCurrent: [], pillListings: [], mapStyle: 'streets', drawerOn: false,
-  gridSort: null, gridSelection: new Set(), lastBulk: null };
+  gridSort: null, gridSelection: new Set(), lastBulk: null,
+  // Buying-party column-permission model (loaded from /api/column-permissions).
+  columnGroups: [], columnPermissions: {}, adminId: null, gridPrefs: {} };
 let cardSettings = loadSettings();
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -493,8 +495,94 @@ function showSettingsPage(target, title) {
   $('settingsTitle').textContent = title;
   $('settingsBack').hidden = false;
 }
-function openSettings() { buildSettingsPanel(); buildThresholdSettings(); showSettingsMain(); $('settingsDrawer').hidden = false; $('settingsOverlay').hidden = false; }
+function openSettings() { buildSettingsPanel(); buildThresholdSettings(); buildColumnAccessSettings(); showSettingsMain(); $('settingsDrawer').hidden = false; $('settingsOverlay').hidden = false; }
 function closeSettings() { $('settingsDrawer').hidden = true; $('settingsOverlay').hidden = true; }
+
+// ─── Admin: per-member column-group permissions + admin transfer ───────────────
+// The nav row and page are shown only when the active person is the admin. The
+// admin's own Financial cell is disabled (they cannot deny themselves). Every
+// change posts to the server, which is the source of truth and re-attributes it.
+function buildColumnAccessSettings() {
+  const isAdmin = state.activePerson != null && state.adminId === state.activePerson;
+  const nav = $('navColumnAccess');
+  if (nav) nav.hidden = !isAdmin;
+  if (!isAdmin) return;
+  const matrix = $('columnAccessMatrix');
+  if (!matrix) return;
+  const groups = columnGroupsList();
+  const members = state.people.filter(p => p.role === 'buyer');
+  let html = '<div class="col-access-scroll"><table class="col-access-table"><thead><tr><th>Member</th>';
+  groups.forEach(g => { html += `<th>${esc(g.label)}</th>`; });
+  html += '</tr></thead><tbody>';
+  members.forEach(m => {
+    const perms = state.columnPermissions[m.id] || {};
+    const adminTag = m.id === state.adminId ? ' <span class="col-access-admin">admin</span>' : '';
+    html += `<tr><td class="col-access-name">${esc(m.name)}${adminTag}</td>`;
+    groups.forEach(g => {
+      const permitted = perms[g.key] !== false;
+      const selfProtected = m.id === state.activePerson && g.key === 'financial';
+      const dis = selfProtected ? ' disabled title="You cannot remove your own Financial access"' : '';
+      html += `<td><input type="checkbox" class="col-access-cb" data-person="${m.id}" data-group="${esc(g.key)}" ${permitted ? 'checked' : ''}${dis} /></td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table></div>';
+  matrix.innerHTML = html;
+  matrix.querySelectorAll('.col-access-cb').forEach(cb => cb.addEventListener('change', onColumnAccessToggle));
+
+  const others = members.filter(m => m.id !== state.adminId);
+  const tr = $('columnAccessTransfer');
+  if (tr) {
+    tr.innerHTML = `
+      <div class="settings-group-heading">Transfer admin</div>
+      <p class="field-desc">Hand the admin role to another member. Only the admin can do this, and there is always exactly one.</p>
+      <div class="col-access-transfer-row">
+        <select id="transferAdminSel">${others.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join('')}</select>
+        <button id="transferAdminBtn" class="secondary"${others.length ? '' : ' disabled'}>Transfer</button>
+      </div>`;
+    $('transferAdminBtn')?.addEventListener('click', onTransferAdmin);
+  }
+}
+async function onColumnAccessToggle(e) {
+  const cb = e.target;
+  const personId = Number(cb.dataset.person);
+  const groupKey = cb.dataset.group;
+  const permitted = cb.checked;
+  try {
+    const res = await fetch('/api/column-permissions', {
+      method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ actor_id: state.activePerson, person_id: personId, group_key: groupKey, permitted }),
+    });
+    const data = await res.json();
+    if (!res.ok) { cb.checked = !permitted; alert(data.detail || 'Could not change permission.'); return; }
+    state.columnPermissions = data.permissions || state.columnPermissions;
+    // If the change affected the active person's own view, reload so the grid
+    // payload matches the new permission immediately.
+    if (personId === state.activePerson) await reloadListingsPreservingMapView();
+    else renderGrid();
+  } catch (err) {
+    cb.checked = !permitted;
+    alert('Could not change permission: ' + err.message);
+  }
+}
+async function onTransferAdmin() {
+  const sel = $('transferAdminSel');
+  const newId = sel ? Number(sel.value) : 0;
+  if (!newId) return;
+  const name = state.people.find(p => p.id === newId)?.name || 'that member';
+  if (!confirm(`Transfer the admin role to ${name}? You will no longer be the admin.`)) return;
+  try {
+    const res = await fetch('/api/transfer-admin', {
+      method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ actor_id: state.activePerson, new_admin_id: newId }),
+    });
+    const data = await res.json();
+    if (!res.ok) { alert(data.detail || 'Transfer failed.'); return; }
+    state.adminId = data.admin_id;
+    buildColumnAccessSettings();  // hides the admin page for the now-former admin
+    showSettingsMain();
+  } catch (err) { alert('Transfer failed: ' + err.message); }
+}
 
 // ─── People / "I am" actor selector ────────────────────────────────────────────
 async function loadPeople() {
@@ -528,13 +616,94 @@ function setActivePerson(id) {
   if (state.activePerson) localStorage.setItem(WHO_KEY, String(state.activePerson));
   else localStorage.removeItem(WHO_KEY);
   updateLegendHint();
-  applyFiltersAndRender();
+  // Permitted columns and the grid payload are per person: reload listings +
+  // feedback so a denied group's data is absent for the newly selected actor,
+  // then re-render. reloadListingsPreservingMapView keeps the current map view.
+  reloadListingsPreservingMapView().catch(showError);
   if (state.openMapItem) showMapCard(state.openMapItem);
 }
 
 function updateLegendHint() {
   const hint = $('legendHint');
   if (hint) hint.hidden = !!state.activePerson;
+}
+
+// ─── Buying-party column permissions (admin grants + personal picks) ────────────
+// A fallback mirror of the server's five groups, so the grid still groups
+// columns sensibly if /api/column-permissions ever fails to load. The server
+// payload (state.columnGroups) is authoritative when present.
+const DEFAULT_COLUMN_GROUPS = [
+  { key: 'identity', label: 'Identity', columns: ['address'] },
+  { key: 'facts', label: 'Property facts', columns: ['beds', 'baths', 'sqft', 'fit'] },
+  { key: 'opinions', label: 'Opinions', columns: ['myRating', 'group'] },
+  { key: 'financial', label: 'Financial', columns: ['price', 'pit', 'close'] },
+  { key: 'location', label: 'Location', columns: ['highway', 'commute'] },
+];
+// Export column-key -> group, mirroring the server's EXPORT_KEY_GROUP so the
+// export picker shows only permitted columns for the "everything" scope too.
+const EXPORT_KEY_GROUP = {
+  mls: 'identity', address: 'identity',
+  beds: 'facts', baths: 'facts', sqft: 'facts', acres: 'facts', fit: 'facts', fitMet: 'facts', fitTotal: 'facts',
+  myRating: 'opinions', group: 'opinions',
+  price: 'financial', listPrice: 'financial', potentialPrice: 'financial', effectivePrice: 'financial',
+  pit: 'financial', monthlyPit: 'financial', close: 'financial', costToClose: 'financial',
+  downPayment: 'financial', cmhc: 'financial', ontarioLtt: 'financial', torontoLtt: 'financial',
+  monthlyPI: 'financial', monthlyTax: 'financial',
+  highway: 'location', commute: 'location', highwayKm: 'location', nearestHighway: 'location',
+  lat: 'location', lng: 'location', goMin: 'location', goTrain: 'location', goTotal: 'location',
+};
+
+async function loadColumnPermissions() {
+  try {
+    const res = await fetch('/api/column-permissions', { headers: authHeaders() });
+    if (!res.ok) throw new Error('failed to load column permissions');
+    const data = await res.json();
+    state.columnGroups = data.groups || [];
+    state.columnPermissions = data.permissions || {};
+    state.adminId = data.admin_id || null;
+    state.gridPrefs = data.grid_prefs || {};
+  } catch (err) {
+    console.error(err);
+    state.columnGroups = []; state.columnPermissions = {}; state.adminId = null; state.gridPrefs = {};
+  }
+}
+
+function columnGroupsList() { return state.columnGroups.length ? state.columnGroups : DEFAULT_COLUMN_GROUPS; }
+function groupKeyForColumn(colKey) {
+  const g = columnGroupsList().find(g => (g.columns || []).includes(colKey));
+  return g ? g.key : null;
+}
+// The set of group keys this person may see. No stored record for a person =
+// all permitted (default-allow today), matching the server's permitted_groups.
+function permittedGroupSet(personId) {
+  const all = columnGroupsList().map(g => g.key);
+  const perms = personId != null ? state.columnPermissions[personId] : null;
+  if (!perms) return new Set(all);
+  return new Set(all.filter(k => perms[k] !== false));
+}
+function hiddenColumnsFor(personId) {
+  const gp = personId != null ? state.gridPrefs[personId] : null;
+  return new Set((gp && gp.hidden_columns) || []);
+}
+// gridColumns() the active person is permitted to see (group-permitted), before
+// applying their personal show/hide picks. A column whose group is unknown
+// (outside the model) is always permitted.
+function permittedGridColumns() {
+  const permitted = permittedGroupSet(state.activePerson);
+  return gridColumns().filter(c => {
+    const gk = groupKeyForColumn(c.key);
+    return gk == null || permitted.has(gk);
+  });
+}
+// What the grid actually renders: permitted columns minus the person's own hides.
+function visibleGridColumns() {
+  const hidden = hiddenColumnsFor(state.activePerson);
+  return permittedGridColumns().filter(c => !hidden.has(c.key));
+}
+function exportColumnPermitted(key) {
+  const gk = EXPORT_KEY_GROUP[key] || (/^p\d+_(rating|status)$/.test(key) ? 'opinions' : null);
+  if (!gk) return true;
+  return permittedGroupSet(state.activePerson).has(gk);
 }
 
 // ─── Per-person rating/consensus filters (dynamic, one row per person) ────────
@@ -844,7 +1013,11 @@ async function fetchFeedback(listingIds) {
   const ids = [...new Set(listingIds.filter(Boolean))];
   if (!ids.length) return {};
   try {
-    const res = await fetch('/api/feedback?listing_ids=' + encodeURIComponent(ids.join(',')), { headers: authHeaders() });
+    // person_id lets the server enforce the Opinions group (empty feedback when
+    // the active actor is denied it), since ratings/sentiment are not in the
+    // listings payload.
+    const who = state.activePerson ? '&person_id=' + state.activePerson : '';
+    const res = await fetch('/api/feedback?listing_ids=' + encodeURIComponent(ids.join(',')) + who, { headers: authHeaders() });
     if (!res.ok) return {};
     const data = await res.json();
     return data.feedback || {};
@@ -3292,7 +3465,10 @@ function renderGrid() {
   if (state.activeView !== 'grid') return;
   const table = $('gridTable');
   if (!table) return;
-  const cols = gridColumns();
+  // Only the columns the active person is permitted to see AND has not hidden
+  // for themselves. Admin-denied groups never appear (their data is not even in
+  // the payload); personal hides are the member's own preference within that.
+  const cols = visibleGridColumns();
   const rows = gridRows();
   // Drop any selection that filtered out of the visible set.
   const visible = new Set(rows.map(r => r.mls));
@@ -3410,6 +3586,62 @@ function gridToggleSelectAll(on) {
   renderGrid();
 }
 function gridClearSelection() { state.gridSelection.clear(); renderGrid(); }
+
+// ─── Personal column picker (grid header) ───────────────────────────────────────
+// A member's own show/hide picks, within what the admin permits. Denied groups
+// never appear here (their columns are not in permittedGridColumns). Persisted
+// per person server-side so the choice follows the person across devices.
+function toggleColumnPicker() {
+  const menu = $('gridColsMenu');
+  const btn = $('gridColsBtn');
+  if (!menu) return;
+  const willOpen = menu.hidden;
+  if (willOpen) renderColumnPicker();
+  menu.hidden = !willOpen;
+  btn?.setAttribute('aria-expanded', String(willOpen));
+}
+function closeColumnPicker() {
+  const menu = $('gridColsMenu');
+  if (menu && !menu.hidden) { menu.hidden = true; $('gridColsBtn')?.setAttribute('aria-expanded', 'false'); }
+}
+function renderColumnPicker() {
+  const menu = $('gridColsMenu');
+  if (!menu) return;
+  if (!state.activePerson) {
+    menu.innerHTML = '<div class="grid-cols-empty">Select who you are ("I am", top right) to choose your columns.</div>';
+    return;
+  }
+  const permitted = permittedGridColumns();
+  const hidden = hiddenColumnsFor(state.activePerson);
+  let html = '<div class="grid-cols-title">Your columns</div>';
+  columnGroupsList().forEach(g => {
+    const cols = permitted.filter(c => groupKeyForColumn(c.key) === g.key);
+    if (!cols.length) return;
+    html += `<div class="grid-cols-group">${esc(g.label)}</div>`;
+    cols.forEach(c => {
+      html += `<label class="grid-cols-row"><input type="checkbox" class="grid-col-cb" data-col="${esc(c.key)}" ${hidden.has(c.key) ? '' : 'checked'} /> <span>${esc(c.label)}</span></label>`;
+    });
+  });
+  menu.innerHTML = html;
+  menu.querySelectorAll('.grid-col-cb').forEach(cb => cb.addEventListener('change', onColumnPick));
+}
+async function onColumnPick() {
+  if (!state.activePerson) return;
+  // Rebuild the hidden set from the checkboxes on screen, then preserve any
+  // existing hides for columns not shown here (e.g. columns in a group the
+  // admin later denied), so toggling one column never resurrects another.
+  const shownKeys = new Set([...$('gridColsMenu').querySelectorAll('.grid-col-cb')].map(cb => cb.dataset.col));
+  const hidden = [...$('gridColsMenu').querySelectorAll('.grid-col-cb')].filter(cb => !cb.checked).map(cb => cb.dataset.col);
+  hiddenColumnsFor(state.activePerson).forEach(k => { if (!shownKeys.has(k)) hidden.push(k); });
+  state.gridPrefs[state.activePerson] = { hidden_columns: hidden };
+  renderGrid();
+  try {
+    await fetch('/api/grid-prefs', {
+      method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ person_id: state.activePerson, hidden_columns: hidden }),
+    });
+  } catch (e) { console.error('grid-prefs save failed', e); }
+}
 
 // ─── Bulk-action safety: confirmation gate + session undo ──────────────────────
 // Every bulk command routes through confirmBulk(), which names the exact action
@@ -3647,7 +3879,11 @@ function everythingColumns() {
   return cols;
 }
 function exportColumnsForScope(scope) {
-  return scope === 'everything' ? everythingColumns() : gridColumns();
+  // The export picker shows only columns the exporting person is permitted (the
+  // same server-side rule the grid uses). "Displayed" uses the grid's visible
+  // columns; "everything" starts from the full set, both filtered by permission.
+  const base = scope === 'everything' ? everythingColumns() : visibleGridColumns();
+  return base.filter(c => exportColumnPermitted(c.key));
 }
 function exportFilenameBase() {
   const date = new Date().toISOString().slice(0, 10);
@@ -3677,7 +3913,7 @@ function renderExportStep1() {
   $('exportBody').innerHTML = `
     <p class="settings-desc">Exports the ${n} listing${n === 1 ? '' : 's'} currently shown (all active filters and drawn areas apply).</p>
     <div class="export-scope">
-      <label class="export-radio"><input type="radio" name="exportScope" value="displayed" checked /> <div><div>Displayed columns</div><div class="field-desc">The ${gridColumns().length} columns shown in the grid</div></div></label>
+      <label class="export-radio"><input type="radio" name="exportScope" value="displayed" checked /> <div><div>Displayed columns</div><div class="field-desc">The ${exportColumnsForScope('displayed').length} columns shown in the grid</div></div></label>
       <label class="export-radio"><input type="radio" name="exportScope" value="everything" /> <div><div>Everything</div><div class="field-desc">All listing fields, every person's feedback, notes, attachments, and the financial breakdown</div></div></label>
     </div>
     <button id="exportNext">Next: choose columns</button>`;
@@ -3720,6 +3956,9 @@ async function runExport(columns, format) {
     format, filename: exportFilenameBase(),
     columns: columns.map(c => ({ key: c.key, label: c.label, type: c.type })),
     rows,
+    // The server re-applies the permission filter (defence in depth): a denied
+    // group cannot be exported even if the client sent its columns.
+    person_id: state.activePerson || null,
   };
   const res = await fetch('/api/export', { method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
   if (!res.ok) throw new Error('server ' + res.status);
@@ -3851,6 +4090,9 @@ function filterParams() {
   // polygon param (POC is filtered client-side by matchesDrawArea instead).
   const poly = drawnPolygonsParam();
   if (poly && currentSource() === 'repliers') { p.set('map', poly); p.set('mapOperator', 'OR'); }
+  // The active actor decides which column groups the server includes in the
+  // payload (denied groups are stripped server-side). Absent -> all permitted.
+  if (state.activePerson) p.set('person_id', String(state.activePerson));
   return p;
 }
 
@@ -3995,7 +4237,13 @@ window.addEventListener('DOMContentLoaded', () => {
       // not take down the rest of the app -- List view has nothing to do
       // with the map and should keep working regardless.
       try { initMap(); } catch (err) { console.error('Map init failed:', err); }
-      loadPeople().then(() => { applyFiltersAndRender(); loadPersonThresholds(); });
+      loadPeople().then(() => {
+        applyFiltersAndRender();
+        loadPersonThresholds();
+        // Column permissions reference people, so load after the roster. A grid
+        // re-render picks up the active person's permitted + hidden columns.
+        loadColumnPermissions().then(() => { if (state.activeView === 'grid') renderGrid(); });
+      });
       loadPoi().then(buildThresholdSettings);
       // Saved areas (shared) drive the Layers menu entries + the area filter.
       loadAreas().then(() => {
@@ -4158,6 +4406,10 @@ window.addEventListener('DOMContentLoaded', () => {
   $('bulkConfirmCancel')?.addEventListener('click', () => resolveBulkConfirm(false));
   $('bulkConfirmOverlay')?.addEventListener('click', () => resolveBulkConfirm(false));
   $('bulkConfirmModal')?.addEventListener('keydown', e => { if (e.key === 'Enter') e.preventDefault(); });
+  // Personal column picker (grid header)
+  $('gridColsBtn')?.addEventListener('click', e => { e.stopPropagation(); toggleColumnPicker(); });
+  $('gridColsMenu')?.addEventListener('click', e => e.stopPropagation());
+  document.addEventListener('click', e => { if (!e.target.closest('.grid-cols-wrap')) closeColumnPicker(); });
   // Export
   $('gridExportBtn')?.addEventListener('click', openExport);
   $('exportClose')?.addEventListener('click', closeExport);

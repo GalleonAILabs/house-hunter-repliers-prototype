@@ -144,6 +144,104 @@ SEED_PEOPLE = [
     ("Kevin", "realtor"),
 ]
 
+# ─── Buying-party column-permission model ──────────────────────────────────────
+# The first consumer of the buyer-group permission model, so it lays the schema
+# foundation the rest of multi-tenancy will build on. Permissions are granted per
+# GROUP of columns, not per individual column: five fixed groups, each owning the
+# grid column keys the client renders and the poc-listings payload fields the
+# server strips when the group is denied to a person. Enforcement is server-side:
+# a denied group's data is simply absent from the payload, never hidden only in
+# the client (fail-closed: denied data does not reach the device). Opinions data
+# (ratings, group sentiment) is not carried in the listings payload -- it flows
+# through /api/feedback -- so that group is enforced at the feedback endpoint
+# instead (payload_fields is empty for it).
+#
+# Default today is all-permitted (every group visible to everyone), matching the
+# behaviour before this feature. The schema exists now so roles and grants are a
+# day-one part of the data model; flipping to deny-by-default is a resolution
+# change (permitted_groups), not a migration, when multi-tenancy lands.
+COLUMN_GROUPS: list[dict[str, Any]] = [
+    {
+        "key": "identity", "label": "Identity",
+        "columns": ["address"],
+        "payload_fields": ["address", "image"],
+    },
+    {
+        "key": "facts", "label": "Property facts",
+        "columns": ["beds", "baths", "sqft", "fit"],
+        "payload_fields": ["beds", "bedsNum", "baths", "sqft", "acres",
+                           "lot", "frontageNum", "depthNum", "fit"],
+    },
+    {
+        "key": "opinions", "label": "Opinions",
+        "columns": ["myRating", "group"],
+        # Ratings/sentiment come from listing_feedback, not the listings
+        # payload, so this group is enforced at /api/feedback (empty response
+        # when denied), not by stripping payload fields here.
+        "payload_fields": [],
+    },
+    {
+        "key": "financial", "label": "Financial",
+        "columns": ["price", "pit", "close"],
+        # Every field that could reveal a dollar figure: list/effective price,
+        # the shared potential purchase price, the monthly PIT and cost-to-close
+        # figures, and the whole computed mortgage breakdown, including the
+        # copies nested in the poc sub-object.
+        "payload_fields": ["price", "originalPrice", "soldPrice", "estimate",
+                           "condoFeeNum", "pitNum", "pit", "dueNum", "dueClosing",
+                           "potentialPurchasePrice", "mortgageBreakdown",
+                           "poc.pit", "poc.pitNum", "poc.dueClosing"],
+    },
+    {
+        "key": "location", "label": "Location",
+        "columns": ["highway", "commute"],
+        "payload_fields": ["highwayKm", "nearestHighway", "goStation",
+                           "goMin", "goTrain", "goTotal"],
+    },
+]
+COLUMN_GROUP_KEYS = [g["key"] for g in COLUMN_GROUPS]
+# Every grid column key that belongs to a group, for validating personal picks.
+GRID_COLUMN_KEYS = {c for g in COLUMN_GROUPS for c in g["columns"]}
+# The one group the admin can never remove from themselves (the helping-parent
+# scenario: an admin must always keep their own view of the numbers).
+ADMIN_PROTECTED_GROUP = "financial"
+# Seed admin: exactly one buyer carries is_admin. Mark per the product decision;
+# transferable at runtime (admin-only) via /api/transfer-admin.
+SEED_ADMIN_NAME = "Mark"
+
+
+# Export column-key -> group, so /api/export can strip denied groups server-side
+# too (the export picker is also bounded by permission). Covers both the
+# "displayed" grid keys and the richer "everything" export keys. Per-person
+# feedback columns (p<id>_rating / p<id>_status) map to opinions via a pattern
+# below; keys absent from this map and the pattern are ungrouped (notes,
+# research, attachments) and always permitted -- they are outside the five-group
+# model for now.
+EXPORT_KEY_GROUP: dict[str, str] = {
+    "mls": "identity", "address": "identity",
+    "beds": "facts", "baths": "facts", "sqft": "facts", "acres": "facts",
+    "fit": "facts", "fitMet": "facts", "fitTotal": "facts",
+    "myRating": "opinions", "group": "opinions",
+    "price": "financial", "listPrice": "financial", "potentialPrice": "financial",
+    "effectivePrice": "financial", "pit": "financial", "monthlyPit": "financial",
+    "close": "financial", "costToClose": "financial", "downPayment": "financial",
+    "cmhc": "financial", "ontarioLtt": "financial", "torontoLtt": "financial",
+    "monthlyPI": "financial", "monthlyTax": "financial",
+    "highway": "location", "commute": "location", "highwayKm": "location",
+    "nearestHighway": "location", "lat": "location", "lng": "location",
+    "goMin": "location", "goTrain": "location", "goTotal": "location",
+}
+
+
+def export_key_group(key: Any) -> str | None:
+    """Group key for an export column, or None when the column is outside the
+    permission model (always permitted)."""
+    if key in EXPORT_KEY_GROUP:
+        return EXPORT_KEY_GROUP[key]
+    if isinstance(key, str) and re.match(r"^p\d+_(rating|status)$", key):
+        return "opinions"
+    return None
+
 
 def get_db() -> sqlite3.Connection:
     """Open a short-lived per-request connection.
@@ -246,6 +344,45 @@ def migrate_highway_km_to_household(conn: sqlite3.Connection) -> dict[str, Any] 
     return {"migrated_value": migrated_value}
 
 
+def migrate_add_is_admin(conn: sqlite3.Connection) -> dict[str, Any] | None:
+    """Add people.is_admin to a pre-existing DB (CREATE TABLE IF NOT EXISTS
+    never alters an existing table) and guarantee exactly one admin. Idempotent:
+    once the column exists and one admin is set, returns None. Runs after the
+    seed so a fresh DB already has its people rows to promote."""
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(people)").fetchall()]
+    added = False
+    if "is_admin" not in cols:
+        conn.execute("ALTER TABLE people ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
+        added = True
+
+    admin_count = conn.execute("SELECT COUNT(*) FROM people WHERE is_admin = 1").fetchone()[0]
+    seeded_admin = None
+    if admin_count == 0:
+        # Promote the seed admin (Mark) if present, else the lowest-id buyer, so
+        # a group without a "Mark" still ends up with exactly one admin.
+        row = conn.execute(
+            "SELECT id FROM people WHERE name = ? AND role = 'buyer' ORDER BY id LIMIT 1",
+            (SEED_ADMIN_NAME,),
+        ).fetchone()
+        if row is None:
+            row = conn.execute(
+                "SELECT id FROM people WHERE role = 'buyer' ORDER BY id LIMIT 1"
+            ).fetchone()
+        if row is not None:
+            conn.execute("UPDATE people SET is_admin = 1 WHERE id = ?", (row[0],))
+            seeded_admin = row[0]
+    elif admin_count > 1:
+        # Defensive: collapse to the lowest-id admin if somehow more than one.
+        keep = conn.execute(
+            "SELECT id FROM people WHERE is_admin = 1 ORDER BY id LIMIT 1"
+        ).fetchone()[0]
+        conn.execute("UPDATE people SET is_admin = 0 WHERE is_admin = 1 AND id != ?", (keep,))
+
+    if not added and seeded_admin is None and admin_count == 1:
+        return None
+    return {"column_added": added, "seeded_admin_id": seeded_admin, "prior_admin_count": admin_count}
+
+
 def init_db() -> None:
     """Create the schema (if missing) and seed the four demo participants."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -259,6 +396,11 @@ def init_db() -> None:
                 name TEXT NOT NULL,
                 role TEXT NOT NULL CHECK (role IN ('buyer', 'realtor')),
                 buyer_group_id INTEGER,
+                -- Exactly one buyer carries is_admin (the buying-party admin).
+                -- Enforced at the app layer (seed + transfer), not by a DB
+                -- constraint, since "exactly one" spans rows. Transferable,
+                -- admin-only, via /api/transfer-admin.
+                is_admin INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             );
 
@@ -353,6 +495,37 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             );
 
+            -- Per-person column-group permissions: which grid column groups a
+            -- buyer member is permitted to see. One row per (person, group).
+            -- Absence of a row means permitted (default-allow today); an
+            -- explicit permitted=0 denies. Storing only the resolved boolean
+            -- plus who-changed attribution (updated_by), the same shape as
+            -- person_thresholds. Deny-by-default enforcement (flip the
+            -- resolution in permitted_groups) arrives with multi-tenancy; the
+            -- schema is deliberately in place from day one so grants are part
+            -- of the data model, not a retrofit.
+            CREATE TABLE IF NOT EXISTS person_column_permissions (
+                person_id INTEGER NOT NULL REFERENCES people(id),
+                group_key TEXT NOT NULL,
+                permitted INTEGER NOT NULL DEFAULT 1,
+                updated_by INTEGER REFERENCES people(id),
+                updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                PRIMARY KEY (person_id, group_key)
+            );
+
+            -- Per-person personal column visibility for the grid: the member's
+            -- own show/hide picks, stored server-side so they follow the person
+            -- across devices like thresholds do. hidden_columns is a JSON array
+            -- of grid column keys the member hides for themselves. This is a
+            -- personal view preference, not a permission boundary: it only ever
+            -- operates within what the admin permits (a denied group's columns
+            -- are never offered in the picker, so they cannot be listed here).
+            CREATE TABLE IF NOT EXISTS person_grid_prefs (
+                person_id INTEGER PRIMARY KEY REFERENCES people(id),
+                hidden_columns TEXT NOT NULL DEFAULT '[]',
+                updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+
             -- Per-property place attachments (T-attach). A buyer attaches a
             -- place (always a POI pin, one source of truth for places) to a
             -- specific listing. Shared across the whole group like notes;
@@ -427,6 +600,13 @@ def init_db() -> None:
             WHERE person_id IN (SELECT id FROM people WHERE role != 'buyer')
             """
         )
+
+        # Add people.is_admin to a pre-existing DB and seed exactly one admin
+        # (Mark). Runs after the people seed so there is a row to promote.
+        admin_migration = migrate_add_is_admin(conn)
+        if admin_migration is not None:
+            print(f"is_admin migration: {admin_migration}")
+
         conn.commit()
     finally:
         conn.close()
@@ -1058,6 +1238,24 @@ def handle_export(body: dict[str, Any]) -> tuple[bytes, str, str, int]:
         return json.dumps({"error": "invalid_request", "detail": "columns must be a non-empty list of {key,label,type}"}).encode(), "application/json", "", 400
     if not isinstance(rows, list):
         return json.dumps({"error": "invalid_request", "detail": "rows must be a list"}).encode(), "application/json", "", 400
+    # Same server-side permission rule as the grid endpoint: drop any column
+    # whose group the exporting person is not permitted to see, so a denied
+    # group cannot leave the building through an export even if the client sent
+    # it. No person_id -> all permitted.
+    person_id = body.get("person_id")
+    if isinstance(person_id, int) and not isinstance(person_id, bool):
+        conn = get_db()
+        try:
+            allowed = permitted_groups(conn, person_id)
+        finally:
+            conn.close()
+        denied = set(COLUMN_GROUP_KEYS) - allowed
+        if denied:
+            columns = [c for c in columns if export_key_group(c.get("key")) not in denied]
+            if not columns:
+                return (json.dumps({"error": "forbidden",
+                                    "detail": "no permitted columns to export"}).encode(),
+                        "application/json", "", 403)
     # Sanitize the filename to a safe basename.
     safe = re.sub(r"[^A-Za-z0-9._-]+", "-", str(filename)).strip("-") or "listings"
     if fmt == "csv":
@@ -1484,6 +1682,203 @@ def handle_person_thresholds_post(body: dict[str, Any]) -> tuple[dict[str, Any],
         )
         conn.commit()
         return {"ok": True, "threshold": person_thresholds_all(conn).get(str(person_id))}, 200
+    finally:
+        conn.close()
+
+
+# ─── Column-group permissions + admin ──────────────────────────────────────────
+def current_admin_id(conn: sqlite3.Connection) -> int | None:
+    row = conn.execute("SELECT id FROM people WHERE is_admin = 1 ORDER BY id LIMIT 1").fetchone()
+    return row["id"] if row else None
+
+
+def is_admin_person(conn: sqlite3.Connection, person_id: Any) -> bool:
+    if not isinstance(person_id, int) or isinstance(person_id, bool):
+        return False
+    row = conn.execute("SELECT is_admin FROM people WHERE id = ?", (person_id,)).fetchone()
+    return bool(row and row["is_admin"])
+
+
+def permitted_groups(conn: sqlite3.Connection, person_id: Any) -> set[str]:
+    """The column-group keys this person is permitted to see. Default-allow
+    today: every group is permitted unless an explicit permitted=0 row denies
+    it. A missing/unknown person_id (no active actor) is treated as all
+    permitted, matching pre-feature behaviour. Deny-by-default multi-tenancy
+    later starts this set empty and adds explicit grants instead."""
+    allowed = set(COLUMN_GROUP_KEYS)
+    if not isinstance(person_id, int) or isinstance(person_id, bool):
+        return allowed
+    rows = conn.execute(
+        "SELECT group_key, permitted FROM person_column_permissions WHERE person_id = ?",
+        (person_id,),
+    ).fetchall()
+    for r in rows:
+        if r["group_key"] in allowed and not r["permitted"]:
+            allowed.discard(r["group_key"])
+    return allowed
+
+
+def resolve_all_permissions(conn: sqlite3.Connection) -> dict[str, dict[str, bool]]:
+    """{person_id (str): {group_key: bool}} for every person, fully resolved."""
+    people = conn.execute("SELECT id FROM people ORDER BY id").fetchall()
+    result: dict[str, dict[str, bool]] = {}
+    for p in people:
+        allowed = permitted_groups(conn, p["id"])
+        result[str(p["id"])] = {k: (k in allowed) for k in COLUMN_GROUP_KEYS}
+    return result
+
+
+def grid_prefs_all(conn: sqlite3.Connection) -> dict[str, dict[str, Any]]:
+    """{person_id (str): {hidden_columns: [...]}} for every person with a saved
+    preference. People with none are simply absent (the client treats absence as
+    'show everything permitted')."""
+    rows = conn.execute("SELECT person_id, hidden_columns FROM person_grid_prefs").fetchall()
+    result: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        try:
+            hidden = json.loads(r["hidden_columns"])
+        except (json.JSONDecodeError, TypeError):
+            hidden = []
+        if not isinstance(hidden, list):
+            hidden = []
+        result[str(r["person_id"])] = {"hidden_columns": hidden}
+    return result
+
+
+def column_permissions_payload(conn: sqlite3.Connection) -> dict[str, Any]:
+    """The full GET /api/column-permissions body: the group definitions the UI
+    needs, the current admin, every person's resolved permissions, and every
+    person's personal grid picks."""
+    return {
+        "groups": [
+            {"key": g["key"], "label": g["label"], "columns": list(g["columns"])}
+            for g in COLUMN_GROUPS
+        ],
+        "admin_id": current_admin_id(conn),
+        "permissions": resolve_all_permissions(conn),
+        "grid_prefs": grid_prefs_all(conn),
+    }
+
+
+def strip_denied_columns(listings: list[dict[str, Any]], permitted: set[str]) -> None:
+    """Remove every payload field owned by a denied group from each listing, in
+    place. This is the enforcement point: denied data is absent from the payload,
+    not merely hidden in the client. Supports dotted paths (e.g. 'poc.pit') for
+    fields nested in a sub-object. Structural fields (mls, lat, lng) belong to no
+    group and always survive so the map and row identity keep working."""
+    denied = [g for g in COLUMN_GROUPS if g["key"] not in permitted]
+    if not denied:
+        return
+    for item in listings:
+        for g in denied:
+            for field in g["payload_fields"]:
+                if "." in field:
+                    parent, child = field.split(".", 1)
+                    sub = item.get(parent)
+                    if isinstance(sub, dict):
+                        sub.pop(child, None)
+                else:
+                    item.pop(field, None)
+
+
+def handle_column_permission_post(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """Admin-only: set one member's permission for one column group. actor_id
+    must be the buying-party admin; the change is attributed to them
+    (updated_by). The admin cannot deny themselves the protected (Financial)
+    group. Absence of a row means permitted, so this upserts the explicit
+    resolved boolean."""
+    actor_id = body.get("actor_id")
+    person_id = body.get("person_id")
+    group_key = body.get("group_key")
+    permitted = body.get("permitted")
+    if group_key not in COLUMN_GROUP_KEYS:
+        return {"error": "invalid_request",
+                "detail": f"group_key must be one of {COLUMN_GROUP_KEYS}"}, 400
+    if not isinstance(permitted, bool):
+        return {"error": "invalid_request", "detail": "permitted must be a boolean"}, 400
+    conn = get_db()
+    try:
+        if not person_exists(conn, actor_id):
+            return {"error": "unknown_person", "detail": f"actor_id {actor_id!r} not found"}, 400
+        if not person_exists(conn, person_id):
+            return {"error": "unknown_person", "detail": f"person_id {person_id!r} not found"}, 400
+        if not is_admin_person(conn, actor_id):
+            return {"error": "forbidden",
+                    "detail": "only the buying-party admin can change column permissions"}, 403
+        if person_id == actor_id and group_key == ADMIN_PROTECTED_GROUP and not permitted:
+            return {"error": "forbidden",
+                    "detail": "the admin cannot remove their own Financial access"}, 403
+        conn.execute(
+            """
+            INSERT INTO person_column_permissions
+                (person_id, group_key, permitted, updated_by, updated_at)
+            VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            ON CONFLICT(person_id, group_key) DO UPDATE SET
+                permitted = excluded.permitted,
+                updated_by = excluded.updated_by,
+                updated_at = excluded.updated_at
+            """,
+            (person_id, group_key, 1 if permitted else 0, actor_id),
+        )
+        conn.commit()
+        return {"ok": True, "permissions": resolve_all_permissions(conn)}, 200
+    finally:
+        conn.close()
+
+
+def handle_grid_prefs_post(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """A member's own personal column show/hide picks. person_id is the actor
+    (self-service, no separate attribution). hidden_columns is a full replace:
+    the complete list of grid column keys this person hides for themselves.
+    Unknown column keys are dropped so the store only ever holds real keys."""
+    person_id = body.get("person_id")
+    hidden = body.get("hidden_columns")
+    if not isinstance(hidden, list) or not all(isinstance(h, str) for h in hidden):
+        return {"error": "invalid_request",
+                "detail": "hidden_columns must be a list of column-key strings"}, 400
+    cleaned = [h for h in dict.fromkeys(hidden) if h in GRID_COLUMN_KEYS]
+    conn = get_db()
+    try:
+        if not person_exists(conn, person_id):
+            return {"error": "unknown_person", "detail": f"person_id {person_id!r} not found"}, 400
+        conn.execute(
+            """
+            INSERT INTO person_grid_prefs (person_id, hidden_columns, updated_at)
+            VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            ON CONFLICT(person_id) DO UPDATE SET
+                hidden_columns = excluded.hidden_columns,
+                updated_at = excluded.updated_at
+            """,
+            (person_id, json.dumps(cleaned)),
+        )
+        conn.commit()
+        return {"ok": True, "grid_prefs": grid_prefs_all(conn)}, 200
+    finally:
+        conn.close()
+
+
+def handle_transfer_admin_post(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """Admin-only: hand the single is_admin flag to another buyer. actor_id must
+    be the current admin; new_admin_id must be a buyer. Done in one transaction
+    so there is always exactly one admin (clear all, set one)."""
+    actor_id = body.get("actor_id")
+    new_admin_id = body.get("new_admin_id")
+    conn = get_db()
+    try:
+        if not person_exists(conn, actor_id):
+            return {"error": "unknown_person", "detail": f"actor_id {actor_id!r} not found"}, 400
+        if not person_exists(conn, new_admin_id):
+            return {"error": "unknown_person", "detail": f"new_admin_id {new_admin_id!r} not found"}, 400
+        if not is_admin_person(conn, actor_id):
+            return {"error": "forbidden", "detail": "only the current admin can transfer the admin role"}, 403
+        target_role = conn.execute("SELECT role FROM people WHERE id = ?", (new_admin_id,)).fetchone()
+        if target_role is None or target_role["role"] != "buyer":
+            return {"error": "invalid_request", "detail": "the admin must be a buyer group member"}, 400
+        conn.execute("BEGIN")
+        conn.execute("UPDATE people SET is_admin = 0")
+        conn.execute("UPDATE people SET is_admin = 1 WHERE id = ?", (new_admin_id,))
+        conn.commit()
+        return {"ok": True, "admin_id": new_admin_id}, 200
     finally:
         conn.close()
 
@@ -2195,6 +2590,12 @@ class Handler(BaseHTTPRequestHandler):
                 conn = get_db()
                 try:
                     enrich_with_mortgage_breakdown(data["listings"], conn)
+                    # Enforcement point: strip every column group the active
+                    # person is not permitted to see, so denied data (Financial
+                    # in the design scenario) is absent from the payload rather
+                    # than hidden client-side. No person_id -> all permitted.
+                    person_id = intish(params.get("person_id"))
+                    strip_denied_columns(data["listings"], permitted_groups(conn, person_id))
                 finally:
                     conn.close()
                 self.send_json(data)
@@ -2217,6 +2618,13 @@ class Handler(BaseHTTPRequestHandler):
                 listing_ids = [x for x in (params.get("listing_ids") or "").split(",") if x]
                 conn = get_db()
                 try:
+                    # Opinions (ratings + group sentiment) live here, not in the
+                    # listings payload, so this is where that group is enforced:
+                    # a person denied Opinions gets no feedback at all.
+                    person_id = intish(params.get("person_id"))
+                    if person_id is not None and "opinions" not in permitted_groups(conn, person_id):
+                        self.send_json({"feedback": {}})
+                        return
                     feedback = latest_feedback_for_listings(conn, listing_ids)
                     self.send_json({"feedback": feedback})
                 finally:
@@ -2307,6 +2715,19 @@ class Handler(BaseHTTPRequestHandler):
                 conn = get_db()
                 try:
                     self.send_json({"person_thresholds": person_thresholds_all(conn)})
+                finally:
+                    conn.close()
+                return
+            if parsed.path == "/api/column-permissions":
+                # Group definitions + resolved per-person permissions + personal
+                # grid picks + the current admin. Shared roster like
+                # person-thresholds; the client gates the admin UI on admin_id.
+                if not require_auth(self):
+                    self.send_json({"error": "unauthorized"}, 401)
+                    return
+                conn = get_db()
+                try:
+                    self.send_json(column_permissions_payload(conn))
                 finally:
                     conn.close()
                 return
@@ -2495,6 +2916,28 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
                     return
                 data, status = handle_person_thresholds_post(body)
+                self.send_json(data, status)
+                return
+            if parsed.path in ("/api/column-permissions", "/api/grid-prefs", "/api/transfer-admin"):
+                if not require_auth(self):
+                    self.send_json({"error": "unauthorized"}, 401)
+                    return
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                raw_body = self.rfile.read(length) if length else b""
+                try:
+                    body = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    self.send_json({"error": "invalid_request", "detail": "malformed JSON body"}, 400)
+                    return
+                if not isinstance(body, dict):
+                    self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
+                    return
+                if parsed.path == "/api/column-permissions":
+                    data, status = handle_column_permission_post(body)
+                elif parsed.path == "/api/grid-prefs":
+                    data, status = handle_grid_prefs_post(body)
+                else:
+                    data, status = handle_transfer_admin_post(body)
                 self.send_json(data, status)
                 return
             if parsed.path in ("/api/place-attachments", "/api/place-attachments/recompute"):

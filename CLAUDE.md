@@ -62,8 +62,15 @@ its data live in the user's Google Drive mount, which only exists after
 login. Logs: `~/Library/Logs/househunter-server.{out,err}.log`.
 Manage: `launchctl unload|load -w ~/Library/LaunchAgents/ai.galleonglobal.househunter-server.plist`.
 Endpoints: /api/health, /api/config, /api/listings, /api/poc-listings,
-/api/people, /api/feedback, /layers/go-stations.geojson,
-/layers/highway-413.geojson
+/api/people, /api/feedback, /api/column-permissions (GET group defs +
+resolved per-person grants + personal grid picks + admin_id; POST
+admin-only group grant), /api/grid-prefs (POST personal column
+show/hide), /api/transfer-admin (POST admin-only), /api/person-thresholds,
+/layers/go-stations.geojson, /layers/highway-413.geojson.
+Column-permission model: /api/poc-listings and /api/feedback take an
+optional person_id and strip data for any column group that person is
+denied (server-side enforcement, denied data absent from the payload,
+not hidden client-side; see DECISIONS.md 2026-07-08).
 Phone test tunnel: stable named Cloudflare Tunnel at
 `https://househunter.galleonglobal.ai` (permanent URL, does not change
 on restart). Tunnel name `house-hunter`, UUID

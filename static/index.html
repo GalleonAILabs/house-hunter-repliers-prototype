@@ -279,6 +279,12 @@
       <div class="grid-toolbar-right">
         <!-- Session-level undo of the most recent bulk action; hidden until one runs. -->
         <button id="gridUndoBtn" class="secondary" hidden>↺ Undo last bulk</button>
+        <!-- Personal column picker: show/hide columns for yourself, within what
+             the admin permits. Persisted server-side per person. -->
+        <div class="grid-cols-wrap">
+          <button id="gridColsBtn" class="secondary" aria-haspopup="true" aria-expanded="false">▤ Columns</button>
+          <div id="gridColsMenu" class="grid-cols-menu" hidden></div>
+        </div>
         <button id="gridExportBtn" class="secondary">⤓ Export</button>
       </div>
     </div>
@@ -401,6 +407,15 @@
           <div>
             <div>Card sections</div>
             <div class="field-desc">Choose which sections appear on a listing card</div>
+          </div>
+          <span class="settings-nav-chevron">›</span>
+        </button>
+        <!-- Admin-only: shown only when the active person is the buying-party
+             admin (toggled in openSettings). -->
+        <button type="button" class="settings-row settings-nav-row" id="navColumnAccess" data-target="columnAccess" data-title="Column access" hidden>
+          <div>
+            <div>Column access <span class="settings-admin-tag">admin</span></div>
+            <div class="field-desc">Choose which column groups each member can see</div>
           </div>
           <span class="settings-nav-chevron">›</span>
         </button>
@@ -559,6 +574,16 @@
         <button id="settingsSelectAll" class="secondary">All on</button>
         <button id="settingsSelectNone" class="secondary">All off</button>
         <button id="settingsReset">Defaults</button>
+      </div>
+    </div>
+
+    <!-- Admin-only: per-member column-group permissions + admin transfer.
+         Built dynamically in buildColumnAccessSettings(). -->
+    <div class="settings-page" id="settingsPage-columnAccess" hidden>
+      <div class="settings-page-body">
+        <p class="settings-desc">As the buying-party admin, choose which column groups each member can see. Financial is the sensitive group (the helping-parent case). A denied group's data never reaches that member's device, in any view or export, not just hidden in their grid. You cannot remove your own Financial access.</p>
+        <div id="columnAccessMatrix"></div>
+        <div id="columnAccessTransfer"></div>
       </div>
     </div>
   </aside>

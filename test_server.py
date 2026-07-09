@@ -1726,5 +1726,189 @@ class ExportTests(unittest.TestCase):
             self.assertNotIn(bad, fname)
 
 
+class ColumnPermissionTests(ServerTestCase):
+    """The buying-party column-permission model: admin seeding/transfer,
+    per-member group grants, and server-side enforcement on the grid payload,
+    the feedback endpoint, and export."""
+
+    def person_id(self, name: str) -> int:
+        conn = server.get_db()
+        try:
+            return conn.execute("SELECT id FROM people WHERE name = ?", (name,)).fetchone()["id"]
+        finally:
+            conn.close()
+
+    def deny(self, actor: int, person: int, group: str):
+        return self.request("POST", "/api/column-permissions", token=self.TOKEN,
+                            body={"actor_id": actor, "person_id": person, "group_key": group, "permitted": False})
+
+    # ── admin seeding / transfer ──────────────────────────────────────────────
+    def test_mark_is_seeded_admin_exactly_one(self) -> None:
+        conn = server.get_db()
+        try:
+            admins = conn.execute("SELECT name FROM people WHERE is_admin = 1").fetchall()
+        finally:
+            conn.close()
+        self.assertEqual([a["name"] for a in admins], ["Mark"])
+
+    def test_get_column_permissions_defaults_all_true(self) -> None:
+        status, data = self.request("GET", "/api/column-permissions", token=self.TOKEN)
+        self.assertEqual(status, 200)
+        self.assertEqual(data["admin_id"], self.person_id("Mark"))
+        self.assertEqual({g["key"] for g in data["groups"]},
+                         {"identity", "facts", "opinions", "financial", "location"})
+        katie = str(self.person_id("Katie"))
+        self.assertTrue(all(data["permissions"][katie].values()))
+
+    def test_transfer_admin_moves_flag_and_keeps_exactly_one(self) -> None:
+        mark, katie = self.person_id("Mark"), self.person_id("Katie")
+        status, data = self.request("POST", "/api/transfer-admin", token=self.TOKEN,
+                                    body={"actor_id": mark, "new_admin_id": katie})
+        self.assertEqual(status, 200)
+        self.assertEqual(data["admin_id"], katie)
+        conn = server.get_db()
+        try:
+            admins = [r["id"] for r in conn.execute("SELECT id FROM people WHERE is_admin = 1").fetchall()]
+        finally:
+            conn.close()
+        self.assertEqual(admins, [katie])
+
+    def test_non_admin_cannot_transfer(self) -> None:
+        katie, mark = self.person_id("Katie"), self.person_id("Mark")
+        status, data = self.request("POST", "/api/transfer-admin", token=self.TOKEN,
+                                    body={"actor_id": katie, "new_admin_id": katie})
+        self.assertEqual(status, 403)
+
+    def test_cannot_transfer_admin_to_realtor(self) -> None:
+        mark, anees = self.person_id("Mark"), self.person_id("Anees")
+        status, _ = self.request("POST", "/api/transfer-admin", token=self.TOKEN,
+                                 body={"actor_id": mark, "new_admin_id": anees})
+        self.assertEqual(status, 400)
+
+    # ── admin grants ──────────────────────────────────────────────────────────
+    def test_non_admin_cannot_set_permission(self) -> None:
+        katie = self.person_id("Katie")
+        status, data = self.deny(katie, katie, "financial")
+        self.assertEqual(status, 403)
+
+    def test_admin_cannot_remove_own_financial(self) -> None:
+        mark = self.person_id("Mark")
+        status, data = self.deny(mark, mark, "financial")
+        self.assertEqual(status, 403)
+
+    def test_admin_can_remove_own_non_financial_group(self) -> None:
+        mark = self.person_id("Mark")
+        status, _ = self.deny(mark, mark, "location")
+        self.assertEqual(status, 200)
+
+    def test_deny_group_bad_key_400(self) -> None:
+        mark, katie = self.person_id("Mark"), self.person_id("Katie")
+        status, _ = self.request("POST", "/api/column-permissions", token=self.TOKEN,
+                                 body={"actor_id": mark, "person_id": katie, "group_key": "nope", "permitted": False})
+        self.assertEqual(status, 400)
+
+    # ── enforcement: grid payload ─────────────────────────────────────────────
+    def test_financial_fields_present_by_default(self) -> None:
+        katie = self.person_id("Katie")
+        _, data = self.request("GET", f"/api/poc-listings?person_id={katie}")
+        item = data["listings"][0]
+        self.assertIn("price", item)
+        self.assertIn("pit", item)
+
+    def test_denied_financial_stripped_from_grid_payload(self) -> None:
+        mark, katie = self.person_id("Mark"), self.person_id("Katie")
+        self.assertEqual(self.deny(mark, katie, "financial")[0], 200)
+        _, data = self.request("GET", f"/api/poc-listings?person_id={katie}")
+        for item in data["listings"]:
+            for field in ("price", "pit", "pitNum", "dueClosing", "potentialPurchasePrice", "mortgageBreakdown"):
+                self.assertNotIn(field, item)
+            # Non-financial fields and the row id survive.
+            self.assertIn("mls", item)
+            self.assertIn("address", item)
+
+    def test_denial_is_per_person_not_global(self) -> None:
+        mark, katie = self.person_id("Mark"), self.person_id("Katie")
+        self.deny(mark, katie, "financial")
+        _, kd = self.request("GET", f"/api/poc-listings?person_id={katie}")
+        _, md = self.request("GET", f"/api/poc-listings?person_id={mark}")
+        self.assertNotIn("price", kd["listings"][0])
+        self.assertIn("price", md["listings"][0])  # Mark still sees it
+
+    def test_no_person_id_all_permitted(self) -> None:
+        mark, katie = self.person_id("Mark"), self.person_id("Katie")
+        self.deny(mark, katie, "financial")
+        _, data = self.request("GET", "/api/poc-listings")  # no person_id
+        self.assertIn("price", data["listings"][0])
+
+    # ── enforcement: feedback (Opinions) ──────────────────────────────────────
+    def test_denied_opinions_empties_feedback(self) -> None:
+        mark, katie = self.person_id("Mark"), self.person_id("Katie")
+        # Baseline: Katie sees feedback.
+        _, before = self.request("GET", f"/api/feedback?listing_ids=POC-2,POC-3&person_id={katie}", token=self.TOKEN)
+        self.assertTrue(before["feedback"])
+        self.assertEqual(self.deny(mark, katie, "opinions")[0], 200)
+        _, after = self.request("GET", f"/api/feedback?listing_ids=POC-2,POC-3&person_id={katie}", token=self.TOKEN)
+        self.assertEqual(after["feedback"], {})
+        # Financial denial does not empty feedback (opinions still permitted).
+        _, mk = self.request("GET", f"/api/feedback?listing_ids=POC-2,POC-3&person_id={mark}", token=self.TOKEN)
+        self.assertTrue(mk["feedback"])
+
+    # ── enforcement: export ───────────────────────────────────────────────────
+    def test_export_drops_denied_financial_columns(self) -> None:
+        mark, katie = self.person_id("Mark"), self.person_id("Katie")
+        self.deny(mark, katie, "financial")
+        cols = [{"key": "address", "label": "Address", "type": "text"},
+                {"key": "price", "label": "Price", "type": "number"}]
+        rows = [{"address": "1 Test St", "price": 500000}]
+        out, _, _, status = server.handle_export(
+            {"format": "csv", "columns": cols, "rows": rows, "person_id": katie})
+        self.assertEqual(status, 200)
+        text = out.decode("utf-8-sig")
+        self.assertIn("Address", text)
+        self.assertNotIn("Price", text)   # header dropped
+        self.assertNotIn("500000", text)  # value dropped
+
+    def test_export_only_financial_columns_denied_403(self) -> None:
+        mark, katie = self.person_id("Mark"), self.person_id("Katie")
+        self.deny(mark, katie, "financial")
+        cols = [{"key": "price", "label": "Price", "type": "number"}]
+        _, _, _, status = server.handle_export(
+            {"format": "csv", "columns": cols, "rows": [{"price": 1}], "person_id": katie})
+        self.assertEqual(status, 403)
+
+    def test_export_permitted_person_keeps_financial(self) -> None:
+        mark = self.person_id("Mark")
+        cols = [{"key": "price", "label": "Price", "type": "number"}]
+        out, _, _, status = server.handle_export(
+            {"format": "csv", "columns": cols, "rows": [{"price": 500000}], "person_id": mark})
+        self.assertEqual(status, 200)
+        self.assertIn("500000", out.decode("utf-8-sig"))
+
+    # ── personal grid prefs ───────────────────────────────────────────────────
+    def test_grid_prefs_persist_and_return(self) -> None:
+        katie = self.person_id("Katie")
+        status, data = self.request("POST", "/api/grid-prefs", token=self.TOKEN,
+                                    body={"person_id": katie, "hidden_columns": ["sqft", "commute"]})
+        self.assertEqual(status, 200)
+        _, cp = self.request("GET", "/api/column-permissions", token=self.TOKEN)
+        self.assertEqual(sorted(cp["grid_prefs"][str(katie)]["hidden_columns"]), ["commute", "sqft"])
+
+    def test_grid_prefs_drops_unknown_columns(self) -> None:
+        katie = self.person_id("Katie")
+        self.request("POST", "/api/grid-prefs", token=self.TOKEN,
+                     body={"person_id": katie, "hidden_columns": ["sqft", "not_a_real_column"]})
+        _, cp = self.request("GET", "/api/column-permissions", token=self.TOKEN)
+        self.assertEqual(cp["grid_prefs"][str(katie)]["hidden_columns"], ["sqft"])
+
+    def test_grid_prefs_do_not_strip_payload(self) -> None:
+        # Personal hiding is a view preference, not a permission: the payload is
+        # unaffected (the data is still permitted to reach the person).
+        katie = self.person_id("Katie")
+        self.request("POST", "/api/grid-prefs", token=self.TOKEN,
+                     body={"person_id": katie, "hidden_columns": ["price"]})
+        _, data = self.request("GET", f"/api/poc-listings?person_id={katie}")
+        self.assertIn("price", data["listings"][0])
+
+
 if __name__ == "__main__":
     unittest.main()

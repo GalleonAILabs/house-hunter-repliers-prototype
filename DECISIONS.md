@@ -53,6 +53,72 @@ file under "Overnight session" headings.
 
 ---
 
+## 2026-07-08 — Buying-party column permissions (schema foundation)
+
+First consumer of the buyer-group permission model, so it lays the schema the
+rest of multi-tenancy builds on. Two layers over the grid columns: an admin
+grant layer (per member, per column GROUP) and a personal show/hide layer (per
+member, per column).
+
+**Enforcement pattern (the reusable decision every future permission feature
+follows): permitted data is decided server-side and denied data is simply absent
+from the response, never merely hidden in the client.** For this feature:
+- `/api/poc-listings?person_id=N` strips every payload field owned by a group
+  the person is denied (`strip_denied_columns`). A denied Financial group means
+  price / potential price / monthly PIT / cost-to-close / the whole mortgage
+  breakdown (including the copies nested in the `poc` sub-object) are not in the
+  payload at all. Because that endpoint feeds every view (grid, list, map, card),
+  denial removes the data everywhere, not just the grid: the stronger, correct
+  fail-closed reading of "the grid endpoint returns per person."
+- Opinions data (ratings, group sentiment) is not in the listings payload; it
+  flows through `/api/feedback`, so that group is enforced there (`person_id`
+  denied Opinions gets an empty feedback map).
+- `/api/export` re-applies the same rule server-side (defence in depth): a denied
+  group's columns are dropped even if the client submits them; an export of only
+  denied columns returns 403.
+Structural fields (`mls`, `lat`, `lng`) belong to no group and always survive so
+row identity and the map keep working.
+
+**Schema, day one (retrofit-proof, per the product decision that roles/grants
+are part of the data model now):**
+- `people.is_admin` (added by `migrate_add_is_admin` on existing DBs; in the
+  CREATE for fresh ones). Exactly one admin, enforced at the app layer (seed +
+  transactional transfer), not a DB constraint since "exactly one" spans rows.
+  Mark is seeded admin; transfer is admin-only (`/api/transfer-admin`) and target
+  must be a buyer.
+- `person_column_permissions (person_id, group_key, permitted, updated_by,
+  updated_at)`. Absent row = permitted (default-allow **today**). Flipping to
+  deny-by-default for real multi-tenancy is a resolution change in
+  `permitted_groups` (start empty, add grants), **not** a migration.
+- `person_grid_prefs (person_id, hidden_columns JSON)`. Personal picks, stored
+  server-side so they follow the person across devices like thresholds.
+
+**Groups, not individual columns**, are the permission unit: Identity, Property
+facts, Opinions, Financial, Location (`COLUMN_GROUPS` is the server-side source
+of truth; the client mirrors it as a fallback only).
+
+**Personal vs. permission is a deliberate split.** Admin denial strips the
+payload and removes the group from that member's picker entirely (absent, not
+greyed, consistent with fail-closed). Personal hiding is a view preference only:
+the data is still permitted and present in the payload; the client just does not
+render the column. So the export picker is bounded by *permission*, not by
+personal hides.
+
+**Admin cannot remove their own Financial access** (`ADMIN_PROTECTED_GROUP`),
+the helping-parent invariant: whoever administers the party always keeps their
+own view of the numbers. Enforced server-side (403) and reflected in the UI (the
+admin's own Financial checkbox is disabled).
+
+Attribution: every admin grant records `updated_by` = the acting admin, the same
+who-changed shape as thresholds. Verified headlessly end to end (admin toggles
+Katie's Financial off via the real checkbox -> Katie's grid payload lacks the
+values, her picker lacks the group, both export scopes lack it, her personal
+sqft hide still works and does not strip the payload; live data reverted after).
+20 new unit tests (153 total, all pass). Codex still quota-blocked (OpenAI
+billing); structured self-review substituted per standing note.
+
+---
+
 ## 2026-07-08 — Map controls converted to icon-only
 
 Supersedes Task 2a's chip style: the control family (Filters, Layers, Draw,
