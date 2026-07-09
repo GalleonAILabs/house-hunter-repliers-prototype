@@ -2653,13 +2653,15 @@ def linear_resolve_triage_context() -> dict[str, Any]:
     global _REPORT_TRIAGE_CACHE
     if _REPORT_TRIAGE_CACHE is not None:
         return _REPORT_TRIAGE_CACHE
+    # Team query kept to states + labels only. Fetching every project with its
+    # milestones here blew Linear's 10000 query-complexity budget, so the
+    # project is resolved by name in a separate, filtered query below.
     query = (
         "query ResolveTeam($key: String!) {"
         "  teams(filter: { key: { eq: $key } }) {"
         "    nodes { id key"
         "      states { nodes { id name type } }"
         "      labels { nodes { id name } }"
-        "      projects { nodes { id name projectMilestones { nodes { id name } } } }"
         "    }"
         "  }"
         "}"
@@ -2679,20 +2681,29 @@ def linear_resolve_triage_context() -> dict[str, Any]:
         (lbl.get("name") or "").lower(): lbl.get("id")
         for lbl in team.get("labels", {}).get("nodes", [])
     }
-    # Project + its milestones, for tester-chosen milestone. Best-effort.
+    # Project + its milestones, for a tester-chosen milestone. Best-effort:
+    # filtered by name so it stays cheap, and any failure just leaves milestone
+    # unset (the report still files).
     project_id = None
     milestones: dict[str, str] = {}
-    projects = team.get("projects", {}).get("nodes", [])
-    project = next(
-        (p for p in projects if (p.get("name") or "").lower() == LINEAR_PROJECT_NAME.lower()),
-        None,
-    )
-    if project:
-        project_id = project.get("id")
-        milestones = {
-            (m.get("name") or "").lower(): m.get("id")
-            for m in project.get("projectMilestones", {}).get("nodes", [])
-        }
+    try:
+        proj_query = (
+            "query ResolveProject($name: String!) {"
+            "  projects(filter: { name: { eq: $name } }) {"
+            "    nodes { id name projectMilestones { nodes { id name } } }"
+            "  }"
+            "}"
+        )
+        proj_data = linear_graphql(proj_query, {"name": LINEAR_PROJECT_NAME})
+        project = next(iter(proj_data.get("projects", {}).get("nodes", [])), None)
+        if project:
+            project_id = project.get("id")
+            milestones = {
+                (m.get("name") or "").lower(): m.get("id")
+                for m in project.get("projectMilestones", {}).get("nodes", [])
+            }
+    except (urllib.error.URLError, TimeoutError, ValueError, KeyError, RuntimeError):
+        pass
     _REPORT_TRIAGE_CACHE = {
         "team_id": team["id"],
         "triage_state_id": triage["id"],
