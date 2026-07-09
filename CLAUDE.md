@@ -137,6 +137,31 @@ an earlier pause on running it no longer applies).
   work, not every small fix), always run a full /codex audit of the code
   before considering the session closed.
 
+## Linear discipline (team GAL, project House Hunter - Alpha)
+
+Every request from Mark, however small, becomes a Linear issue via the Linear
+MCP before or while you work on it. No exceptions for "quick" changes.
+
+On receiving a request:
+1. Create a GAL issue: imperative title, one-line context, type label
+   (Bug/Feature/Improvement/Chore/Design/Docs), milestone Alpha unless told
+   otherwise. Move it to In Progress and assign it to yourself.
+2. Do the work. Commit messages reference the issue: "Refs GAL-NNN" or
+   "Fixes GAL-NNN".
+
+On completing a request:
+3. Move the issue to In Review. Never move anything to Done.
+4. Reassign to Mark (or the intern if Mark says so).
+5. Comment with a testing block:
+   - What changed
+   - How to test: numbered steps starting from a URL or command
+   - Expected result
+   - Deployed: yes (househunter.galleonglobal.ai) or local only
+6. If you discover side work, create a new issue in Triage. Never expand
+   the current issue's scope.
+
+No em dashes in any issue title, description, comment, or commit message.
+
 ## Skill routing
 
 When the user's request matches an available skill, invoke it via the Skill tool. When in doubt, invoke the skill.
