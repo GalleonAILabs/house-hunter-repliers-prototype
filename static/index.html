@@ -229,21 +229,23 @@
       <span id="drawIndicatorLabel"></span>
       <button class="secondary" id="drawIndicatorClear">Clear</button>
     </div>
-
-    <!-- Cluster / stacked-pin chooser: a scrollable list of mini-cards for the
-         listings under a clicked cluster bubble or a stack of overlapping pins.
-         Tapping a mini-card opens the full property card. -->
-    <div id="clusterPopup" class="cluster-popup" hidden>
-      <div class="cluster-popup-head">
-        <span class="cluster-popup-count" id="clusterPopupCount"></span>
-        <button class="map-card-close" id="clusterPopupClose">✕</button>
-      </div>
-      <div class="cluster-popup-inner" id="clusterPopupInner"></div>
-    </div>
   </div>
 
-  <!-- Property card: a body-level sibling (NOT inside #viewMap) so it opens over
-       any view, including Grid and List, where #viewMap is display:none. -->
+  <!-- Cluster / stacked-pin chooser AND the property card are both body-level
+       siblings, NOT inside #viewMap. #viewMap is position:fixed with z-index:0,
+       which forms a stacking context that would trap anything inside it below
+       the body-level controls (status bar, filters, legend at z-index 500) no
+       matter its own z-index (see the .map-card CSS note). Kept out here so both
+       popups paint above every control/panel, and so the card also opens over
+       the Grid and List views where #viewMap is display:none. -->
+  <div id="clusterPopup" class="cluster-popup" hidden>
+    <div class="cluster-popup-head">
+      <span class="cluster-popup-count" id="clusterPopupCount"></span>
+      <button class="map-card-close" id="clusterPopupClose">✕</button>
+    </div>
+    <div class="cluster-popup-inner" id="clusterPopupInner"></div>
+  </div>
+
   <div id="mapCard" class="map-card" hidden>
     <button class="map-card-close" id="mapCardClose">✕</button>
     <div class="map-card-inner" id="mapCardInner"></div>
@@ -452,14 +454,14 @@
         <label class="settings-row">
           <input type="checkbox" id="mapClusterToggle" />
           <div>
-            <div>Map clustering</div>
-            <div class="field-desc">Server-side count bubbles for the Sample Data (Repliers) feed, split as you zoom in. Applies to Sample Data only. POC listings always show price pills, which collapse into a count circle wherever they would overlap and expand again as you zoom in.</div>
+            <div>Sample Data clustering</div>
+            <div class="field-desc">Server-side count bubbles for the Sample Data (Repliers) feed only, split as you zoom in. This setting does not affect your POC listings: POC price pills always collapse into a count circle wherever they would overlap and expand again as you zoom in, by design (that overlap-collapse has no separate toggle, see DECISIONS.md).</div>
           </div>
         </label>
         <div class="settings-row settings-number-row">
           <div>
-            <div>Cluster granularity</div>
-            <div class="field-desc">How finely clusters split as you zoom</div>
+            <div>Sample Data cluster granularity</div>
+            <div class="field-desc">How finely the Sample Data clusters split as you zoom</div>
           </div>
           <select id="mapClusterGranSelect" class="settings-number-input" style="width:auto">
             <option value="coarse">Coarse</option>
@@ -476,16 +478,6 @@
             <option value="1">1</option>
             <option value="2">2</option>
             <option value="3">3</option>
-          </select>
-        </div>
-        <div class="settings-row settings-number-row">
-          <div>
-            <div>Map imagery</div>
-            <div class="field-desc">Streets map or satellite imagery (hybrid, with roads and labels kept on top). Also switchable from the control on the map itself.</div>
-          </div>
-          <select id="mapStyleSelect" class="settings-number-input" style="width:auto">
-            <option value="streets">Map</option>
-            <option value="satellite">Satellite</option>
           </select>
         </div>
       </div>

@@ -105,11 +105,13 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .map-card-close { position:absolute; top:14px; right:14px; z-index:2; background:var(--bg); border:1px solid var(--line); border-radius:999px; width:30px; height:30px; min-height:0; padding:0; font-size:13px; color:var(--ink); display:flex; align-items:center; justify-content:center; }
 .map-card-inner .card { border:none; border-radius:0; box-shadow:none; }
 .map-card-inner .photo { border-radius:0; height:200px; }
-/* Clears the fixed .status-bar, same pattern as .cards. Raising z-index
-   will not work here: #viewMap has position:fixed with z-index:0, which
-   traps .map-card inside that stacking context, so the popup can never
-   paint above the body-level .status-bar (z-index:500) no matter its own
-   z-index. Reserving space is the only fix. */
+/* The #viewMap z-index:0 trap (documented history): #viewMap is position:fixed
+   with z-index:0, forming a stacking context that would trap any descendant
+   below the body-level controls (status bar / filters / legend at z-index 500)
+   no matter its own z-index. Both this card and #clusterPopup are therefore
+   body-level siblings of #viewMap (see index.html), so their z-index (700/720)
+   actually wins and they paint above every control and panel. This padding just
+   reserves space so the card's last content clears the fixed .status-bar band. */
 .map-card-inner { padding-bottom: calc(var(--bottom-bar-height) + 24px); }
 @media (min-width:700px){ .map-card{bottom:20px; left:auto; right:20px; width:380px; border-radius:18px; max-height:80vh;} .map-card::before{display:none;} }
 /* Cluster / stacked-pin chooser: a scrollable mini-card list as a bottom sheet
@@ -300,7 +302,11 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .map-draw-indicator[hidden]{display:none}
 .map-draw-indicator>span{font-size:12px;font-weight:700;color:var(--blue);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .map-draw-indicator button{min-height:28px;padding:3px 12px;font-size:12px;flex-shrink:0}
-.map-layers-body{padding:2px 10px 10px;display:flex;flex-direction:column;gap:6px}
+/* The layers list can exceed the viewport once every transit/roads entry and
+   saved area is present, so it scrolls within a bounded height (leaving room
+   for the panel's top offset and a bottom margin) rather than running off
+   screen. Small right padding keeps the scrollbar off the checkboxes. */
+.map-layers-body{padding:2px 6px 10px 10px;display:flex;flex-direction:column;gap:6px;max-height:calc(100vh - 108px - 24px);overflow-y:auto}
 /* Sub-group headings in the Layers menu (Transit / Roads & places): the list
    grew long enough with TTC added that grouping reads better than a flat list. */
 .layer-group-heading{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-top:4px;padding-top:6px;border-top:1px solid var(--line)}
@@ -409,8 +415,13 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .grid-th-sortable:hover{color:var(--blue)}
 .grid-th-active{color:var(--blue)}
 .grid-table tbody td{padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap;color:var(--ink)}
-.grid-table tbody tr{cursor:pointer}
 .grid-table tbody tr:hover{background:var(--bg)}
+/* Only the address and thumbnail open the card, so only they get the pointer +
+   affordance; the rest of the row is inert (checkbox = selection). */
+.grid-td-address{cursor:pointer;color:var(--blue);font-weight:600;max-width:280px;overflow:hidden;text-overflow:ellipsis}
+.grid-td-address:hover{text-decoration:underline}
+.grid-td-thumb{cursor:pointer}
+.grid-td-text{max-width:240px;overflow:hidden;text-overflow:ellipsis}
 .grid-row-sel,.grid-row-sel:hover{background:rgba(43,103,214,0.10)}
 .grid-td-num{text-align:right;font-variant-numeric:tabular-nums}
 /* Inline editors: rating stars + editable potential-price cell in the grid. */

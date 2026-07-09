@@ -174,19 +174,19 @@ COLUMN_GROUPS: list[dict[str, Any]] = [
     },
     {
         "key": "opinions", "label": "Opinions",
-        "columns": ["myRating", "group"],
-        # Ratings/sentiment come from listing_feedback, not the listings
+        "columns": ["myRating", "group", "note"],
+        # Ratings/sentiment/notes come from listing_feedback, not the listings
         # payload, so this group is enforced at /api/feedback (empty response
         # when denied), not by stripping payload fields here.
         "payload_fields": [],
     },
     {
         "key": "financial", "label": "Financial",
-        "columns": ["price", "pit", "close"],
+        "columns": ["listPrice", "potentialPrice", "pit", "close", "condoFees"],
         # Every field that could reveal a dollar figure: list/effective price,
         # the shared potential purchase price, the monthly PIT and cost-to-close
-        # figures, and the whole computed mortgage breakdown, including the
-        # copies nested in the poc sub-object.
+        # figures, condo fees, and the whole computed mortgage breakdown,
+        # including the copies nested in the poc sub-object.
         "payload_fields": ["price", "originalPrice", "soldPrice", "estimate",
                            "condoFeeNum", "pitNum", "pit", "dueNum", "dueClosing",
                            "potentialPurchasePrice", "mortgageBreakdown",
@@ -194,14 +194,17 @@ COLUMN_GROUPS: list[dict[str, Any]] = [
     },
     {
         "key": "location", "label": "Location",
-        "columns": ["highway", "commute"],
+        "columns": ["highway", "highwayName", "commute", "goStation", "goDrive", "goTrain"],
         "payload_fields": ["highwayKm", "nearestHighway", "goStation",
                            "goMin", "goTrain", "goTotal"],
     },
 ]
 COLUMN_GROUP_KEYS = [g["key"] for g in COLUMN_GROUPS]
-# Every grid column key that belongs to a group, for validating personal picks.
-GRID_COLUMN_KEYS = {c for g in COLUMN_GROUPS for c in g["columns"]}
+# Grid columns outside the five-group permission model (always permitted). The
+# attached-places summary is a cross-cutting column, not owned by any group.
+UNGROUPED_GRID_COLUMNS = ["attachments"]
+# Every valid grid column key, for validating personal picks (grouped + ungrouped).
+GRID_COLUMN_KEYS = {c for g in COLUMN_GROUPS for c in g["columns"]} | set(UNGROUPED_GRID_COLUMNS)
 # The one group the admin can never remove from themselves (the helping-parent
 # scenario: an admin must always keep their own view of the numbers).
 ADMIN_PROTECTED_GROUP = "financial"
@@ -221,14 +224,15 @@ EXPORT_KEY_GROUP: dict[str, str] = {
     "mls": "identity", "address": "identity",
     "beds": "facts", "baths": "facts", "sqft": "facts", "acres": "facts",
     "fit": "facts", "fitMet": "facts", "fitTotal": "facts",
-    "myRating": "opinions", "group": "opinions",
+    "myRating": "opinions", "group": "opinions", "note": "opinions",
     "price": "financial", "listPrice": "financial", "potentialPrice": "financial",
     "effectivePrice": "financial", "pit": "financial", "monthlyPit": "financial",
-    "close": "financial", "costToClose": "financial", "downPayment": "financial",
-    "cmhc": "financial", "ontarioLtt": "financial", "torontoLtt": "financial",
-    "monthlyPI": "financial", "monthlyTax": "financial",
-    "highway": "location", "commute": "location", "highwayKm": "location",
-    "nearestHighway": "location", "lat": "location", "lng": "location",
+    "close": "financial", "costToClose": "financial", "condoFees": "financial",
+    "downPayment": "financial", "cmhc": "financial", "ontarioLtt": "financial",
+    "torontoLtt": "financial", "monthlyPI": "financial", "monthlyTax": "financial",
+    "highway": "location", "highwayName": "location", "commute": "location",
+    "highwayKm": "location", "nearestHighway": "location", "lat": "location",
+    "lng": "location", "goStation": "location", "goDrive": "location",
     "goMin": "location", "goTrain": "location", "goTotal": "location",
 }
 

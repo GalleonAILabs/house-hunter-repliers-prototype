@@ -1900,6 +1900,39 @@ class ColumnPermissionTests(ServerTestCase):
         _, cp = self.request("GET", "/api/column-permissions", token=self.TOKEN)
         self.assertEqual(cp["grid_prefs"][str(katie)]["hidden_columns"], ["sqft"])
 
+    def test_new_card_parity_columns_are_valid_grid_prefs(self) -> None:
+        # Card-parity columns added to the picker must be accepted (not dropped
+        # as unknown) when a member hides them.
+        katie = self.person_id("Katie")
+        new_cols = ["listPrice", "potentialPrice", "condoFees", "note",
+                    "goStation", "goDrive", "goTrain", "highwayName", "attachments"]
+        self.request("POST", "/api/grid-prefs", token=self.TOKEN,
+                     body={"person_id": katie, "hidden_columns": new_cols})
+        _, cp = self.request("GET", "/api/column-permissions", token=self.TOKEN)
+        self.assertEqual(sorted(cp["grid_prefs"][str(katie)]["hidden_columns"]), sorted(new_cols))
+
+    def test_group_column_lists_include_new_columns(self) -> None:
+        _, data = self.request("GET", "/api/column-permissions", token=self.TOKEN)
+        by_key = {g["key"]: g["columns"] for g in data["groups"]}
+        self.assertIn("listPrice", by_key["financial"])
+        self.assertIn("potentialPrice", by_key["financial"])
+        self.assertIn("condoFees", by_key["financial"])
+        self.assertIn("note", by_key["opinions"])
+        self.assertIn("goStation", by_key["location"])
+        self.assertIn("highwayName", by_key["location"])
+
+    def test_export_denied_financial_drops_condo_fees(self) -> None:
+        mark, katie = self.person_id("Mark"), self.person_id("Katie")
+        self.deny(mark, katie, "financial")
+        cols = [{"key": "address", "label": "Address", "type": "text"},
+                {"key": "condoFees", "label": "Condo fees", "type": "number"}]
+        out, _, _, status = server.handle_export(
+            {"format": "csv", "columns": cols, "rows": [{"address": "x", "condoFees": 400}], "person_id": katie})
+        self.assertEqual(status, 200)
+        text = out.decode("utf-8-sig")
+        self.assertNotIn("Condo fees", text)
+        self.assertNotIn("400", text)
+
     def test_grid_prefs_do_not_strip_payload(self) -> None:
         # Personal hiding is a view preference, not a permission: the payload is
         # unaffected (the data is still permitted to reach the person).

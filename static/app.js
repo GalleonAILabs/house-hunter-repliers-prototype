@@ -635,22 +635,22 @@ function updateLegendHint() {
 const DEFAULT_COLUMN_GROUPS = [
   { key: 'identity', label: 'Identity', columns: ['address'] },
   { key: 'facts', label: 'Property facts', columns: ['beds', 'baths', 'sqft', 'fit'] },
-  { key: 'opinions', label: 'Opinions', columns: ['myRating', 'group'] },
-  { key: 'financial', label: 'Financial', columns: ['price', 'pit', 'close'] },
-  { key: 'location', label: 'Location', columns: ['highway', 'commute'] },
+  { key: 'opinions', label: 'Opinions', columns: ['myRating', 'group', 'note'] },
+  { key: 'financial', label: 'Financial', columns: ['listPrice', 'potentialPrice', 'pit', 'close', 'condoFees'] },
+  { key: 'location', label: 'Location', columns: ['highway', 'highwayName', 'commute', 'goStation', 'goDrive', 'goTrain'] },
 ];
 // Export column-key -> group, mirroring the server's EXPORT_KEY_GROUP so the
 // export picker shows only permitted columns for the "everything" scope too.
 const EXPORT_KEY_GROUP = {
   mls: 'identity', address: 'identity',
   beds: 'facts', baths: 'facts', sqft: 'facts', acres: 'facts', fit: 'facts', fitMet: 'facts', fitTotal: 'facts',
-  myRating: 'opinions', group: 'opinions',
+  myRating: 'opinions', group: 'opinions', note: 'opinions',
   price: 'financial', listPrice: 'financial', potentialPrice: 'financial', effectivePrice: 'financial',
-  pit: 'financial', monthlyPit: 'financial', close: 'financial', costToClose: 'financial',
+  pit: 'financial', monthlyPit: 'financial', close: 'financial', costToClose: 'financial', condoFees: 'financial',
   downPayment: 'financial', cmhc: 'financial', ontarioLtt: 'financial', torontoLtt: 'financial',
   monthlyPI: 'financial', monthlyTax: 'financial',
-  highway: 'location', commute: 'location', highwayKm: 'location', nearestHighway: 'location',
-  lat: 'location', lng: 'location', goMin: 'location', goTrain: 'location', goTotal: 'location',
+  highway: 'location', highwayName: 'location', commute: 'location', highwayKm: 'location', nearestHighway: 'location',
+  lat: 'location', lng: 'location', goStation: 'location', goDrive: 'location', goMin: 'location', goTrain: 'location', goTotal: 'location',
 };
 
 async function loadColumnPermissions() {
@@ -681,9 +681,14 @@ function permittedGroupSet(personId) {
   if (!perms) return new Set(all);
   return new Set(all.filter(k => perms[k] !== false));
 }
+// A person's hidden grid columns. Once they have saved any picks, that explicit
+// list is authoritative (empty list = show everything permitted). With no saved
+// picks yet, fall back to the columns marked defaultHidden, so the default grid
+// stays lean while every card field is still one click away in the picker.
 function hiddenColumnsFor(personId) {
   const gp = personId != null ? state.gridPrefs[personId] : null;
-  return new Set((gp && gp.hidden_columns) || []);
+  if (gp && Array.isArray(gp.hidden_columns)) return new Set(gp.hidden_columns);
+  return new Set(gridColumns().filter(c => c.defaultHidden).map(c => c.key));
 }
 // gridColumns() the active person is permitted to see (group-permitted), before
 // applying their personal show/hide picks. A column whose group is unknown
@@ -1770,11 +1775,11 @@ function applyMapStyle(choice) {
   });
 }
 function updateMapStyleUI() {
-  const choice = mapStyleChoice();
+  // Satellite/streets is a single Layers-toggle concern now (the duplicate
+  // Appearance "Map imagery" select was removed to avoid two controls for one
+  // state). The Layers checkbox is the single source of truth + persistence.
   const toggle = $('layerSatellite');
-  if (toggle) toggle.checked = choice === 'satellite';
-  const sel = $('mapStyleSelect');
-  if (sel) sel.value = choice;
+  if (toggle) toggle.checked = mapStyleChoice() === 'satellite';
 }
 
 // ─── Icon-only map controls ─────────────────────────────────────────────────────
@@ -2724,6 +2729,8 @@ function toggleDrawMode() { if (state.drawMode) cancelDrawing(); else enterDrawM
 function enterDrawMode() {
   if (!state.mapReady) { alert('The map is not available, so drawing an area is not possible here.'); return; }
   if (!state.activePerson) { alert('Select who you are ("I am", top right) before drawing an area.'); return; }
+  // One open map panel at a time: entering draw mode closes any open panel.
+  closeMapDetailPanels();
   state.drawMode = true;
   document.body.classList.add('draw-mode');
   if (state.map) state.map.getCanvas().style.cursor = 'crosshair';
@@ -2965,7 +2972,16 @@ function showMapCard(item) {
   node.querySelector('.show-map')?.remove();
   inner.appendChild(node);
   applyCardVisibility();
-  $('mapCard').hidden = false;
+  const cardEl = $('mapCard');
+  cardEl.hidden = false;
+  // Always start a newly opened card scrolled to the top. The card element is
+  // reused across opens (swapping only its inner content), so without this the
+  // previous card's scroll position carries over -- most visibly when a rating
+  // change drops the current card out of the filtered set and the next one
+  // loads into the same reused container. Reset both the scroll container and
+  // its inner in case either holds the offset.
+  cardEl.scrollTop = 0;
+  inner.scrollTop = 0;
   state.openMapItem = item;
   // Zoom to pin (guarded: the card also opens from the list/chooser where the
   // map may not be initialised, e.g. if WebGL is unavailable).
@@ -2986,6 +3002,28 @@ function closeMapCard() { $('mapCard').hidden = true; state.openMapItem = null; 
 // same click is never seen here and cannot immediately close what it just
 // opened. The settings drawer is intentionally not included here: it already
 // has its own dedicated overlay-click-to-close pattern.
+// The three collapsible map panels. One-open-at-a-time is enforced across these
+// plus the draw-mode toolbar (see setupExclusivePanels + enterDrawMode).
+const MAP_DETAIL_PANEL_IDS = ['filterbox', 'mapLayersPanel', 'mapLegend'];
+function closeMapDetailPanels(exceptId) {
+  MAP_DETAIL_PANEL_IDS.forEach(id => { if (id !== exceptId) { const el = $(id); if (el) el.open = false; } });
+}
+// Exclusive panels: opening any one map panel closes the others and cancels
+// draw mode, so at most one panel/toolbar is open at a time. Consistent with the
+// existing click-outside-to-dismiss rule. The `toggle` event fires on open and
+// close; only act on open. Closing the siblings fires their toggle events with
+// open=false, which the guard ignores, so there is no loop.
+function setupExclusivePanels() {
+  MAP_DETAIL_PANEL_IDS.forEach(id => {
+    const d = $(id);
+    d?.addEventListener('toggle', () => {
+      if (!d.open) return;
+      closeMapDetailPanels(id);
+      if (state.drawMode) cancelDrawing();
+    });
+  });
+}
+
 function closeOutsideDetailsPanels(clickTarget) {
   [$('filterbox'), $('mapLayersPanel'), $('mapLegend')].forEach(el => {
     if (el && el.open && !el.contains(clickTarget)) el.open = false;
@@ -3420,24 +3458,41 @@ function sentimentWordFor(item) {
   return buyerHeadline(buyers, feedbackByPerson).word;
 }
 function gridCommuteVal(i) { return i.poc?.goTotal ?? i.goMin ?? null; }
+function gridLatestNote(i) { return personFeedbackFor(i.mls, state.activePerson)?.note || ''; }
+function gridAttachSummary(i) {
+  return (state.placeAttachments[i.mls] || []).map(a =>
+    `${a.poi_label || (POI_TYPE_META[a.poi_type] || POI_TYPE_META.other).label}${a.drive_minutes != null ? ' (' + a.drive_minutes + ' min)' : ''}`).join('; ');
+}
 // Data columns (checkbox + thumbnail are rendered separately). `get` returns the
 // raw value (numbers stay numbers for sort + export typing); `fmt` is the display
-// string; `type` drives export cell typing and numeric alignment.
+// string; `type` drives export cell typing and numeric alignment. Every field on
+// the property card is available here (card parity); `defaultHidden` keeps the
+// default grid lean, the rest are one click away in the column picker. `editable`
+// marks the one editable cell (the shared potential offer price). Group ownership
+// (for admin permissions) is defined server-side in COLUMN_GROUPS by key.
 function gridColumns() {
   const rating = i => personFeedbackFor(i.mls, state.activePerson)?.rating ?? null;
   return [
     { key: 'address', label: 'Address', type: 'text', get: i => i.address || '', fmt: i => i.address || '', sortable: true },
-    { key: 'price', label: 'Price', type: 'number', get: i => effectivePrice(i).value ?? null, fmt: i => money(effectivePrice(i).value) || '', sortable: true },
+    { key: 'listPrice', label: 'List price', type: 'number', get: i => numOrNull(i.price), fmt: i => money(i.price) || '', sortable: true },
+    { key: 'potentialPrice', label: 'Potential offer price', type: 'number', editable: true, get: i => i.potentialPurchasePrice?.price ?? null, fmt: i => money(i.potentialPurchasePrice?.price) || '', sortable: true },
     { key: 'beds', label: 'Beds', type: 'number', get: i => numOrNull(i.bedsNum ?? i.beds), fmt: i => String(i.beds ?? i.bedsNum ?? ''), sortable: true },
     { key: 'baths', label: 'Baths', type: 'number', get: i => numOrNull(i.baths), fmt: i => i.baths != null ? num(i.baths) : '', sortable: true },
     { key: 'sqft', label: 'Sqft', type: 'number', get: i => numOrNull(i.sqft), fmt: i => i.sqft ? num(i.sqft) : '', sortable: true },
     { key: 'fit', label: 'Fit', type: 'number', get: i => i.fit?.met ?? null, fmt: i => i.fit ? `${i.fit.met}/${i.fit.total}` : '', sortable: true },
     { key: 'myRating', label: 'My rating', type: 'number', get: i => rating(i), fmt: i => { const r = rating(i); return r != null ? r + '★' : ''; }, sortable: true },
     { key: 'group', label: 'Group', type: 'text', get: i => sentimentWordFor(i), fmt: i => sentimentWordFor(i), sortable: true },
+    { key: 'note', label: 'Latest note', type: 'text', defaultHidden: true, get: i => gridLatestNote(i), fmt: i => gridLatestNote(i), sortable: true },
     { key: 'pit', label: 'Monthly PIT', type: 'number', get: i => effectivePitNum(i) ?? null, fmt: i => money(effectivePitNum(i)) || '', sortable: true },
     { key: 'close', label: 'Cost to close', type: 'number', get: i => effectiveDueNum(i) ?? null, fmt: i => money(effectiveDueNum(i)) || '', sortable: true },
+    { key: 'condoFees', label: 'Condo fees', type: 'number', defaultHidden: true, get: i => numOrNull(i.condoFeeNum), fmt: i => i.condoFeeNum != null ? money(i.condoFeeNum) : '', sortable: true },
     { key: 'highway', label: 'Highway (km)', type: 'number', get: i => numOrNull(i.highwayKm), fmt: i => i.highwayKm != null ? num(i.highwayKm) : '', sortable: true },
-    { key: 'commute', label: 'GO commute (min)', type: 'number', get: i => numOrNull(gridCommuteVal(i)), fmt: i => { const g = gridCommuteVal(i); return g != null ? num(g) : ''; }, sortable: true },
+    { key: 'highwayName', label: 'Nearest highway', type: 'text', defaultHidden: true, get: i => i.nearestHighway || '', fmt: i => i.nearestHighway || '', sortable: true },
+    { key: 'commute', label: 'GO total (min)', type: 'number', get: i => numOrNull(gridCommuteVal(i)), fmt: i => { const g = gridCommuteVal(i); return g != null ? num(g) : ''; }, sortable: true },
+    { key: 'goStation', label: 'GO station', type: 'text', defaultHidden: true, get: i => i.goStation || '', fmt: i => i.goStation || '', sortable: true },
+    { key: 'goDrive', label: 'GO drive (min)', type: 'number', defaultHidden: true, get: i => numOrNull(i.goMin), fmt: i => i.goMin != null ? num(i.goMin) : '', sortable: true },
+    { key: 'goTrain', label: 'GO train (min)', type: 'number', defaultHidden: true, get: i => numOrNull(i.poc?.goTrain ?? i.goTrain), fmt: i => { const t = i.poc?.goTrain ?? i.goTrain; return t != null ? num(t) : ''; }, sortable: true },
+    { key: 'attachments', label: 'Attached places', type: 'text', defaultHidden: true, get: i => gridAttachSummary(i), fmt: i => gridAttachSummary(i), sortable: false },
   ];
 }
 // Same filtered set as every view; grid header clicks set a local sort override,
@@ -3497,10 +3552,11 @@ function renderGrid() {
   updateGridCommandBar();
   updateUndoButton();
 }
-// A grid cell. The two columns that are editable on the property card -- the
-// active person's rating and the group's potential purchase price -- render as
-// inline editors here so they can be edited without opening the card. Everything
-// else (listing facts) is read-only text.
+// A grid cell. Two card-editable values render as inline editors here so they
+// can be changed without opening the card: the active person's rating (stars)
+// and the group's potential offer price (the only editable price anywhere).
+// The address cell is clickable to open the full card (grid-td-address). List
+// price and everything else are read-only.
 function gridCellHtml(c, item) {
   if (c.key === 'myRating') {
     const r = personFeedbackFor(item.mls, state.activePerson)?.rating ?? 0;
@@ -3510,12 +3566,22 @@ function gridCellHtml(c, item) {
     }
     return `<td class="grid-td-rating">${stars}</td>`;
   }
-  if (c.key === 'price') {
-    const val = effectivePrice(item).value;
+  if (c.key === 'potentialPrice') {
+    const val = item.potentialPurchasePrice?.price ?? null;
     const isPotential = item.potentialPurchasePrice != null;
-    return `<td class="grid-td-num grid-td-price${isPotential ? ' has-potential' : ''}" data-mls="${esc(item.mls)}" tabindex="0" title="Click to edit the group's potential purchase price">${esc(money(val) || '—')}</td>`;
+    return `<td class="grid-td-num grid-td-price${isPotential ? ' has-potential' : ''}" data-mls="${esc(item.mls)}" tabindex="0" title="Click to set the group's potential offer price">${esc(money(val) || '—')}</td>`;
   }
-  return `<td class="${c.type === 'number' ? 'grid-td-num' : ''}">${esc(c.fmt(item))}</td>`;
+  if (c.key === 'address') {
+    return `<td class="grid-td-address" title="Open the full property card">${esc(c.fmt(item))}</td>`;
+  }
+  if (c.type === 'number') {
+    return `<td class="grid-td-num">${esc(c.fmt(item))}</td>`;
+  }
+  // Free-text columns (note, attached places, GO station, nearest highway) can
+  // be long: truncate with a full-value tooltip so one row cannot blow out the
+  // column width.
+  const val = c.fmt(item);
+  return `<td class="grid-td-text"${val ? ` title="${esc(val)}"` : ''}>${esc(val)}</td>`;
 }
 // Inline single-property rating write (same path as the card's stars).
 async function setInlineRating(mls, rating) {
@@ -3613,15 +3679,21 @@ function renderColumnPicker() {
   }
   const permitted = permittedGridColumns();
   const hidden = hiddenColumnsFor(state.activePerson);
+  const rowHtml = c => `<label class="grid-cols-row"><input type="checkbox" class="grid-col-cb" data-col="${esc(c.key)}" ${hidden.has(c.key) ? '' : 'checked'} /> <span>${esc(c.label)}</span></label>`;
   let html = '<div class="grid-cols-title">Your columns</div>';
   columnGroupsList().forEach(g => {
     const cols = permitted.filter(c => groupKeyForColumn(c.key) === g.key);
     if (!cols.length) return;
     html += `<div class="grid-cols-group">${esc(g.label)}</div>`;
-    cols.forEach(c => {
-      html += `<label class="grid-cols-row"><input type="checkbox" class="grid-col-cb" data-col="${esc(c.key)}" ${hidden.has(c.key) ? '' : 'checked'} /> <span>${esc(c.label)}</span></label>`;
-    });
+    cols.forEach(c => { html += rowHtml(c); });
   });
+  // Columns outside the five permission groups (e.g. Attached places) under an
+  // "Other" heading so they are still toggleable in the picker.
+  const ungrouped = permitted.filter(c => groupKeyForColumn(c.key) == null);
+  if (ungrouped.length) {
+    html += '<div class="grid-cols-group">Other</div>';
+    ungrouped.forEach(c => { html += rowHtml(c); });
+  }
   menu.innerHTML = html;
   menu.querySelectorAll('.grid-col-cb').forEach(cb => cb.addEventListener('change', onColumnPick));
 }
@@ -4223,6 +4295,7 @@ window.addEventListener('DOMContentLoaded', () => {
   loadTheme();
   setupControlIcons();      // inject the inline-SVG glyphs into the icon controls
   maybeTeachIconLabels();   // first-visit: show labels once, then collapse to icons
+  setupExclusivePanels();   // one open map panel at a time (Filters/Layers/Legend/Draw)
   ['minPrice', 'maxPrice', 'minPit', 'maxPit', 'minDue', 'maxDue'].forEach(wirePriceInput);
   // Restore last-used filter/layer/sort state (T10) before the initial load
   // so filterParams()/currentSource()/currentSort() all read restored values.
@@ -4334,11 +4407,6 @@ window.addEventListener('DOMContentLoaded', () => {
     satToggle.checked = mapStyleChoice() === 'satellite';
     satToggle.addEventListener('change', e => applyMapStyle(e.target.checked ? 'satellite' : 'streets'));
   }
-  const styleSel = $('mapStyleSelect');
-  if (styleSel) {
-    styleSel.value = mapStyleChoice();
-    styleSel.addEventListener('change', e => applyMapStyle(e.target.value));
-  }
   $('clusterPopupClose')?.addEventListener('click', closeClusterPopup);
   // Draw-an-area controls
   $('drawAreaBtn')?.addEventListener('click', toggleDrawMode);
@@ -4372,8 +4440,18 @@ window.addEventListener('DOMContentLoaded', () => {
       if (star) { e.stopPropagation(); setInlineRating(star.dataset.mls, Number(star.dataset.rate)); return; }
       const priceCell = e.target.closest('.grid-td-price');
       if (priceCell) { e.stopPropagation(); startPriceEdit(priceCell); return; }
-      const tr = e.target.closest('tbody tr[data-mls]');
-      if (tr) { const item = findListing(tr.dataset.mls) || state.rawListings.find(x => x.mls === tr.dataset.mls); if (item) showMapCard(item); }
+      // Only the address or thumbnail opens the card; the rest of the row is
+      // inert (the checkbox is the only selection click). Keeps inline editing
+      // and plain reading from accidentally launching the card.
+      const openCell = e.target.closest('.grid-td-address, .grid-td-thumb');
+      if (openCell) {
+        // Stop the document-level click-outside handler from seeing this same
+        // click and immediately closing the card we are about to open (the map
+        // pill/cluster handlers stopPropagation for the same reason).
+        e.stopPropagation();
+        const tr = openCell.closest('tbody tr[data-mls]');
+        if (tr) { const item = findListing(tr.dataset.mls) || state.rawListings.find(x => x.mls === tr.dataset.mls); if (item) showMapCard(item); }
+      }
     });
     gt.addEventListener('change', e => {
       if (e.target.id === 'gridSelectAll') { gridToggleSelectAll(e.target.checked); return; }

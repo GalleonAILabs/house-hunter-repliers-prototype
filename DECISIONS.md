@@ -53,6 +53,59 @@ file under "Overnight session" headings.
 
 ---
 
+## 2026-07-08 — Grid card-parity + map/UI fixes (batch)
+
+Eight-item batch. Notable decisions:
+
+- **Grid card parity.** Every card field is now a grid column, available in the
+  picker (most `defaultHidden` to keep the default grid lean). The ambiguous
+  single "Price" column was split into **List price** (read-only, from listing
+  data) and **Potential offer price** (the one editable price anywhere: inline,
+  shared write with attribution via /api/potential-purchase-prices). Added GO
+  station / GO drive / GO train / GO total, nearest-highway name, condo fees,
+  latest note, and attached-places summary. New column keys are registered in
+  their `COLUMN_GROUPS` group server-side, so admin permissions apply to them
+  automatically; the ungrouped Attached-places column lives under an "Other"
+  picker heading and is always permitted.
+- **`defaultHidden` resolution.** A person with no saved grid picks sees the
+  non-defaultHidden columns; once they save any pick, their explicit list is
+  authoritative (empty = show all permitted). No migration, no server default
+  list: the default is a client-side property of each column def.
+- **Grid click-through.** Only the address and thumbnail open the card; the rest
+  of the row is inert and the checkbox is the only selection click. The open
+  handler calls `stopPropagation` so the document-level click-outside dismiss
+  does not immediately re-close the just-opened card (same reason the map
+  pill/cluster handlers already do).
+- **Card scroll reset.** The card element is reused across opens (only its inner
+  content is swapped), so a stale `scrollTop` carried over, most visibly when a
+  rating change dropped the current card out of the filtered set. `showMapCard`
+  now resets scroll to top on every open.
+- **Z-order / #viewMap trap.** `#clusterPopup` was still inside `#viewMap`
+  (position:fixed, z-index:0), a stacking context that pins any descendant below
+  the body-level controls no matter its own z-index. Moved it to a body-level
+  sibling (as `#mapCard` already was), so both popups paint above every control
+  and panel. Reserving-space padding stays for the status-bar band.
+- **Satellite is one control.** Removed the duplicate Appearance "Map imagery"
+  select; the Layers "Satellite imagery" toggle is the single source of truth
+  and persistence. Two controls for one state was a conflict waiting to happen.
+- **Clustering clarity, no new toggle.** Renamed the setting to **Sample Data
+  clustering** (+ "Sample Data cluster granularity") to state its scope: it
+  governs only the Repliers server-side clustering. POC price pills always
+  collapse on overlap by design; that overlap-collapse gets **no separate
+  toggle** (it is intrinsic to pill rendering and a toggle would add a control
+  for a behaviour with no sensible "off"). Fixed by clarity, not a new switch.
+- **Exclusive map panels.** Opening any one of Filters / Layers / Legend closes
+  the others and cancels draw mode (and entering draw mode closes them), so at
+  most one panel/toolbar is open at a time, consistent with click-outside.
+- **Layers panel** scrolls within a bounded height now that transit entries can
+  exceed the viewport.
+
+Verified headlessly at the six-width standard (390/600/768/900/1024/1280): no
+horizontal overflow, no JS errors. 3 new tests (156 total). Codex still
+quota-blocked (OpenAI billing); structured self-review substituted.
+
+---
+
 ## 2026-07-08 — Buying-party column permissions (schema foundation)
 
 First consumer of the buyer-group permission model, so it lays the schema the
