@@ -360,6 +360,33 @@
       <label>What happened? What did you expect?
         <textarea id="reportText" rows="5" placeholder="e.g. The map pins disappear when I rotate my phone"></textarea>
       </label>
+      <div class="report-selectors">
+        <label>Type
+          <select id="reportType">
+            <option value="">Not sure</option>
+            <option value="bug">Bug</option>
+            <option value="extension">Extension of a feature</option>
+            <option value="new">New idea</option>
+          </select>
+        </label>
+        <label>Priority
+          <select id="reportPriority">
+            <option value="">Not sure</option>
+            <option value="urgent">Urgent</option>
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+          </select>
+        </label>
+        <label>Milestone
+          <select id="reportMilestone">
+            <option value="">Not sure</option>
+            <option value="Alpha">Alpha (now)</option>
+            <option value="V1">V1</option>
+            <option value="V2">V2</option>
+          </select>
+        </label>
+      </div>
       <label>Screenshot or photo (optional)
         <input type="file" id="reportImage" accept="image/*" />
       </label>

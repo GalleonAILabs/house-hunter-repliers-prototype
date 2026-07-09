@@ -1541,6 +1541,8 @@ class ReportIssueTests(ServerTestCase):
             "team_id": "team-1", "triage_state_id": "state-1",
             "labels": {"bug": "lbl-bug", "improvement": "lbl-imp",
                        "feature": "lbl-feat", "needs-triage": "lbl-nt"},
+            "project_id": "proj-1",
+            "milestones": {"alpha": "ms-alpha", "v1": "ms-v1", "v2": "ms-v2"},
         }
         server.linear_open_triage_titles = lambda: [
             {"identifier": "GAL-31", "title": "Fix cluster popup overflow"}
@@ -1551,10 +1553,12 @@ class ReportIssueTests(ServerTestCase):
             return "https://uploads.linear.app/asset-1"
         server.linear_upload_image = fake_upload
 
-        def fake_create(title, description, team_id, state_id, label_ids):
+        def fake_create(title, description, team_id, state_id, label_ids,
+                        priority=None, project_id=None, milestone_id=None):
             self.created.append({
                 "title": title, "description": description, "team_id": team_id,
                 "state_id": state_id, "label_ids": label_ids,
+                "priority": priority, "project_id": project_id, "milestone_id": milestone_id,
             })
             return {"identifier": "GAL-57", "url": "https://linear.app/gal/issue/GAL-57", "id": "iss-1"}
         server.linear_create_issue = fake_create
@@ -1615,6 +1619,66 @@ class ReportIssueTests(ServerTestCase):
         for needle in ("Pins vanish on rotation", "Katie", "POC-2",
                        "minPrice=500000&maxBeds=4", "20260709-012811"):
             self.assertIn(needle, c["description"])
+        # No selectors chosen: no priority, no milestone.
+        self.assertIsNone(c["priority"])
+        self.assertIsNone(c["milestone_id"])
+
+    def test_tester_selectors_override_ai(self) -> None:
+        # Tester picks type/priority/milestone; these win over the AI guess.
+        status, data = self.request(
+            "POST", "/api/report-issue", token=self.TOKEN,
+            body={"description": "New idea for a saved-search alert",
+                  "issue_type": "new", "priority": "high", "milestone": "V1"},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(data["label"], "Feature")     # "new" -> Feature, not the AI's "Bug"
+        self.assertEqual(data["priority"], 2)          # high -> 2
+        self.assertEqual(data["milestone"], "V1")
+        c = self.created[0]
+        self.assertEqual(c["label_ids"], ["lbl-feat"])
+        self.assertEqual(c["priority"], 2)
+        self.assertEqual(c["project_id"], "proj-1")    # milestone forces the project
+        self.assertEqual(c["milestone_id"], "ms-v1")
+
+    def test_extension_maps_to_improvement(self) -> None:
+        status, data = self.request(
+            "POST", "/api/report-issue", token=self.TOKEN,
+            body={"description": "extend the filter panel", "issue_type": "extension", "priority": "urgent"},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(data["label"], "Improvement")
+        self.assertEqual(data["priority"], 1)
+        self.assertEqual(self.created[0]["label_ids"], ["lbl-imp"])
+
+    def test_unknown_selectors_ignored(self) -> None:
+        # Garbage selector values fall back to AI/no-op, never error.
+        status, data = self.request(
+            "POST", "/api/report-issue", token=self.TOKEN,
+            body={"description": "x", "issue_type": "banana", "priority": "meh", "milestone": "V9"},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(data["label"], "Bug")   # falls back to the AI label
+        self.assertIsNone(data["priority"])
+        self.assertIsNone(data["milestone"])
+        self.assertIsNone(self.created[0]["milestone_id"])
+
+    def test_milestone_without_project_is_skipped(self) -> None:
+        # If the project could not be resolved, a milestone choice is dropped
+        # rather than erroring (the issue still files).
+        server.linear_resolve_triage_context = lambda: {
+            "team_id": "team-1", "triage_state_id": "state-1",
+            "labels": {"bug": "lbl-bug", "improvement": "lbl-imp",
+                       "feature": "lbl-feat", "needs-triage": "lbl-nt"},
+            "project_id": None, "milestones": {},
+        }
+        status, data = self.request(
+            "POST", "/api/report-issue", token=self.TOKEN,
+            body={"description": "x", "milestone": "V1"},
+        )
+        self.assertEqual(status, 200)
+        self.assertIsNone(data["milestone"])
+        self.assertIsNone(self.created[0]["milestone_id"])
+        self.assertIsNone(self.created[0]["project_id"])
 
     def test_ai_failure_falls_back(self) -> None:
         server.anthropic_triage_firstpass = lambda desc, issues: None

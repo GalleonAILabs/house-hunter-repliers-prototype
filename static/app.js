@@ -2095,29 +2095,25 @@ async function deletePoi(poi, force = false) {
 // A tester describes a bug, optionally attaches a photo/screenshot, and the
 // server files it in Linear Triage with captured context and an AI first-pass.
 // The button only appears when the server has a Linear key (REPORT_ENABLED).
+// The pristine report-form markup, captured from index.html once so it is the
+// single source of truth. sendReport replaces the body with a thanks message,
+// so openReportModal restores this to reset the form.
+let REPORT_BODY_HTML = null;
+
 function initReportButton() {
   const btn = $('reportIssueBtn');
   if (!btn) return;
   if (!REPORT_ENABLED) { btn.hidden = true; return; }
+  REPORT_BODY_HTML = $('reportBody')?.innerHTML || '';
   btn.hidden = false;
   btn.addEventListener('click', openReportModal);
   $('reportClose')?.addEventListener('click', closeReportModal);
   $('reportOverlay')?.addEventListener('click', closeReportModal);
-  $('reportSend')?.addEventListener('click', () => sendReport().catch(err => {
-    showFeedbackStatus($('reportStatus'), err.message || 'Could not send. Try again.', true);
-  }));
 }
 
 function openReportModal() {
   const body = $('reportBody');
-  // Reset the form each open (it may have been replaced by a thanks message).
-  body.innerHTML = ''
-    + '<label>What happened? What did you expect?'
-    + '<textarea id="reportText" rows="5" placeholder="e.g. The map pins disappear when I rotate my phone"></textarea></label>'
-    + '<label>Screenshot or photo (optional)'
-    + '<input type="file" id="reportImage" accept="image/*" /></label>'
-    + '<div class="app-modal-status" id="reportStatus"></div>'
-    + '<button id="reportSend">Send report</button>';
+  body.innerHTML = REPORT_BODY_HTML;  // reset the form (a prior send left a thanks message)
   $('reportSend').addEventListener('click', () => sendReport().catch(err => {
     showFeedbackStatus($('reportStatus'), err.message || 'Could not send. Try again.', true);
   }));
@@ -2192,7 +2188,13 @@ async function sendReport() {
   const file = $('reportImage')?.files?.[0] || null;
   const image = await prepareReportImage(file);
 
-  const payload = { description, context: reportContext() };
+  const payload = {
+    description,
+    issue_type: $('reportType')?.value || '',
+    priority: $('reportPriority')?.value || '',
+    milestone: $('reportMilestone')?.value || '',
+    context: reportContext(),
+  };
   if (image) { payload.image_base64 = image.image_base64; payload.image_mimetype = image.image_mimetype; }
 
   let res, data;

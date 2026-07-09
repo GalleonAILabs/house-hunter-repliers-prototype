@@ -69,6 +69,15 @@ MAPBOX_TOKEN = os.getenv("MAPBOX_TOKEN", "")
 LINEAR_API_KEY = os.getenv("LINEAR_API_KEY", "")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 LINEAR_TEAM_KEY = os.getenv("LINEAR_TEAM_KEY", "GAL")
+# Project a tester-chosen milestone (Alpha/V1/V2) resolves against. Milestones
+# belong to a project, so a report with a milestone is filed into this project
+# (still in the Triage state). Resolved by name; leave milestone unset if the
+# project or milestone name is not found.
+LINEAR_PROJECT_NAME = os.getenv("LINEAR_PROJECT_NAME", "House Hunter - Alpha")
+# Tester-facing triage selectors (GAL-42 follow-up). Priority maps to Linear's
+# 0-4 scale; type maps to the team's labels; milestone maps by name.
+REPORT_PRIORITY_MAP = {"urgent": 1, "high": 2, "medium": 3, "low": 4}
+REPORT_TYPE_LABELS = {"bug": "bug", "extension": "improvement", "new": "feature"}
 LINEAR_API_URL = "https://api.linear.app/graphql"
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_TRIAGE_MODEL = "claude-haiku-4-5-20251001"
@@ -2637,15 +2646,21 @@ def linear_graphql(query: str, variables: dict[str, Any] | None = None) -> dict[
 
 
 def linear_resolve_triage_context() -> dict[str, Any]:
-    """Team id, Triage state id, and label ids for team GAL, cached per process.
-    Raises if the team or a Triage state cannot be found."""
+    """Team id, Triage state id, label ids, and the milestone project id plus
+    its milestone ids, for team GAL, cached per process. Raises if the team or
+    a Triage state cannot be found; the project/milestones are best-effort (a
+    report just files without a milestone when they are absent)."""
     global _REPORT_TRIAGE_CACHE
     if _REPORT_TRIAGE_CACHE is not None:
         return _REPORT_TRIAGE_CACHE
     query = (
         "query ResolveTeam($key: String!) {"
         "  teams(filter: { key: { eq: $key } }) {"
-        "    nodes { id key states { nodes { id name type } } labels { nodes { id name } } }"
+        "    nodes { id key"
+        "      states { nodes { id name type } }"
+        "      labels { nodes { id name } }"
+        "      projects { nodes { id name projectMilestones { nodes { id name } } } }"
+        "    }"
         "  }"
         "}"
     )
@@ -2664,10 +2679,26 @@ def linear_resolve_triage_context() -> dict[str, Any]:
         (lbl.get("name") or "").lower(): lbl.get("id")
         for lbl in team.get("labels", {}).get("nodes", [])
     }
+    # Project + its milestones, for tester-chosen milestone. Best-effort.
+    project_id = None
+    milestones: dict[str, str] = {}
+    projects = team.get("projects", {}).get("nodes", [])
+    project = next(
+        (p for p in projects if (p.get("name") or "").lower() == LINEAR_PROJECT_NAME.lower()),
+        None,
+    )
+    if project:
+        project_id = project.get("id")
+        milestones = {
+            (m.get("name") or "").lower(): m.get("id")
+            for m in project.get("projectMilestones", {}).get("nodes", [])
+        }
     _REPORT_TRIAGE_CACHE = {
         "team_id": team["id"],
         "triage_state_id": triage["id"],
         "labels": labels,
+        "project_id": project_id,
+        "milestones": milestones,
     }
     return _REPORT_TRIAGE_CACHE
 
@@ -2723,9 +2754,12 @@ def linear_upload_image(data: bytes, mimetype: str, filename: str) -> str | None
 
 def linear_create_issue(
     title: str, description: str, team_id: str, state_id: str, label_ids: list[str],
+    priority: int | None = None, project_id: str | None = None,
+    milestone_id: str | None = None,
 ) -> dict[str, Any]:
     """Create the Triage issue. Returns {identifier, url, id}. Raises on failure
-    (this is the one hard error path: a report that cannot be filed is a 502)."""
+    (this is the one hard error path: a report that cannot be filed is a 502).
+    priority is Linear's 0-4 scale; a milestone also needs its project set."""
     mutation = (
         "mutation CreateIssue($input: IssueCreateInput!) {"
         "  issueCreate(input: $input) { success issue { id identifier url } }"
@@ -2739,6 +2773,12 @@ def linear_create_issue(
     }
     if label_ids:
         issue_input["labelIds"] = label_ids
+    if priority is not None:
+        issue_input["priority"] = priority
+    # A projectMilestone is only valid when the issue is in that project.
+    if milestone_id and project_id:
+        issue_input["projectId"] = project_id
+        issue_input["projectMilestoneId"] = milestone_id
     data = linear_graphql(mutation, {"input": issue_input})
     result = data.get("issueCreate", {})
     if not result.get("success") or not result.get("issue"):
@@ -2901,17 +2941,32 @@ def handle_report_issue_post(
     open_titles = linear_open_triage_titles()
     ai = anthropic_triage_firstpass(description, open_titles)
 
+    # Tester-chosen triage selectors (GAL-42 follow-up). They are optional and
+    # take precedence over the AI guess when present.
+    type_key = REPORT_TYPE_LABELS.get((body.get("issue_type") or "").strip().lower())
+    priority = REPORT_PRIORITY_MAP.get((body.get("priority") or "").strip().lower())
+    milestone_key = (body.get("milestone") or "").strip().lower()
+    milestone_id = triage["milestones"].get(milestone_key) if milestone_key else None
+
     labels = triage["labels"]
     if ai:
         title = _strip_dashes(ai["title"])[:70]
-        label_name = ai["type_label"]
         duplicate_of = ai["duplicate_of"]
-        label_id = labels.get(label_name.lower())
     else:
         first_line = description.splitlines()[0] if description.splitlines() else description
         title = _strip_dashes("Tester report: " + first_line)[:70]
-        label_name = None
         duplicate_of = None
+
+    # Label precedence: the tester's type wins, then the AI type, then
+    # needs-triage as the catch-all.
+    if type_key:
+        label_name = {"bug": "Bug", "improvement": "Improvement", "feature": "Feature"}[type_key]
+        label_id = labels.get(type_key)
+    elif ai:
+        label_name = ai["type_label"]
+        label_id = labels.get(label_name.lower())
+    else:
+        label_name = None
         label_id = labels.get("needs-triage")
     label_ids = [label_id] if label_id else []
 
@@ -2926,9 +2981,13 @@ def handle_report_issue_post(
         duplicate_of=duplicate_of, ai_ok=bool(ai),
     )
 
+    milestone_set = bool(milestone_id and triage.get("project_id"))
     try:
         created = linear_create_issue(
             title, description_md, triage["team_id"], triage["triage_state_id"], label_ids,
+            priority=priority,
+            project_id=triage.get("project_id") if milestone_set else None,
+            milestone_id=milestone_id if milestone_set else None,
         )
     except (urllib.error.URLError, TimeoutError, ValueError, KeyError, RuntimeError) as exc:
         return {"error": "linear_error", "detail": str(exc)[:300]}, 502
@@ -2939,6 +2998,8 @@ def handle_report_issue_post(
         "url": created["url"],
         "title": title,
         "label": label_name,
+        "priority": priority,
+        "milestone": milestone_key.title() if milestone_set else None,
         "duplicate_of": duplicate_of,
         "ai_triage": bool(ai),
         "image_attached": bool(asset_url),
