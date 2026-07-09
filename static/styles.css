@@ -121,8 +121,10 @@ button.secondary { background:var(--bg); color:var(--ink); }
    appear to have no checkbox. */
 .chip input[type=checkbox] { width:13px; height:13px; margin:0; accent-color:var(--green); cursor:pointer; flex-shrink:0; }
 /* Layers-panel chips are full-width rows, so long labels wrap instead of
-   overflowing the panel or crushing the checkbox. */
-.map-layers-body .chip { white-space:normal; align-items:flex-start; }
+   overflowing the panel or crushing the checkbox. Center the checkbox against
+   the label: labels are short enough to sit on one line at the panel width, so
+   flex-start left the checkbox floating above the text (GAL-44). */
+.map-layers-body .chip { white-space:normal; align-items:center; }
 
 .feature-filter-block { grid-column:1/-1; min-width:0; display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:5px 0; border-top:1px dashed var(--line); }
 .feature-filter-caption { flex-basis:100%; font-size:12px; font-style:italic; color:var(--muted); }
@@ -359,7 +361,13 @@ button.secondary { background:var(--bg); color:var(--ink); }
    under a finger on mobile: without them the Mapbox canvas below claims the
    touch gesture (map pan) instead of scrolling the list. overscroll-behavior
    keeps the scroll from chaining to the map/page at the ends. */
-.map-layers-body{padding:2px 6px 10px 10px;display:flex;flex-direction:column;gap:6px;max-height:calc(100vh - 108px - 24px);overflow-y:auto;-webkit-overflow-scrolling:touch;touch-action:pan-y;overscroll-behavior:contain}
+/* Cap the scroll area so the panel ends above the fixed .status-bar band at the
+   bottom (its ~48px + a gap), instead of running underneath it with the last
+   rows unreachable (GAL-44). 108px is the panel's top offset, ~40px the "Layers"
+   summary above this body, ~60px the status-bar clearance. dvh (with a vh
+   fallback) measures the real visible viewport on mobile, where 100vh includes
+   the area behind the Android URL bar and would overshoot. */
+.map-layers-body{padding:2px 6px 10px 10px;display:flex;flex-direction:column;gap:6px;max-height:calc(100vh - 108px - 100px);max-height:calc(100dvh - 108px - 100px);overflow-y:auto;-webkit-overflow-scrolling:touch;touch-action:pan-y;overscroll-behavior:contain}
 /* Sub-group headings in the Layers menu (Transit / Roads & places): the list
    grew long enough with TTC added that grouping reads better than a flat list. */
 .layer-group-heading{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-top:4px;padding-top:6px;border-top:1px solid var(--line)}
