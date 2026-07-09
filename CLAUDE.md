@@ -162,6 +162,21 @@ On completing a request:
 
 No em dashes in any issue title, description, comment, or commit message.
 
+## Model routing
+
+Current mapping (update here when models change):
+- standard → Opus 4.8 (default)
+- frontier → Fable 5 (switch via /model)
+
+When creating any Linear issue, assess and apply a Complexity label:
+- frontier: architecture or data-model decisions, security/auth work,
+  ambiguous specs needing judgment, effort class L, cross-cutting refactors
+- standard: everything else (mechanical fixes, config, docs, well-specified
+  features)
+
+Before starting an issue labeled frontier, check the active model and
+switch if needed. Note the model used in the In Review comment.
+
 ## Skill routing
 
 When the user's request matches an available skill, invoke it via the Skill tool. When in doubt, invoke the skill.
