@@ -173,24 +173,35 @@ No em dashes in any issue title, description, comment, or commit message.
 ## Standard issue-pull procedure
 
 When Mark says "pull GAL-NN" (or /pull GAL-NN is run), execute this full
-workflow with no further instruction:
+workflow with no further instruction.
+
+**Multiple IDs:** a pull may name several issue IDs. Process them strictly one
+at a time, completing the full workflow below (through the In Review handoff, or
+the readiness skip) for one ID before starting the next. Never interleave.
+
+For each issue ID, in order:
 
 1. Fetch the issue and ALL its comments from Linear via MCP.
 2. Determine mode:
    - Status Backlog/Todo: fresh work. Build to the acceptance criteria.
    - Status In Progress or In Review with newer review comments: rework.
      Treat Mark's latest comments as the spec delta and fix per comments.
-3. Check the Complexity label; switch models per the Model routing
+3. Readiness guard (skip for rework driven by review comments). Check the
+   issue's Readiness label before building. If it is `needs-spec`, do NOT
+   build: comment on the issue listing the specific open questions blocking it,
+   skip the issue, and continue to the next ID. Only `agent-ready` issues (or
+   explicit rework per review comments) get built.
+4. Check the Complexity label; switch models per the Model routing
    section if needed.
-4. Move the issue to In Progress, assign to self.
-5. Do the work. Commits reference the issue (Refs GAL-NN / Fixes GAL-NN).
-6. If the change affects the running app, deploy via scripts/deploy.sh
+5. Move the issue to In Progress, assign to self.
+6. Do the work. Commits reference the issue (Refs GAL-NN / Fixes GAL-NN).
+7. If the change affects the running app, deploy via scripts/deploy.sh
    and verify per the six-width layout check when UI is touched (the
    390/600/768/900/1024/1280 standard, see DECISIONS.md).
-7. Move to In Review, reassign to Mark, comment a testing block:
+8. Move to In Review, reassign to Mark, comment a testing block:
    what changed, how to test (numbered steps), expected result,
    deployed yes/no, model used.
-8. Anything ambiguous: comment the question on the issue and stop.
+9. Anything ambiguous: comment the question on the issue and stop.
    Side discoveries become new Triage issues, never scope creep.
 
 ## Model routing
