@@ -31,12 +31,37 @@ session-level lessons and top-of-mind next steps.
   AND live; the only real gaps were two half-done items (mobile layers scroll,
   control-icon z-order), which became new work. Nothing had been reverted.
 
+### 2026-07-09
+
+- **Linear MCP now loads; worked GAL-40, GAL-17, GAL-41 end to end.** The
+  restart resolved the mid-session MCP gap from 07-08. Each request ran the full
+  discipline: create/pull issue, In Progress + self-assign, commit referencing
+  the issue, deploy where needed, In Review + reassign to Mark + testing-block
+  comment.
+- **GAL-40: added `/end-session` slash command.** Lives at
+  `.claude/commands/end-session.md` (not gitignored), encodes the workspace
+  Session-End Ritual and defers to the root `CLAUDE.md` as authoritative. It
+  spells out the two-repo commit split (project repo vs workspace-root allowlist)
+  because the project is a nested repo inside the workspace repo.
+- **GAL-17: scoped the Repliers sample to the Chicago metro.** `fetch_repliers()`
+  now injects `lat/long/radius` (41.8781 / -87.6298 / 50) only when the client
+  sends no `map` viewport, so map pan/zoom is not fighting a fixed radius, and
+  explicit client geo params still win. Env-overridable
+  (`REPLIERS_DEFAULT_LAT/LONG/RADIUS`) so an Ontario cutover is config, not code.
+  Verified live: `sourceCount=197`, all Chicago-metro. Corrected stale
+  "~300 listings" target to "~200" in `tasks/plan.md` (canonical docs already
+  said ~200); left the historical T8 finding intact.
+- **GAL-41: added a "Model routing" section to `CLAUDE.md`.** standard -> Opus
+  4.8, frontier -> Fable 5 via /model, with a per-issue Complexity assessment
+  and a rule to note the model used in the In Review comment.
+
 ## Top-of-mind next steps
 
-1. **Restart the session so the Linear MCP loads**, then pull GAL-17, move it to
-   In Progress, and work it per the CLAUDE.md Linear discipline.
-2. **Migrate the 32-item backlog inventory into Linear** (team GAL, project
+1. **Migrate the 32-item backlog inventory into Linear** (team GAL, project
    House Hunter - Alpha) with the type/milestone/readiness already assigned.
-3. Drop the already-done "inline quick-rating from the mini-card" item from the
+2. Drop the already-done "inline quick-rating from the mini-card" item from the
    backlog when migrating: it shipped this cycle (mini-card editable stars +
    inline note, deployed token 20260708-223600).
+3. **Apply the new Model routing policy going forward**: add a Complexity label
+   (frontier/standard) when creating GAL issues, and switch models before
+   starting a frontier issue.
