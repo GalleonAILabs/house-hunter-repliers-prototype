@@ -3518,9 +3518,19 @@ function showMapCard(item) {
 function closeMapCard() {
   $('mapCard').hidden = true;
   state.openMapItem = null;
-  // GAL-48: the just-closed card may have been pinned visible past an active
-  // filter (e.g. after rating under "No rating yet"); re-filter so it drops out.
-  applyFiltersAndRender();
+}
+
+// A user-initiated card dismiss (X button, tap outside). Unlike closeMapCard,
+// this re-runs the filters so a listing that was pinned visible past a filter
+// while its card was open (e.g. after rating under "No rating yet", GAL-48)
+// drops out now. It must NOT be called from refreshMap: refreshMap already
+// calls closeMapCard, and applyFiltersAndRender calls refreshMap, so wiring the
+// re-filter into closeMapCard itself caused infinite recursion that left the
+// map with no pins.
+function dismissMapCard() {
+  const wasOpen = state.openMapItem != null;
+  closeMapCard();
+  if (wasOpen) applyFiltersAndRender();
 }
 
 // ─── Click-outside-to-dismiss ──────────────────────────────────────────────────
@@ -3564,7 +3574,7 @@ function closeOutsideDetailsPanels(clickTarget) {
 function closeOutsidePanels(clickTarget) {
   closeOutsideDetailsPanels(clickTarget);
   const mapCard = $('mapCard');
-  if (mapCard && !mapCard.hidden && !mapCard.contains(clickTarget)) closeMapCard();
+  if (mapCard && !mapCard.hidden && !mapCard.contains(clickTarget)) dismissMapCard();
   const clusterPopup = $('clusterPopup');
   if (clusterPopup && !clusterPopup.hidden && !clusterPopup.contains(clickTarget)) closeClusterPopup();
 }
@@ -5097,7 +5107,7 @@ window.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.settings-nav-row').forEach(row => {
     row.addEventListener('click', () => showSettingsPage(row.dataset.target, row.dataset.title));
   });
-  $('mapCardClose').addEventListener('click', closeMapCard);
+  $('mapCardClose').addEventListener('click', dismissMapCard);
   document.addEventListener('click', e => closeOutsidePanels(e.target));
   $('settingsSelectAll').addEventListener('click', () => { CARD_FIELDS.forEach(f => cardSettings[f.key] = true); saveSettings(); buildSettingsPanel(); applyCardVisibility(); });
   $('settingsSelectNone').addEventListener('click', () => { CARD_FIELDS.forEach(f => { if (f.key !== 'actions') cardSettings[f.key] = false; }); saveSettings(); buildSettingsPanel(); applyCardVisibility(); });
