@@ -1113,7 +1113,13 @@ function filterByFeedback(listings) {
   const statusVal = $('filterStatus')?.value || '';
   const keyword = ($('q')?.value || '').trim().toLowerCase();
   const personFilters = state.people.map(p => ({ id: p.id, values: checkedValuesFor(p.id) }));
+  const openMls = state.openMapItem?.mls;
   return listings.filter(item => {
+    // GAL-48: keep the currently-open property card visible even when the
+    // rating just entered in it would filter it out (e.g. the "No rating yet"
+    // person filter), so the user can still add a note after rating. It drops
+    // out when the card is closed (closeMapCard re-runs the filters).
+    if (openMls && item.mls === openMls) return true;
     if (!matchesStatusFilter(item.mls, statusVal)) return false;
     if ($('hideVetoed')?.checked && isVetoed(item)) return false;
     if (!matchesKeyword(item, keyword)) return false;
@@ -3421,7 +3427,13 @@ function showMapCard(item) {
   }
 }
 
-function closeMapCard() { $('mapCard').hidden = true; state.openMapItem = null; }
+function closeMapCard() {
+  $('mapCard').hidden = true;
+  state.openMapItem = null;
+  // GAL-48: the just-closed card may have been pinned visible past an active
+  // filter (e.g. after rating under "No rating yet"); re-filter so it drops out.
+  applyFiltersAndRender();
+}
 
 // ─── Click-outside-to-dismiss ──────────────────────────────────────────────────
 // One consistent rule for every open dropdown/panel: Filters, the map Layers
