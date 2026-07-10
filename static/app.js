@@ -2684,7 +2684,7 @@ async function addPoiPin() {
   let feature = null;
   try {
     const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json`
-      + `?access_token=${encodeURIComponent(MAPBOX_TOKEN)}&proximity=-79.5,44.0&limit=1`;
+      + `?access_token=${encodeURIComponent(MAPBOX_TOKEN)}&proximity=-79.5,44.0&limit=1&country=ca`;
     const res = await fetch(url);
     if (res.ok) {
       const data = await res.json();
@@ -2726,7 +2726,7 @@ async function addPoiPin() {
 async function geocodePlace(query) {
   try {
     const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json`
-      + `?access_token=${encodeURIComponent(MAPBOX_TOKEN)}&proximity=-79.5,44.0&limit=1`;
+      + `?access_token=${encodeURIComponent(MAPBOX_TOKEN)}&proximity=-79.5,44.0&limit=1&country=ca`;
     const res = await fetch(url);
     if (!res.ok) return null;
     const data = await res.json();
@@ -2740,7 +2740,7 @@ async function geocodePlace(query) {
 async function geocodeSuggest(query) {
   try {
     const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json`
-      + `?access_token=${encodeURIComponent(MAPBOX_TOKEN)}&proximity=-79.5,44.0&limit=5`;
+      + `?access_token=${encodeURIComponent(MAPBOX_TOKEN)}&proximity=-79.5,44.0&limit=5&country=ca`;
     const res = await fetch(url);
     if (!res.ok) return [];
     const data = await res.json();
@@ -4367,7 +4367,7 @@ async function bulkNoteGo() {
 
 async function geocodeAddress(query) {
   const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json`
-    + `?access_token=${encodeURIComponent(MAPBOX_TOKEN)}&proximity=-79.5,44.0&limit=1`;
+    + `?access_token=${encodeURIComponent(MAPBOX_TOKEN)}&proximity=-79.5,44.0&limit=1&country=ca`;
   const res = await fetch(url);
   if (!res.ok) return null;
   const data = await res.json();
