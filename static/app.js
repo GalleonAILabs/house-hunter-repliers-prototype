@@ -2735,6 +2735,19 @@ async function geocodePlace(query) {
   } catch (err) { console.error(err); return null; }
 }
 
+// GAL-53: typeahead suggestions for adding a place by name or address (e.g.
+// "Islington United Church"). Returns up to 5 Mapbox matches near the GTA.
+async function geocodeSuggest(query) {
+  try {
+    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json`
+      + `?access_token=${encodeURIComponent(MAPBOX_TOKEN)}&proximity=-79.5,44.0&limit=5`;
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.features || []).map(f => ({ lng: f.center[0], lat: f.center[1], label: f.place_name }));
+  } catch (err) { console.error(err); return []; }
+}
+
 // GAL-55: which listing's "Attach a place" composer should stay open across a
 // card rebuild, so a buyer can add several places (school, work, gym) without
 // reopening it each time. Cleared when the composer is closed.
@@ -2811,11 +2824,36 @@ function buildPlaceAttachments(node, item) {
   };
   refreshPoiOptions();
 
-  const addrInput = el('input', { type: 'text', placeholder: 'Address or place name' });
+  const addrInput = el('input', { type: 'text', placeholder: 'Search a name or address, e.g. Islington United Church' });
+  // GAL-53: live suggestions. selectedPlaceRef holds a picked suggestion so the
+  // attach uses its exact coordinates instead of re-geocoding the typed text.
+  const suggestBox = el('div', { className: 'attach-suggest' });
+  suggestBox.hidden = true;
+  const selectedPlaceRef = { value: null };
+  let suggestTimer = null;
+  const runSuggest = async () => {
+    const q = addrInput.value.trim();
+    selectedPlaceRef.value = null; // typing invalidates a prior pick
+    if (q.length < 3) { suggestBox.hidden = true; suggestBox.innerHTML = ''; return; }
+    const places = await geocodeSuggest(q);
+    if (addrInput.value.trim() !== q) return; // a newer keystroke superseded this
+    suggestBox.innerHTML = '';
+    if (!places.length) { suggestBox.hidden = true; return; }
+    places.forEach(p => {
+      const opt = el('button', { type: 'button', className: 'attach-suggest-item', textContent: p.label });
+      opt.addEventListener('click', () => {
+        addrInput.value = p.label; selectedPlaceRef.value = p;
+        suggestBox.hidden = true; suggestBox.innerHTML = '';
+      });
+      suggestBox.append(opt);
+    });
+    suggestBox.hidden = false;
+  };
+  addrInput.addEventListener('input', () => { clearTimeout(suggestTimer); suggestTimer = setTimeout(runSuggest, 250); });
   const typeSel = el('select', { className: 'attach-select' });
   typeSel.innerHTML = Object.entries(POI_TYPE_META).map(([k, v]) => `<option value="${k}">${esc(v.label)}</option>`).join('');
   typeSel.value = 'work';
-  const newWrap = el('div', { className: 'attach-new-wrap' }, addrInput, typeSel);
+  const newWrap = el('div', { className: 'attach-new-wrap' }, addrInput, suggestBox, typeSel);
 
   const applyMode = () => {
     const isNew = modeSel.value === 'new';
@@ -2827,7 +2865,7 @@ function buildPlaceAttachments(node, item) {
 
   const statusEl = el('div', { className: 'feedback-status' });
   const confirmBtn = el('button', { type: 'button', textContent: 'Attach' });
-  confirmBtn.addEventListener('click', () => attachPlace(item, { modeSel, poiSel, addrInput, typeSel, statusEl, confirmBtn }));
+  confirmBtn.addEventListener('click', () => attachPlace(item, { modeSel, poiSel, addrInput, typeSel, statusEl, confirmBtn, selectedPlaceRef }));
 
   const hint = el('div', { className: 'attach-hint', textContent: 'Add as many places as you like (school, work, gym). The form stays open so you can add another.' });
   composer.append(modeSel, poiSel, newWrap, confirmBtn, statusEl, hint);
@@ -2845,10 +2883,15 @@ async function attachPlace(item, ui) {
     let body;
     if (ui.modeSel.value === 'new') {
       const query = ui.addrInput.value.trim();
-      if (!query) { showFeedbackStatus(ui.statusEl, 'Enter an address.', true); return; }
-      showFeedbackStatus(ui.statusEl, 'Looking up address…', false);
-      const place = await geocodePlace(query);
-      if (!place) { showFeedbackStatus(ui.statusEl, 'No place found for that address.', true); return; }
+      if (!query) { showFeedbackStatus(ui.statusEl, 'Enter a name or address.', true); return; }
+      // Use the picked suggestion's exact coordinates when there is one (GAL-53),
+      // otherwise geocode the typed text.
+      let place = ui.selectedPlaceRef && ui.selectedPlaceRef.value;
+      if (!place) {
+        showFeedbackStatus(ui.statusEl, 'Looking up address…', false);
+        place = await geocodePlace(query);
+      }
+      if (!place) { showFeedbackStatus(ui.statusEl, 'No place found for that name or address.', true); return; }
       body = { listing_id: item.mls, person_id: state.activePerson,
                new_place: { type: ui.typeSel.value, label: place.label, lat: place.lat, lng: place.lng } };
     } else {
