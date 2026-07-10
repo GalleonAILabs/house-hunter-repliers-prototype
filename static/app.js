@@ -3827,6 +3827,15 @@ function populateCard(node, item) {
     docBtn.textContent = 'Search Drive';
   }
 
+  // GAL-58: direct link to Google Maps at the property, coordinates first for
+  // accuracy, address as a fallback. Opens the Maps app on mobile.
+  const mapsBtn = node.querySelector('.card-maps-btn');
+  if (mapsBtn) {
+    const q = (item.lat != null && item.lng != null) ? `${item.lat},${item.lng}` : (item.address || '');
+    if (q) mapsBtn.href = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q);
+    else mapsBtn.style.display = 'none';
+  }
+
   // Show on map (list view only, switches to map view and shows card)
   const showMapBtn = node.querySelector('.show-map');
   if (showMapBtn) {
