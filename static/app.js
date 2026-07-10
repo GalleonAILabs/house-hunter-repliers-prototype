@@ -1257,10 +1257,12 @@ function buildPotentialPriceEditor(node, item) {
   box.className = 'feedback-compose';
   box.hidden = true;
   const input = document.createElement('input');
-  input.type = 'number';
-  input.min = '0';
-  input.step = '1000';
+  // Text + numeric inputmode (not type=number) so thousands separators can show
+  // during entry (GAL-60); wirePriceInput keeps dataset.raw as the digit value.
+  input.type = 'text';
+  input.inputMode = 'numeric';
   input.placeholder = 'Potential purchase price';
+  wirePriceInput(input);
   const saveBtn = document.createElement('button');
   saveBtn.type = 'button';
   saveBtn.textContent = 'Save';
@@ -1269,7 +1271,7 @@ function buildPotentialPriceEditor(node, item) {
 
   saveBtn.addEventListener('click', async () => {
     if (!state.activePerson) { showFeedbackStatus(statusEl, 'Select who you are first.', true); return; }
-    const price = Number(input.value);
+    const price = Number(input.dataset.raw || input.value.replace(/[^\d]/g, ''));
     if (!price || price <= 0) { showFeedbackStatus(statusEl, 'Enter a positive number.', true); return; }
     try {
       const res = await fetch('/api/potential-purchase-prices', {
@@ -1287,8 +1289,11 @@ function buildPotentialPriceEditor(node, item) {
   box.append(input, saveBtn, statusEl);
 
   editBtn.addEventListener('click', () => {
-    if (box.hidden) { input.value = entry ? entry.price : ''; box.hidden = false; }
-    else { box.hidden = true; }
+    if (box.hidden) {
+      input.value = entry ? formatThousands(String(entry.price)) : '';
+      input.dataset.raw = entry ? String(entry.price) : '';
+      box.hidden = false;
+    } else { box.hidden = true; }
   });
 
   // Clear reverts the listing fully to the never-entered state: no
@@ -4657,17 +4662,27 @@ function formatThousands(digits) {
   return digits ? Number(digits).toLocaleString('en-US') : '';
 }
 
-function wirePriceInput(id) {
-  const el = $(id);
+function wirePriceInput(el) {
+  // Accept an id or the element itself, so dynamically-created money inputs
+  // (e.g. the est purchase price editor) can reuse this too (GAL-60).
+  if (typeof el === 'string') el = $(el);
   if (!el) return;
-  el.addEventListener('blur', () => {
+  // GAL-60: show thousands separators DURING entry, not just on blur. Reformat
+  // on each input and keep the caret after the same number of digits.
+  const reformat = () => {
+    const caret = el.selectionStart == null ? el.value.length : el.selectionStart;
+    const digitsBeforeCaret = el.value.slice(0, caret).replace(/[^\d]/g, '').length;
     const digits = el.value.replace(/[^\d]/g, '');
     el.dataset.raw = digits;
     el.value = formatThousands(digits);
-  });
-  el.addEventListener('focus', () => {
-    if (el.dataset.raw) el.value = el.dataset.raw;
-  });
+    if (el.selectionStart != null) {
+      let pos = 0, seen = 0;
+      while (pos < el.value.length && seen < digitsBeforeCaret) { if (/\d/.test(el.value[pos])) seen++; pos++; }
+      try { el.setSelectionRange(pos, pos); } catch (_) { /* type may not allow selection */ }
+    }
+  };
+  el.addEventListener('input', reformat);
+  el.addEventListener('blur', reformat);
 }
 
 function numericFieldValue(id) {
