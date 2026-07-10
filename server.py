@@ -77,7 +77,7 @@ LINEAR_PROJECT_NAME = os.getenv("LINEAR_PROJECT_NAME", "House Hunter - Alpha")
 # Tester-facing triage selectors (GAL-42 follow-up). Priority maps to Linear's
 # 0-4 scale; type maps to the team's labels; milestone maps by name.
 REPORT_PRIORITY_MAP = {"urgent": 1, "high": 2, "medium": 3, "low": 4}
-REPORT_TYPE_LABELS = {"bug": "bug", "extension": "improvement", "new": "feature"}
+REPORT_TYPE_LABELS = {"bug": "bug", "extension": "improvement", "new": "feature", "question": "question"}
 LINEAR_API_URL = "https://api.linear.app/graphql"
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_TRIAGE_MODEL = "claude-haiku-4-5-20251001"
@@ -2971,7 +2971,7 @@ def handle_report_issue_post(
     # Label precedence: the tester's type wins, then the AI type, then
     # needs-triage as the catch-all.
     if type_key:
-        label_name = {"bug": "Bug", "improvement": "Improvement", "feature": "Feature"}[type_key]
+        label_name = {"bug": "Bug", "improvement": "Improvement", "feature": "Feature", "question": "Question"}[type_key]
         label_id = labels.get(type_key)
     elif ai:
         label_name = ai["type_label"]
