@@ -2735,6 +2735,11 @@ async function geocodePlace(query) {
   } catch (err) { console.error(err); return null; }
 }
 
+// GAL-55: which listing's "Attach a place" composer should stay open across a
+// card rebuild, so a buyer can add several places (school, work, gym) without
+// reopening it each time. Cleared when the composer is closed.
+let attachComposerOpenFor = null;
+
 function buildPlaceAttachments(node, item) {
   const container = node.querySelector('.card-place-attachments');
   if (!container) return;
@@ -2793,7 +2798,8 @@ function buildPlaceAttachments(node, item) {
 
   const addBtn = el('button', { type: 'button', className: 'secondary fb-btn', textContent: '➕ Attach a place' });
   const composer = el('div', { className: 'feedback-compose attach-compose' });
-  composer.hidden = true;
+  // Stay open across the rebuild that follows a successful attach (GAL-55).
+  composer.hidden = attachComposerOpenFor !== item.mls;
 
   const modeSel = el('select', { className: 'attach-select' });
   modeSel.innerHTML = `<option value="existing">Choose a pinned place</option><option value="new">New address</option>`;
@@ -2823,8 +2829,12 @@ function buildPlaceAttachments(node, item) {
   const confirmBtn = el('button', { type: 'button', textContent: 'Attach' });
   confirmBtn.addEventListener('click', () => attachPlace(item, { modeSel, poiSel, addrInput, typeSel, statusEl, confirmBtn }));
 
-  composer.append(modeSel, poiSel, newWrap, confirmBtn, statusEl);
-  addBtn.addEventListener('click', () => { if (composer.hidden) { refreshPoiOptions(); composer.hidden = false; } else { composer.hidden = true; } });
+  const hint = el('div', { className: 'attach-hint', textContent: 'Add as many places as you like (school, work, gym). The form stays open so you can add another.' });
+  composer.append(modeSel, poiSel, newWrap, confirmBtn, statusEl, hint);
+  addBtn.addEventListener('click', () => {
+    if (composer.hidden) { refreshPoiOptions(); composer.hidden = false; attachComposerOpenFor = item.mls; }
+    else { composer.hidden = true; attachComposerOpenFor = null; }
+  });
   container.append(addBtn, composer);
 }
 
@@ -2852,6 +2862,7 @@ async function attachPlace(item, ui) {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || data.error || 'Attach failed');
+    attachComposerOpenFor = item.mls; // keep the composer open so another place can be added (GAL-55)
     await reloadAfterAttachmentChange(item);
   } catch (err) {
     showFeedbackStatus(ui.statusEl, err.message, true);
