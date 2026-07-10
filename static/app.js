@@ -2743,17 +2743,46 @@ function buildPlaceAttachments(node, item) {
 
   container.append(el('div', { className: 'attach-heading', textContent: 'Attached places' }));
 
+  // GAL-56: the active person's "Max travel time to a place" threshold was
+  // stored but never surfaced anywhere, so a home over the limit showed no
+  // warning. If the active person set a max travel time to THIS place, flag on
+  // the row whether the drive clears it (travel_dest_ref is the poi id,
+  // travel_minutes the limit in minutes).
+  const activeT = thresholdFor(state.activePerson);
+
   (state.placeAttachments[item.mls] || []).forEach(a => {
     const typeLabel = (POI_TYPE_META[a.poi_type] || POI_TYPE_META.other).label;
     const straight = a.straight_km != null ? `${num(a.straight_km)} km straight-line` : '';
     const drive = a.drive_minutes != null
       ? `${num(a.drive_minutes)} min drive` + (a.drive_km != null ? ` (${num(a.drive_km)} km)` : '')
       : 'drive time unavailable';
-    const row = el('div', { className: 'attach-row' });
-    row.append(el('div', { className: 'attach-info' },
+    const info = el('div', { className: 'attach-info' },
       el('span', { className: 'attach-name', textContent: a.poi_label || typeLabel }),
       el('span', { className: 'attach-detail', textContent: [straight, drive].filter(Boolean).join(' · ') }),
-      el('span', { className: 'attach-by', textContent: `added by ${a.created_by_name}` })));
+      el('span', { className: 'attach-by', textContent: `added by ${a.created_by_name}` }));
+
+    const overLimit = activeT && activeT.travel_dest_kind === 'poi'
+      && String(activeT.travel_dest_ref) === String(a.poi_id)
+      && activeT.travel_minutes != null;
+    if (overLimit) {
+      const limit = Number(activeT.travel_minutes);
+      const who = (state.people.find(p => p.id === state.activePerson) || {}).name || 'your';
+      let badge;
+      if (a.drive_minutes == null) {
+        badge = el('span', { className: 'attach-limit attach-limit-unknown',
+          textContent: `drive time unavailable, cannot check ${who}'s ${limit} min limit` });
+      } else if (a.drive_minutes > limit) {
+        badge = el('span', { className: 'attach-limit attach-limit-bad',
+          textContent: `× ${num(a.drive_minutes)} min drive is over ${who}'s ${limit} min limit` });
+      } else {
+        badge = el('span', { className: 'attach-limit attach-limit-good',
+          textContent: `✓ within ${who}'s ${limit} min limit` });
+      }
+      info.append(badge);
+    }
+
+    const row = el('div', { className: 'attach-row' });
+    row.append(info);
     const recomputeBtn = el('button', { type: 'button', className: 'secondary fb-btn', textContent: '↻', title: 'Recompute drive time' });
     recomputeBtn.addEventListener('click', () => recomputeAttachment(item, a.id));
     const removeBtn = el('button', { type: 'button', className: 'secondary fb-btn fb-btn-reject', textContent: '✕', title: 'Remove this place' });
