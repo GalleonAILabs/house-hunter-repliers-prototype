@@ -492,6 +492,9 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .go-station-tooltip .mapboxgl-popup-content{background:var(--panel);color:var(--ink);border-radius:8px;box-shadow:var(--shadow);padding:6px 10px}
 
 @media (max-width:600px){ h1{font-size:16px}.view-btn{padding:5px 8px;font-size:12px}.cards{grid-template-columns:1fr}.controls{grid-template-columns:1fr}.topbar{padding:0 10px}.topbar-right{gap:4px}.icon-btn{padding:5px 6px}.status-bar{left:10px;right:10px;bottom:10px}.who-am-i{max-width:64px} }
+/* GAL-67: a third topbar icon (inbox) makes the row tight on small phones.
+   Reclaim space so topbar-right stays one line down to 360px. */
+@media (max-width:430px){ .topbar-left .pill{display:none}.topbar h1{font-size:15px}.topbar{padding:0 8px}.topbar-right{gap:3px}.view-btn{padding:4px 6px;font-size:11px}.who-am-i{max-width:52px}.icon-btn{padding:4px 5px} }
 /* Mobile map chrome: the Filters bar collapses to a compact right-side control
    (like Layers) sitting ABOVE the Layers panel, keeping its active-filter badge;
    it expands into a right-anchored dropdown. And "Both" is dropped from the
