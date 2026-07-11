@@ -4397,9 +4397,14 @@ function startPriceEdit(cell) {
   const item = findListing(mls) || state.rawListings.find(x => x.mls === mls);
   if (!item) return;
   const input = document.createElement('input');
-  input.type = 'number'; input.className = 'grid-price-input';
-  input.value = item.potentialPurchasePrice != null ? item.potentialPurchasePrice.price : '';
-  input.placeholder = item.price != null ? String(item.price) : 'price';
+  // Text + numeric inputmode (not type=number) so commas can show while typing,
+  // matching the card price editor (GAL-60). wirePriceInput keeps dataset.raw.
+  input.type = 'text'; input.inputMode = 'numeric'; input.className = 'grid-price-input';
+  const existing = item.potentialPurchasePrice != null ? String(item.potentialPurchasePrice.price) : '';
+  input.value = existing ? formatThousands(existing) : '';
+  input.dataset.raw = existing;
+  input.placeholder = item.price != null ? formatThousands(String(item.price)) : 'price';
+  wirePriceInput(input);
   cell.textContent = '';
   cell.appendChild(input);
   input.focus(); input.select();
@@ -4407,7 +4412,7 @@ function startPriceEdit(cell) {
   const finish = async (save) => {
     if (done) return; done = true;
     if (save) {
-      const v = input.value.trim();
+      const v = (input.dataset.raw || input.value.replace(/[^\d]/g, '')).trim();
       try {
         if (v === '') {
           if (item.potentialPurchasePrice != null) {
