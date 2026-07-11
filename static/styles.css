@@ -281,7 +281,11 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .inbox-time{font-size:11px;color:var(--muted)}
 .inbox-tag{font-size:10px;font-weight:800;color:var(--blue);background:rgba(43,103,214,0.14);border-radius:999px;padding:1px 7px}
 .inbox-empty{padding:16px;color:var(--muted);font-size:14px}
-.attach-limit{font-size:12px;font-weight:700;margin-top:2px}.attach-limit-bad{color:var(--red)}.attach-limit-good{color:var(--green)}.attach-limit-unknown{color:var(--muted);font-weight:600}
+/* GAL-56: match the highway badge pill (rounded, tinted) instead of plain text. */
+.attach-limit{align-self:flex-start;font-size:11px;font-weight:700;border-radius:999px;padding:2px 9px;border:1px solid var(--line);margin-top:3px}
+.attach-limit-bad{background:#fff0ee;color:var(--red);border-color:#ffc8c1}
+.attach-limit-good{background:#eaf5ec;color:var(--green);border-color:#bfe2c7}
+.attach-limit-unknown{background:var(--bg);color:var(--muted);font-weight:600}
 .attach-btns{display:flex;gap:6px;flex-shrink:0}.attach-btns .fb-btn{min-width:34px;padding:6px 8px}
 .attach-compose{flex-direction:column;align-items:stretch;gap:8px}.attach-select{min-height:34px;border:1px solid var(--line);border-radius:8px;padding:6px 8px;background:var(--panel);color:var(--ink);font-size:13px}.attach-new-wrap{display:flex;gap:8px;flex-wrap:wrap}.attach-new-wrap input{flex:1;min-width:140px}
 .card-comments{background:var(--bg);border-left:3px solid var(--blue);border-radius:0 10px 10px 0;padding:10px 14px;display:flex;flex-direction:column;gap:6px}.comment-line{font-size:13px;line-height:1.45}.comment-who{font-weight:800;color:var(--muted);margin-right:4px}.comment-date{font-size:11px;color:var(--muted);margin-right:6px}
