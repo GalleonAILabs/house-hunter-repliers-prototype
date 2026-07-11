@@ -3062,26 +3062,41 @@ function buildPlaceAttachments(node, item) {
   const suggestBox = el('div', { className: 'attach-suggest' });
   suggestBox.hidden = true;
   const selectedPlaceRef = { value: null };
-  let suggestTimer = null;
+  let suggestTimer = null, suggestItems = [], suggestIdx = -1;
+  const closeSuggest = () => { suggestBox.hidden = true; suggestBox.innerHTML = ''; suggestItems = []; suggestIdx = -1; };
+  const updateSuggestActive = () => { [...suggestBox.children].forEach((c, i) => c.classList.toggle('active', i === suggestIdx)); };
+  const pickSuggestion = (p) => { addrInput.value = p.label; selectedPlaceRef.value = p; closeSuggest(); addrInput.focus(); };
   const runSuggest = async () => {
     const q = addrInput.value.trim();
     selectedPlaceRef.value = null; // typing invalidates a prior pick
-    if (q.length < 3) { suggestBox.hidden = true; suggestBox.innerHTML = ''; return; }
+    if (q.length < 3) { closeSuggest(); return; }
     const places = await geocodeSuggest(q);
     if (addrInput.value.trim() !== q) return; // a newer keystroke superseded this
+    if (!places.length) { closeSuggest(); return; }
+    suggestItems = places; suggestIdx = -1;
     suggestBox.innerHTML = '';
-    if (!places.length) { suggestBox.hidden = true; return; }
     places.forEach(p => {
       const opt = el('button', { type: 'button', className: 'attach-suggest-item', textContent: p.label });
-      opt.addEventListener('click', () => {
-        addrInput.value = p.label; selectedPlaceRef.value = p;
-        suggestBox.hidden = true; suggestBox.innerHTML = '';
-      });
+      opt.addEventListener('mousedown', (e) => { e.preventDefault(); pickSuggestion(p); });
       suggestBox.append(opt);
     });
     suggestBox.hidden = false;
   };
   addrInput.addEventListener('input', () => { clearTimeout(suggestTimer); suggestTimer = setTimeout(runSuggest, 250); });
+  // GAL-55: own the Enter key. Without this the global .feedback-compose Enter
+  // delegate clicked the first button in the composer, which is now a
+  // suggestion button, so Enter never attached and the address was lost. Enter
+  // picks the highlighted suggestion when the list is open, otherwise attaches;
+  // stopPropagation keeps the global delegate from misfiring.
+  addrInput.addEventListener('keydown', (e) => {
+    if (!suggestBox.hidden && suggestItems.length) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); suggestIdx = (suggestIdx + 1) % suggestItems.length; updateSuggestActive(); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); suggestIdx = (suggestIdx - 1 + suggestItems.length) % suggestItems.length; updateSuggestActive(); return; }
+      if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); pickSuggestion(suggestItems[suggestIdx >= 0 ? suggestIdx : 0]); return; }
+      if (e.key === 'Escape') { e.preventDefault(); closeSuggest(); return; }
+    }
+    if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); confirmBtn.click(); }
+  });
   const typeSel = el('select', { className: 'attach-select' });
   typeSel.innerHTML = Object.entries(POI_TYPE_META).map(([k, v]) => `<option value="${k}">${esc(v.label)}</option>`).join('');
   typeSel.value = 'work';
