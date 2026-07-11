@@ -249,6 +249,32 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .attach-suggest-item{text-align:left;background:transparent;border:0;border-bottom:1px solid var(--line);padding:8px 10px;font-size:12px;color:var(--ink);cursor:pointer;min-height:36px}
 .attach-suggest-item:last-child{border-bottom:0}
 .attach-suggest-item:hover,.attach-suggest-item:focus{background:var(--bg)}
+/* GAL-67: discussion thread + composer + @mentions + inbox */
+.card-discussion{display:flex;flex-direction:column;gap:8px;margin-top:6px}
+.comment-thread{display:flex;flex-direction:column;gap:8px}
+.comment-empty{font-size:12px;color:var(--muted)}
+.comment-row{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.comment-head{display:flex;justify-content:space-between;gap:8px;margin-bottom:3px}
+.comment-author{font-weight:800;font-size:13px}
+.comment-time{font-size:11px;color:var(--muted)}
+.comment-body{font-size:13px;white-space:pre-wrap;word-break:break-word}
+.mention{color:var(--blue);font-weight:700}
+.mention-me{background:rgba(43,103,214,0.14);border-radius:4px;padding:0 3px}
+.comment-compose{position:relative;display:flex;flex-direction:column;gap:6px}
+.comment-input{width:100%;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);padding:8px 10px;font-size:14px;resize:vertical;font-family:inherit}
+.mention-menu{position:absolute;left:0;right:0;top:100%;z-index:5;max-height:160px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;background:var(--panel);box-shadow:var(--shadow)}
+.mention-menu[hidden]{display:none}
+.mention-item{display:block;width:100%;text-align:left;background:transparent;border:0;padding:8px 10px;font-size:13px;color:var(--ink);cursor:pointer;min-height:36px}
+.mention-item.active,.mention-item:hover{background:var(--bg)}
+.inbox-btn{position:relative}
+.inbox-row{display:flex;flex-direction:column;gap:3px;width:100%;text-align:left;background:transparent;border:0;border-bottom:1px solid var(--line);padding:12px 16px;cursor:pointer;color:var(--ink)}
+.inbox-row:hover{background:var(--bg)}
+.inbox-line{font-size:13px;line-height:1.4}
+.inbox-snippet{color:var(--muted)}
+.inbox-meta{display:flex;align-items:center;gap:8px}
+.inbox-time{font-size:11px;color:var(--muted)}
+.inbox-tag{font-size:10px;font-weight:800;color:var(--blue);background:rgba(43,103,214,0.14);border-radius:999px;padding:1px 7px}
+.inbox-empty{padding:16px;color:var(--muted);font-size:14px}
 .attach-limit{font-size:12px;font-weight:700;margin-top:2px}.attach-limit-bad{color:var(--red)}.attach-limit-good{color:var(--green)}.attach-limit-unknown{color:var(--muted);font-weight:600}
 .attach-btns{display:flex;gap:6px;flex-shrink:0}.attach-btns .fb-btn{min-width:34px;padding:6px 8px}
 .attach-compose{flex-direction:column;align-items:stretch;gap:8px}.attach-select{min-height:34px;border:1px solid var(--line);border-radius:8px;padding:6px 8px;background:var(--panel);color:var(--ink);font-size:13px}.attach-new-wrap{display:flex;gap:8px;flex-wrap:wrap}.attach-new-wrap input{flex:1;min-width:140px}

@@ -394,6 +394,7 @@ const CARD_FIELDS = [
   { key: 'ratings',   group: 'opinions', label: 'Ratings', desc: 'Per-person star ratings', defaultOn: true },
   { key: 'comments',  group: 'opinions', label: 'Latest comments', desc: 'Most recent note per person', defaultOn: false },
   { key: 'feedbackActions', group: 'opinions', label: 'Rate / note / reject controls', desc: 'Record your feedback as the selected actor', defaultOn: true },
+  { key: 'discussion', group: 'opinions', label: 'Discussion', desc: 'Group comment thread with @mentions', defaultOn: true },
   // 4. Financial. The deep-dive stage after a property survives review.
   { key: 'price',     group: 'financial', label: 'Price', desc: 'Asking price', defaultOn: true },
   { key: 'potentialPrice', group: 'financial', label: 'Potential purchase price', desc: 'Shared, editable price the group is actually considering offering', defaultOn: true, pocOnly: true },
@@ -435,7 +436,9 @@ const state = { map: null, mapReady: false, rawListings: [], listings: [], activ
   drawMode: false, savedAreas: [], drawCurrent: [], pillListings: [], mapStyle: 'streets', drawerOn: false,
   gridSort: null, gridSelection: new Set(), lastBulk: null,
   // Buying-party column-permission model (loaded from /api/column-permissions).
-  columnGroups: [], columnPermissions: {}, adminId: null, gridPrefs: {} };
+  columnGroups: [], columnPermissions: {}, adminId: null, gridPrefs: {},
+  // GAL-67: per-listing comment threads, the active person's inbox, unread count.
+  comments: {}, inbox: [], unreadCount: 0 };
 let cardSettings = loadSettings();
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -742,6 +745,7 @@ function setActivePerson(id) {
   // then re-render. reloadListingsPreservingMapView keeps the current map view.
   reloadListingsPreservingMapView().catch(showError);
   if (state.openMapItem) showMapCard(state.openMapItem);
+  refreshInbox();  // GAL-67: the inbox and unread badge are per person
 }
 
 function updateLegendHint() {
@@ -1183,6 +1187,20 @@ async function fetchPlaceAttachments(listingIds) {
   }
 }
 
+async function fetchComments(listingIds) {
+  const ids = [...new Set(listingIds.filter(Boolean))];
+  if (!ids.length) return {};
+  try {
+    const res = await fetch('/api/comments?listing_ids=' + encodeURIComponent(ids.join(',')), { headers: authHeaders() });
+    if (!res.ok) return {};
+    const data = await res.json();
+    return data.comments || {};
+  } catch (err) {
+    console.error(err);
+    return {};
+  }
+}
+
 async function postFeedback(payload) {
   const res = await fetch('/api/feedback', {
     method: 'POST',
@@ -1209,6 +1227,7 @@ async function reloadListingsPreservingMapView() {
   const listingIds = state.rawListings.map(x => x.mls);
   state.feedback = await fetchFeedback(listingIds);
   state.placeAttachments = await fetchPlaceAttachments(listingIds);
+  state.comments = await fetchComments(listingIds);
   applyFiltersAndRender();
 }
 
@@ -1505,6 +1524,191 @@ function switchView(view) {
   // The map's container width changes entering/leaving the desktop column, so
   // let Mapbox recompute the canvas size after layout settles.
   if (mapShown) requestAnimationFrame(() => state.map?.resize());
+}
+
+// ─── Listing discussion + inbox (GAL-67) ────────────────────────────────────
+function fmtCommentTime(ts) { return (ts || '').slice(0, 16).replace('T', ' '); }
+
+// Names longest-first so "@Mary Ann" highlights over "@Mary".
+function mentionRoster() {
+  return state.people.map(p => p.name).filter(Boolean).sort((a, b) => b.length - a.length);
+}
+function highlightMentions(body) {
+  const html = esc(body);              // escape first; names are letters/spaces so esc leaves tokens intact
+  const names = mentionRoster();
+  if (!names.length) return html;
+  const pattern = names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  const re = new RegExp('@(' + pattern + ')(?![A-Za-z0-9])', 'gi');
+  const meName = (state.people.find(p => p.id === state.activePerson) || {}).name;
+  return html.replace(re, (_m, name) => {
+    const me = meName && name.toLowerCase() === meName.toLowerCase();
+    return '<span class="mention' + (me ? ' mention-me' : '') + '">@' + esc(name) + '</span>';
+  });
+}
+
+function buildDiscussion(node, item) {
+  const container = node.querySelector('.card-discussion');
+  if (!container) return;
+  container.innerHTML = '';
+  container.append(el('div', { className: 'attach-heading', textContent: 'Discussion' }));
+
+  const thread = el('div', { className: 'comment-thread' });
+  const list = state.comments[item.mls] || [];
+  if (!list.length) {
+    thread.append(el('div', { className: 'comment-empty', textContent: 'No comments yet.' }));
+  } else {
+    list.forEach(c => {
+      const bodyEl = el('div', { className: 'comment-body' });
+      bodyEl.innerHTML = highlightMentions(c.body);
+      thread.append(el('div', { className: 'comment-row' },
+        el('div', { className: 'comment-head' },
+          el('span', { className: 'comment-author', textContent: c.person_name }),
+          el('span', { className: 'comment-time', textContent: fmtCommentTime(c.created_at) })),
+        bodyEl));
+    });
+  }
+  container.append(thread);
+
+  if (!state.activePerson) {
+    container.append(el('div', { className: 'feedback-prompt', textContent: 'Select who you are (top right) to comment.' }));
+    return;
+  }
+
+  // Composer. NOT class feedback-compose: the global Enter delegate submits the
+  // first button in a .feedback-compose, which would fire mid-typeahead.
+  const composer = el('div', { className: 'comment-compose' });
+  const ta = el('textarea', { className: 'comment-input', rows: 2, placeholder: 'Comment... use @ to mention' });
+  const menu = el('div', { className: 'mention-menu' }); menu.hidden = true;
+  const statusEl = el('div', { className: 'feedback-status' });
+  const postBtn = el('button', { type: 'button', textContent: 'Post' });
+
+  let menuItems = [], menuIdx = -1;
+  const closeMenu = () => { menu.hidden = true; menu.innerHTML = ''; menuItems = []; menuIdx = -1; };
+  const activeToken = () => {
+    const upto = ta.value.slice(0, ta.selectionStart);
+    const at = upto.lastIndexOf('@');
+    if (at < 0) return null;
+    if (at > 0 && !/\s/.test(upto[at - 1])) return null;
+    const frag = upto.slice(at + 1);
+    if (/\n/.test(frag)) return null;
+    return { at, frag };
+  };
+  const updateMenuActive = () => { [...menu.children].forEach((c, i) => c.classList.toggle('active', i === menuIdx)); };
+  const pickMention = (p) => {
+    const tok = activeToken(); if (!tok) return;
+    const before = ta.value.slice(0, tok.at);
+    const after = ta.value.slice(ta.selectionStart);
+    const insert = '@' + p.name + ' ';
+    ta.value = before + insert + after;
+    const caret = (before + insert).length;
+    ta.focus(); ta.setSelectionRange(caret, caret);
+    closeMenu();
+  };
+  const renderMenu = () => {
+    const tok = activeToken();
+    if (!tok) return closeMenu();
+    const q = tok.frag.toLowerCase();
+    const matches = state.people.filter(p => (p.name || '').toLowerCase().startsWith(q)).slice(0, 6);
+    if (!matches.length) return closeMenu();
+    menuItems = matches; menuIdx = 0;
+    menu.innerHTML = '';
+    matches.forEach((p, i) => {
+      const b = el('button', { type: 'button', className: 'mention-item' + (i === 0 ? ' active' : ''), textContent: p.name });
+      b.addEventListener('mousedown', (e) => { e.preventDefault(); pickMention(p); });
+      menu.append(b);
+    });
+    menu.hidden = false;
+  };
+  ta.addEventListener('input', renderMenu);
+  ta.addEventListener('keydown', (e) => {
+    if (!menu.hidden && menuItems.length) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); menuIdx = (menuIdx + 1) % menuItems.length; updateMenuActive(); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); menuIdx = (menuIdx - 1 + menuItems.length) % menuItems.length; updateMenuActive(); return; }
+      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); e.stopPropagation(); pickMention(menuItems[menuIdx]); return; }
+      if (e.key === 'Escape') { e.preventDefault(); closeMenu(); return; }
+    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.stopPropagation(); postComment(item, ta, statusEl, postBtn); }
+  });
+  postBtn.addEventListener('click', () => postComment(item, ta, statusEl, postBtn));
+
+  composer.append(ta, menu, postBtn, statusEl);
+  container.append(composer);
+}
+
+async function postComment(item, ta, statusEl, postBtn) {
+  const body = (ta.value || '').trim();
+  if (!body) { showFeedbackStatus(statusEl, 'Type a comment first.', true); return; }
+  postBtn.disabled = true;
+  showFeedbackStatus(statusEl, 'Posting...', false);
+  try {
+    const res = await fetch('/api/comments', {
+      method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ person_id: state.activePerson, listing_id: item.mls, body, listing_address: item.address }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || data.error || 'Post failed');
+    Object.assign(state.comments, await fetchComments([item.mls]));
+    if (state.openMapItem && state.openMapItem.mls === item.mls) showMapCard(item);
+    else renderCards(state.listings);
+    refreshInbox();
+  } catch (e) {
+    postBtn.disabled = false;
+    showFeedbackStatus(statusEl, e.message, true);
+  }
+}
+
+async function refreshInbox() {
+  if (!state.activePerson) { state.inbox = []; state.unreadCount = 0; updateInboxBadge(); return; }
+  try {
+    const res = await fetch('/api/inbox?person_id=' + state.activePerson, { headers: authHeaders() });
+    if (res.ok) { const d = await res.json(); state.inbox = d.inbox || []; state.unreadCount = d.unread_count || 0; }
+  } catch (e) { console.error(e); }
+  updateInboxBadge();
+}
+function updateInboxBadge() {
+  const b = $('inboxBadge'); if (!b) return;
+  const n = state.unreadCount || 0;
+  if (n > 0) { b.textContent = n > 99 ? '99+' : String(n); b.hidden = false; } else { b.hidden = true; }
+}
+function openInbox() { refreshInbox().then(renderInbox); $('inboxOverlay').hidden = false; $('inboxDrawer').hidden = false; }
+function closeInbox() { $('inboxOverlay').hidden = true; $('inboxDrawer').hidden = true; }
+function renderInbox() {
+  const list = $('inboxList'); if (!list) return;
+  list.innerHTML = '';
+  if (!state.activePerson) { list.append(el('div', { className: 'inbox-empty', textContent: 'Select who you are (top right) to see your inbox.' })); return; }
+  if (!state.inbox.length) { list.append(el('div', { className: 'inbox-empty', textContent: "You're all caught up." })); return; }
+  state.inbox.forEach(row => {
+    const where = row.listing_address || row.listing_id;
+    const btn = el('button', { type: 'button', className: 'inbox-row' },
+      el('div', { className: 'inbox-line' },
+        el('strong', { textContent: row.author_name }),
+        el('span', { textContent: ' on ' + where + ': ' }),
+        el('span', { className: 'inbox-snippet', textContent: (row.body || '').slice(0, 80) })),
+      el('div', { className: 'inbox-meta' },
+        el('span', { className: 'inbox-time', textContent: fmtCommentTime(row.created_at) }),
+        ...(row.mentioned ? [el('span', { className: 'inbox-tag', textContent: '@ you' })] : [])));
+    btn.addEventListener('click', () => openInboxItem(row));
+    list.append(btn);
+  });
+}
+async function openInboxItem(row) {
+  try {
+    const res = await fetch('/api/comments/read', {
+      method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ person_id: state.activePerson, listing_id: row.listing_id }),
+    });
+    const d = await res.json().catch(() => ({}));
+    if (res.ok && typeof d.unread_count === 'number') { state.unreadCount = d.unread_count; updateInboxBadge(); }
+  } catch (e) { console.error(e); }
+  closeInbox();
+  const item = findListing(row.listing_id) || state.rawListings.find(x => x.mls === row.listing_id);
+  if (item) { switchView('map'); showMapCard(item); }
+  else { alert('That property is not in the current view. Clear filters, or switch data source, to open it.'); }
+}
+function wireInbox() {
+  $('inboxBtn')?.addEventListener('click', openInbox);
+  $('inboxClose')?.addEventListener('click', closeInbox);
+  $('inboxOverlay')?.addEventListener('click', closeInbox);
 }
 
 // ─── Map (Mapbox GL JS) ────────────────────────────────────────────────────────
@@ -3883,6 +4087,9 @@ function populateCard(node, item) {
   // Feedback actions (D7/D12): shared control set for List cards and Map popups
   buildFeedbackActions(node, item);
 
+  // GAL-67: group discussion thread with @mentions
+  buildDiscussion(node, item);
+
   // Actions
   const linkBtn = node.querySelector('.card-link-btn');
   const docBtn  = node.querySelector('.card-doc-btn');
@@ -4742,6 +4949,7 @@ async function load() {
   const listingIds = state.rawListings.map(x => x.mls);
   state.feedback = await fetchFeedback(listingIds);
   state.placeAttachments = await fetchPlaceAttachments(listingIds);
+  state.comments = await fetchComments(listingIds);
   if (source === 'poc') state.map?.jumpTo({ center: [-79.5, 44.0], zoom: 9 });
   else state.map?.jumpTo({ center: [-87.6298, 41.8781], zoom: 10 });
   // Explicit load (initial, Apply, Reset, source switch): fit to the results.
@@ -4875,8 +5083,10 @@ window.addEventListener('DOMContentLoaded', () => {
       // with the map and should keep working regardless.
       try { initMap(); } catch (err) { console.error('Map init failed:', err); }
       initReportButton();  // show the Report button when the server has a Linear key
+      wireInbox();          // GAL-67 inbox drawer open/close
       loadPeople().then(() => {
         applyFiltersAndRender();
+        refreshInbox();     // GAL-67: populate the unread badge for the restored person
         loadPersonThresholds();
         // Column permissions reference people, so load after the roster. A grid
         // re-render picks up the active person's permitted + hidden columns.

@@ -28,6 +28,7 @@
         <button class="view-btn" id="btnGrid">▦ Grid</button>
       </div>
       <select class="who-am-i" id="whoAmI" title="Who you are: every rating, note, reject, and research request is recorded as this person"></select>
+      <button class="icon-btn inbox-btn" id="inboxBtn" title="Inbox">✉<span class="filter-badge" id="inboxBadge" hidden></span></button>
       <button class="icon-btn" id="reportIssueBtn" title="Report an issue" hidden>⚑</button>
       <button class="icon-btn" id="settingsBtn" title="Settings">⚙</button>
     </div>
@@ -353,6 +354,14 @@
        the server attaches captured context, runs a Claude first-pass, and
        creates a Linear Triage issue. Button is hidden until /api/config reports
        report_enabled (a Linear key is set on the server). -->
+  <!-- GAL-67: inbox drawer, right-side panel (settings-drawer pattern) listing
+       the active person's unread comments; a row opens that property card. -->
+  <div class="settings-overlay" id="inboxOverlay" hidden></div>
+  <aside class="settings-drawer" id="inboxDrawer" hidden>
+    <div class="settings-header"><span class="settings-title">Inbox</span><button class="close-btn" id="inboxClose" title="Close">✕</button></div>
+    <div class="settings-page-body" id="inboxList"></div>
+  </aside>
+
   <div class="modal-overlay" id="reportOverlay" hidden></div>
   <div class="app-modal" id="reportModal" hidden>
     <div class="app-modal-head"><span>Report an issue</span><button class="close-btn" id="reportClose">✕</button></div>
@@ -703,6 +712,9 @@
         <div class="card-ratings cf-ratings"></div>
         <div class="card-comments cf-comments"></div>
         <div class="card-feedback-actions cf-feedbackActions"></div>
+        <!-- GAL-67: group discussion thread with @mentions, distinct from the
+             cf-comments notes history above. -->
+        <div class="card-discussion cf-discussion"></div>
         <!-- Financial -->
         <div class="card-price cf-price"></div>
         <div class="card-potential-price cf-potentialPrice"></div>

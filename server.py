@@ -584,6 +584,43 @@ def init_db() -> None:
                 created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
                 UNIQUE (listing_id, poi_id)
             );
+
+            -- GAL-67: per-listing discussion comments. A conversation thread
+            -- shared across the whole group, distinct from listing_feedback
+            -- notes (a note is one person's latest opinion; a comment is a
+            -- dated message in a thread). listing_address is denormalized at
+            -- post time (same as report-issue) because the server has no
+            -- canonical address lookup for Repliers ids; the client knows it.
+            CREATE TABLE IF NOT EXISTS listing_comments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                listing_id TEXT NOT NULL,
+                listing_address TEXT,
+                person_id INTEGER NOT NULL REFERENCES people(id),
+                body TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_comments_listing ON listing_comments(listing_id);
+
+            -- Resolved @mentions, parsed server-side on post from @Name tokens.
+            -- One row per (comment, mentioned person). The raw body keeps the
+            -- tokens for display; this table answers "who was mentioned".
+            CREATE TABLE IF NOT EXISTS comment_mentions (
+                comment_id INTEGER NOT NULL REFERENCES listing_comments(id),
+                person_id INTEGER NOT NULL REFERENCES people(id),
+                PRIMARY KEY (comment_id, person_id)
+            );
+
+            -- Per-(person, comment) read receipts. A missing row means unread.
+            -- Chosen over a per-listing last-seen timestamp so the unread count
+            -- is exact and a single comment can be marked read while a newer one
+            -- on the same listing stays unread. An author never reads their own
+            -- comment (queries exclude own comments).
+            CREATE TABLE IF NOT EXISTS comment_reads (
+                comment_id INTEGER NOT NULL REFERENCES listing_comments(id),
+                person_id INTEGER NOT NULL REFERENCES people(id),
+                read_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                PRIMARY KEY (comment_id, person_id)
+            );
             """
         )
 
@@ -3017,6 +3054,198 @@ def handle_report_issue_post(
     }, 200
 
 
+# ─── Listing comments, @mentions, inbox (GAL-67) ─────────────────────────────
+
+def parse_mentions(conn: sqlite3.Connection, body: str) -> list[int]:
+    """Resolve @Name tokens in a comment body to person ids. Longest name
+    first so "Mary Ann" beats "Mary"; a match needs a word boundary after the
+    name. Unmatched @tokens are just text. Returns a sorted, deduped id list."""
+    people = conn.execute("SELECT id, name FROM people").fetchall()
+    # Longest name first, then lowest id, for deterministic longest-match.
+    roster = sorted(
+        ((p["id"], p["name"] or "") for p in people),
+        key=lambda t: (-len(t[1]), t[0]),
+    )
+    found: set[int] = set()
+    lower = body.lower()
+    for i, ch in enumerate(body):
+        if ch != "@":
+            continue
+        for pid, name in roster:
+            if not name:
+                continue
+            seg = lower[i + 1 : i + 1 + len(name)]
+            if seg != name.lower():
+                continue
+            after = body[i + 1 + len(name) : i + 2 + len(name)]
+            if after and (after.isalnum()):
+                continue  # not a word boundary, e.g. @Markus for name Mark
+            found.add(pid)
+            break
+    return sorted(found)
+
+
+def comments_for_listings(
+    conn: sqlite3.Connection, listing_ids: list[str]
+) -> dict[str, list[dict[str, Any]]]:
+    """Comment thread per listing, oldest first (newest last, the card's
+    render order). Every requested listing gets a possibly-empty list."""
+    result: dict[str, list[dict[str, Any]]] = {lid: [] for lid in listing_ids}
+    if not listing_ids:
+        return result
+    placeholders = ",".join("?" for _ in listing_ids)
+    rows = conn.execute(
+        f"""
+        SELECT c.id, c.listing_id, c.person_id, pe.name AS person_name,
+               c.body, c.created_at
+        FROM listing_comments c
+        JOIN people pe ON pe.id = c.person_id
+        WHERE c.listing_id IN ({placeholders})
+        ORDER BY c.id
+        """,
+        listing_ids,
+    ).fetchall()
+    comment_ids = [row["id"] for row in rows]
+    mentions: dict[int, list[int]] = {cid: [] for cid in comment_ids}
+    if comment_ids:
+        mrows = conn.execute(
+            f"SELECT comment_id, person_id FROM comment_mentions "
+            f"WHERE comment_id IN ({','.join('?' for _ in comment_ids)})",
+            comment_ids,
+        ).fetchall()
+        for m in mrows:
+            mentions[m["comment_id"]].append(m["person_id"])
+    for row in rows:
+        item = dict(row)
+        item["mentions"] = mentions.get(row["id"], [])
+        result[row["listing_id"]].append(item)
+    return result
+
+
+def inbox_for_person(conn: sqlite3.Connection, person_id: int) -> dict[str, Any]:
+    """Unread comments for a person: authored by someone else and not yet read.
+    mentioned flags a direct @mention. Returns the list (newest first, capped)
+    plus the exact unread_count of the whole set."""
+    rows = conn.execute(
+        """
+        SELECT c.id, c.listing_id, c.listing_address, c.body, c.created_at,
+               c.person_id AS author_id, a.name AS author_name,
+               CASE WHEN m.person_id IS NOT NULL THEN 1 ELSE 0 END AS mentioned
+        FROM listing_comments c
+        JOIN people a ON a.id = c.person_id
+        LEFT JOIN comment_mentions m ON m.comment_id = c.id AND m.person_id = ?
+        LEFT JOIN comment_reads r ON r.comment_id = c.id AND r.person_id = ?
+        WHERE c.person_id != ? AND r.comment_id IS NULL
+        ORDER BY c.id DESC
+        LIMIT 100
+        """,
+        (person_id, person_id, person_id),
+    ).fetchall()
+    count = conn.execute(
+        """
+        SELECT COUNT(*) FROM listing_comments c
+        LEFT JOIN comment_reads r ON r.comment_id = c.id AND r.person_id = ?
+        WHERE c.person_id != ? AND r.comment_id IS NULL
+        """,
+        (person_id, person_id),
+    ).fetchone()[0]
+    inbox = []
+    for row in rows:
+        d = dict(row)
+        d["mentioned"] = bool(d["mentioned"])
+        inbox.append(d)
+    return {"inbox": inbox, "unread_count": count}
+
+
+def handle_comment_post(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """Post a comment on a listing as the active person; parse @mentions."""
+    person_id = body.get("person_id")
+    listing_id = body.get("listing_id")
+    text = body.get("body")
+    listing_address = body.get("listing_address")
+
+    if not isinstance(listing_id, str) or not listing_id:
+        return {"error": "invalid_request", "detail": "listing_id is required"}, 400
+    if not isinstance(text, str) or not text.strip():
+        return {"error": "invalid_request", "detail": "body is required"}, 400
+    text = text.strip()
+    if len(text) > 4000:
+        return {"error": "invalid_request", "detail": "body must be 4000 characters or fewer"}, 400
+    if listing_address is not None and not isinstance(listing_address, str):
+        return {"error": "invalid_request", "detail": "listing_address must be a string"}, 400
+
+    conn = get_db()
+    try:
+        if not person_exists(conn, person_id):
+            return {"error": "unknown_person", "detail": f"person_id {person_id!r} not found"}, 400
+        if not validate_listing_id(listing_id):
+            return {"error": "unknown_listing", "detail": f"listing_id {listing_id!r} not found"}, 400
+
+        cursor = conn.execute(
+            "INSERT INTO listing_comments (listing_id, listing_address, person_id, body) "
+            "VALUES (?, ?, ?, ?)",
+            (listing_id, listing_address, person_id, text),
+        )
+        comment_id = cursor.lastrowid
+        mentions = parse_mentions(conn, text)
+        for pid in mentions:
+            conn.execute(
+                "INSERT OR IGNORE INTO comment_mentions (comment_id, person_id) VALUES (?, ?)",
+                (comment_id, pid),
+            )
+        conn.commit()
+        row = conn.execute(
+            "SELECT created_at FROM listing_comments WHERE id = ?", (comment_id,)
+        ).fetchone()
+        return {"ok": True, "id": comment_id, "created_at": row["created_at"], "mentions": mentions}, 200
+    finally:
+        conn.close()
+
+
+def handle_comment_read_post(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """Mark comments read for a person: one comment_id, or every comment on a
+    listing_id not authored by that person. Idempotent (INSERT OR IGNORE).
+    Returns the recomputed unread_count so the client can update the badge."""
+    person_id = body.get("person_id")
+    comment_id = body.get("comment_id")
+    listing_id = body.get("listing_id")
+
+    has_comment = isinstance(comment_id, int) and not isinstance(comment_id, bool)
+    has_listing = isinstance(listing_id, str) and bool(listing_id)
+    if has_comment == has_listing:  # neither or both
+        return {"error": "invalid_request", "detail": "provide exactly one of comment_id or listing_id"}, 400
+
+    conn = get_db()
+    try:
+        if not person_exists(conn, person_id):
+            return {"error": "unknown_person", "detail": f"person_id {person_id!r} not found"}, 400
+        if has_comment:
+            exists = conn.execute("SELECT 1 FROM listing_comments WHERE id = ?", (comment_id,)).fetchone()
+            if exists is None:
+                return {"error": "not_found", "detail": f"comment_id {comment_id!r} not found"}, 404
+            conn.execute(
+                "INSERT OR IGNORE INTO comment_reads (comment_id, person_id) "
+                "SELECT id, ? FROM listing_comments WHERE id = ? AND person_id != ?",
+                (person_id, comment_id, person_id),
+            )
+        else:
+            conn.execute(
+                "INSERT OR IGNORE INTO comment_reads (comment_id, person_id) "
+                "SELECT id, ? FROM listing_comments WHERE listing_id = ? AND person_id != ?",
+                (person_id, listing_id, person_id),
+            )
+        conn.commit()
+        count = conn.execute(
+            "SELECT COUNT(*) FROM listing_comments c "
+            "LEFT JOIN comment_reads r ON r.comment_id = c.id AND r.person_id = ? "
+            "WHERE c.person_id != ? AND r.comment_id IS NULL",
+            (person_id, person_id),
+        ).fetchone()[0]
+        return {"ok": True, "unread_count": count}, 200
+    finally:
+        conn.close()
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: Any) -> None:
         print(f"{self.address_string()} - {fmt % args}")
@@ -3237,6 +3466,39 @@ class Handler(BaseHTTPRequestHandler):
                 finally:
                     conn.close()
                 return
+            if parsed.path == "/api/comments":
+                # GAL-67: batch read of the comment thread per listing, shared
+                # across the group like feedback/attachments, same auth.
+                if not require_auth(self):
+                    self.send_json({"error": "unauthorized"}, 401)
+                    return
+                listing_ids = [x for x in (params.get("listing_ids") or "").split(",") if x]
+                conn = get_db()
+                try:
+                    self.send_json({"comments": comments_for_listings(conn, listing_ids)})
+                finally:
+                    conn.close()
+                return
+            if parsed.path == "/api/inbox":
+                # GAL-67: the active person's unread comments (mentions + new),
+                # newest first, plus the exact unread_count for the badge.
+                if not require_auth(self):
+                    self.send_json({"error": "unauthorized"}, 401)
+                    return
+                try:
+                    person_id = int(params.get("person_id") or "")
+                except (TypeError, ValueError):
+                    self.send_json({"error": "invalid_request", "detail": "person_id is required"}, 400)
+                    return
+                conn = get_db()
+                try:
+                    if not person_exists(conn, person_id):
+                        self.send_json({"error": "unknown_person", "detail": f"person_id {person_id!r} not found"}, 400)
+                        return
+                    self.send_json(inbox_for_person(conn, person_id))
+                finally:
+                    conn.close()
+                return
             if parsed.path == "/api/health":
                 self.send_json({"ok": True, "hasKey": bool(API_KEY), "baseUrl": BASE_URL})
                 return
@@ -3302,6 +3564,40 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
                     return
                 data, status = handle_feedback_post(body)
+                self.send_json(data, status)
+                return
+            if parsed.path == "/api/comments":
+                if not require_auth(self):
+                    self.send_json({"error": "unauthorized"}, 401)
+                    return
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                raw_body = self.rfile.read(length) if length else b""
+                try:
+                    body = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    self.send_json({"error": "invalid_request", "detail": "malformed JSON body"}, 400)
+                    return
+                if not isinstance(body, dict):
+                    self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
+                    return
+                data, status = handle_comment_post(body)
+                self.send_json(data, status)
+                return
+            if parsed.path == "/api/comments/read":
+                if not require_auth(self):
+                    self.send_json({"error": "unauthorized"}, 401)
+                    return
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                raw_body = self.rfile.read(length) if length else b""
+                try:
+                    body = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    self.send_json({"error": "invalid_request", "detail": "malformed JSON body"}, 400)
+                    return
+                if not isinstance(body, dict):
+                    self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
+                    return
+                data, status = handle_comment_read_post(body)
                 self.send_json(data, status)
                 return
             if parsed.path == "/api/potential-purchase-prices":

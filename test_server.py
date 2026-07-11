@@ -1765,6 +1765,133 @@ class ReportIssueTests(ServerTestCase):
             server.linear_graphql("query { viewer { id } }")
 
 
+class CommentTests(ServerTestCase):
+    """GAL-67 listing comments + @mention parsing. Seed people: Mark=1,
+    Katie=2, Anees=3, Kevin=4. POC ids come from the fixture (POC-2 etc.)."""
+
+    def _post(self, person_id, listing_id, body):
+        return self.request("POST", "/api/comments", token=self.TOKEN,
+                            body={"person_id": person_id, "listing_id": listing_id, "body": body})
+
+    def test_post_records_author_and_mentions(self):
+        status, data = self._post(1, "POC-2", "Hey @Katie look at the yard")
+        self.assertEqual(status, 200)
+        self.assertEqual(data["mentions"], [2])
+        status, read = self.request("GET", "/api/comments?listing_ids=POC-2", token=self.TOKEN)
+        self.assertEqual(status, 200)
+        c = read["comments"]["POC-2"][0]
+        self.assertEqual(c["person_name"], "Mark")
+        self.assertEqual(c["body"], "Hey @Katie look at the yard")
+        self.assertEqual(c["mentions"], [2])
+
+    def test_mention_name_with_spaces_resolves(self):
+        conn = server.get_db()
+        try:
+            conn.execute("INSERT INTO people (name, role) VALUES ('Mary Ann', 'buyer')")
+            conn.commit()
+            mid = conn.execute("SELECT id FROM people WHERE name='Mary Ann'").fetchone()[0]
+        finally:
+            conn.close()
+        status, data = self._post(1, "POC-2", "@Mary Ann what do you think?")
+        self.assertEqual(status, 200)
+        self.assertIn(mid, data["mentions"])
+
+    def test_mention_prefers_longest_name(self):
+        conn = server.get_db()
+        try:
+            conn.execute("INSERT INTO people (name, role) VALUES ('Mary', 'buyer')")
+            conn.execute("INSERT INTO people (name, role) VALUES ('Mary Ann', 'buyer')")
+            conn.commit()
+            mary = conn.execute("SELECT id FROM people WHERE name='Mary'").fetchone()[0]
+            maryann = conn.execute("SELECT id FROM people WHERE name='Mary Ann'").fetchone()[0]
+        finally:
+            conn.close()
+        _, d1 = self._post(1, "POC-2", "@Mary Ann hi")
+        self.assertIn(maryann, d1["mentions"])
+        self.assertNotIn(mary, d1["mentions"])
+        _, d2 = self._post(1, "POC-2", "@Mary! hi")
+        self.assertIn(mary, d2["mentions"])
+        self.assertNotIn(maryann, d2["mentions"])
+
+    def test_batch_get_per_listing_newest_last(self):
+        self._post(1, "POC-2", "first")
+        self._post(2, "POC-2", "second")
+        self._post(1, "POC-3", "other")
+        _, read = self.request("GET", "/api/comments?listing_ids=POC-2,POC-3,POC-4", token=self.TOKEN)
+        bodies = [c["body"] for c in read["comments"]["POC-2"]]
+        self.assertEqual(bodies, ["first", "second"])  # ascending id = newest last
+        self.assertEqual(len(read["comments"]["POC-3"]), 1)
+        self.assertEqual(read["comments"]["POC-4"], [])
+
+    def test_unknown_person_rejected(self):
+        status, data = self._post(999, "POC-2", "hi")
+        self.assertEqual(status, 400)
+        self.assertEqual(data["error"], "unknown_person")
+
+    def test_invalid_body_and_listing_rejected(self):
+        self.assertEqual(self._post(1, "POC-2", "   ")[0], 400)
+        self.assertEqual(self._post(1, "POC-2", "")[0], 400)
+        # Unknown POC id is rejected; non-POC ids are only format-checked (like feedback).
+        self.assertEqual(self._post(1, "POC-99999", "hi")[0], 400)
+
+    def test_comments_require_auth(self):
+        self.assertEqual(self.request("GET", "/api/comments?listing_ids=POC-2")[0], 401)
+        self.assertEqual(self.request("POST", "/api/comments", body={"person_id": 1, "listing_id": "POC-2", "body": "x"})[0], 401)
+
+
+class InboxTests(ServerTestCase):
+    def _post(self, person_id, listing_id, body):
+        return self.request("POST", "/api/comments", token=self.TOKEN,
+                            body={"person_id": person_id, "listing_id": listing_id, "body": body, "listing_address": "1 Test St"})
+
+    def _inbox(self, person_id):
+        return self.request("GET", f"/api/inbox?person_id={person_id}", token=self.TOKEN)
+
+    def test_inbox_lists_mentions_and_unseen_for_person_only(self):
+        _, posted = self._post(1, "POC-2", "Hey @Katie look here")  # Mark mentions Katie
+        _, katie = self._inbox(2)
+        self.assertEqual(katie["unread_count"], 1)
+        self.assertEqual(len(katie["inbox"]), 1)
+        self.assertTrue(katie["inbox"][0]["mentioned"])
+        self.assertEqual(katie["inbox"][0]["author_name"], "Mark")
+        _, anees = self._inbox(3)
+        self.assertEqual(anees["unread_count"], 1)
+        self.assertFalse(anees["inbox"][0]["mentioned"])  # new-to, not mentioned
+        _, mark = self._inbox(1)
+        self.assertEqual(mark["unread_count"], 0)  # own comment excluded
+
+    def test_mark_read_by_comment_drops_and_decrements(self):
+        _, posted = self._post(1, "POC-2", "look @Katie")
+        cid = posted["id"]
+        status, data = self.request("POST", "/api/comments/read", token=self.TOKEN,
+                                    body={"person_id": 2, "comment_id": cid})
+        self.assertEqual(status, 200)
+        self.assertEqual(data["unread_count"], 0)
+        _, katie = self._inbox(2)
+        self.assertEqual(katie["inbox"], [])
+        _, anees = self._inbox(3)
+        self.assertEqual(anees["unread_count"], 1)  # Anees unaffected
+
+    def test_mark_read_by_listing_marks_all_idempotent(self):
+        self._post(1, "POC-2", "one")
+        self._post(1, "POC-2", "two")
+        status, data = self.request("POST", "/api/comments/read", token=self.TOKEN,
+                                    body={"person_id": 2, "listing_id": "POC-2"})
+        self.assertEqual(data["unread_count"], 0)
+        # idempotent
+        status2, data2 = self.request("POST", "/api/comments/read", token=self.TOKEN,
+                                    body={"person_id": 2, "listing_id": "POC-2"})
+        self.assertEqual(data2["unread_count"], 0)
+
+    def test_inbox_auth_and_validation(self):
+        self.assertEqual(self.request("GET", "/api/inbox?person_id=2")[0], 401)
+        self.assertEqual(self._inbox(999)[0], 400)
+        # both keys on mark-read -> 400
+        st, _ = self.request("POST", "/api/comments/read", token=self.TOKEN,
+                            body={"person_id": 2, "comment_id": 1, "listing_id": "POC-2"})
+        self.assertEqual(st, 400)
+
+
 class RoleMigrationTests(unittest.TestCase):
     """The advisor -> realtor storage migration: rebuilds people, converts the
     role value and CHECK, and preserves every id and foreign reference."""
