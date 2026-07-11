@@ -1357,13 +1357,17 @@ async function submitFeedback(item, actionType, extra, statusEl) {
     await postFeedback({ person_id: state.activePerson, listing_id: item.mls, action_type: actionType, ...extra });
     const fresh = await fetchFeedback([item.mls]);
     Object.assign(state.feedback, fresh);
-    // T16: re-run the active filters (not just re-render the same list) so a
-    // rating/reject change that now falls outside an active person-rating
-    // or status filter drops the listing from both list and map right away,
-    // with no separate "Apply" click needed.
+    // T16: re-run the active filters so a rating/reject that now falls outside
+    // an active person-rating or status filter drops the listing from list and
+    // map. Capture the open card BEFORE re-rendering: refreshMap (inside
+    // applyFiltersAndRender) closes the map card and clears state.openMapItem,
+    // so checking it afterward always failed and the card closed on rating
+    // (GAL-48). filterByFeedback pins the open item so it stays in the list;
+    // reopen it so the card stays up for a follow-up note.
+    const wasOpen = state.openMapItem === item;
     applyFiltersAndRender();
-    if (state.openMapItem === item) {
-      if (state.listings.includes(item)) showMapCard(item);
+    if (wasOpen) {
+      if (state.listings.some(l => l.mls === item.mls)) showMapCard(item);
       else closeMapCard();
     }
   } catch (err) {
