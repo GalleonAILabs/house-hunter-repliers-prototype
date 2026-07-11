@@ -1860,7 +1860,7 @@ class InboxTests(ServerTestCase):
         _, mark = self._inbox(1)
         self.assertEqual(mark["unread_count"], 0)  # own comment excluded
 
-    def test_mark_read_by_comment_drops_and_decrements(self):
+    def test_mark_read_keeps_item_but_decrements_count(self):
         _, posted = self._post(1, "POC-2", "look @Katie")
         cid = posted["id"]
         status, data = self.request("POST", "/api/comments/read", token=self.TOKEN,
@@ -1868,28 +1868,58 @@ class InboxTests(ServerTestCase):
         self.assertEqual(status, 200)
         self.assertEqual(data["unread_count"], 0)
         _, katie = self._inbox(2)
-        self.assertEqual(katie["inbox"], [])
+        self.assertEqual(len(katie["inbox"]), 1)      # stays in the inbox until archived
+        self.assertTrue(katie["inbox"][0]["read"])    # now flagged read
+        self.assertEqual(katie["unread_count"], 0)
         _, anees = self._inbox(3)
-        self.assertEqual(anees["unread_count"], 1)  # Anees unaffected
+        self.assertEqual(anees["unread_count"], 1)    # Anees unaffected
 
-    def test_mark_read_by_listing_marks_all_idempotent(self):
+    def test_archive_removes_from_inbox(self):
+        _, posted = self._post(1, "POC-2", "look @Katie")
+        cid = posted["id"]
+        # read first (stays), then archive (removed)
+        self.request("POST", "/api/comments/read", token=self.TOKEN, body={"person_id": 2, "comment_id": cid})
+        status, data = self.request("POST", "/api/comments/archive", token=self.TOKEN,
+                                    body={"person_id": 2, "comment_id": cid})
+        self.assertEqual(status, 200)
+        _, katie = self._inbox(2)
+        self.assertEqual(katie["inbox"], [])          # gone after archive
+        _, anees = self._inbox(3)
+        self.assertEqual(len(anees["inbox"]), 1)      # per person: Anees still sees it
+
+    def test_archive_unread_item_decrements_count(self):
+        _, posted = self._post(1, "POC-2", "hey @Katie")
+        cid = posted["id"]
+        status, data = self.request("POST", "/api/comments/archive", token=self.TOKEN,
+                                    body={"person_id": 2, "comment_id": cid})
+        self.assertEqual(data["unread_count"], 0)     # archiving an unread item also clears the badge
+        _, katie = self._inbox(2)
+        self.assertEqual(katie["inbox"], [])
+
+    def test_archive_by_listing_all_idempotent(self):
         self._post(1, "POC-2", "one")
         self._post(1, "POC-2", "two")
-        status, data = self.request("POST", "/api/comments/read", token=self.TOKEN,
+        status, data = self.request("POST", "/api/comments/archive", token=self.TOKEN,
                                     body={"person_id": 2, "listing_id": "POC-2"})
         self.assertEqual(data["unread_count"], 0)
+        _, katie = self._inbox(2)
+        self.assertEqual(katie["inbox"], [])
         # idempotent
-        status2, data2 = self.request("POST", "/api/comments/read", token=self.TOKEN,
-                                    body={"person_id": 2, "listing_id": "POC-2"})
+        _, data2 = self.request("POST", "/api/comments/archive", token=self.TOKEN,
+                                body={"person_id": 2, "listing_id": "POC-2"})
         self.assertEqual(data2["unread_count"], 0)
 
     def test_inbox_auth_and_validation(self):
         self.assertEqual(self.request("GET", "/api/inbox?person_id=2")[0], 401)
         self.assertEqual(self._inbox(999)[0], 400)
-        # both keys on mark-read -> 400
+        # both keys on mark-read / archive -> 400
         st, _ = self.request("POST", "/api/comments/read", token=self.TOKEN,
                             body={"person_id": 2, "comment_id": 1, "listing_id": "POC-2"})
         self.assertEqual(st, 400)
+        st2, _ = self.request("POST", "/api/comments/archive", token=self.TOKEN,
+                            body={"person_id": 2})
+        self.assertEqual(st2, 400)
+        self.assertEqual(self.request("POST", "/api/comments/archive", body={"person_id": 2, "comment_id": 1})[0], 401)
 
 
 class RoleMigrationTests(unittest.TestCase):

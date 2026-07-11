@@ -1679,7 +1679,9 @@ function renderInbox() {
   if (!state.inbox.length) { list.append(el('div', { className: 'inbox-empty', textContent: "You're all caught up." })); return; }
   state.inbox.forEach(row => {
     const where = row.listing_address || row.listing_id;
-    const btn = el('button', { type: 'button', className: 'inbox-row' },
+    // Main tap area: opens the property and marks the item read (it stays in
+    // the inbox, dimmed, until archived, GAL-67 rework).
+    const main = el('button', { type: 'button', className: 'inbox-main' },
       el('div', { className: 'inbox-line' },
         el('strong', { textContent: row.author_name }),
         el('span', { textContent: ' on ' + where + ': ' }),
@@ -1687,9 +1689,26 @@ function renderInbox() {
       el('div', { className: 'inbox-meta' },
         el('span', { className: 'inbox-time', textContent: fmtCommentTime(row.created_at) }),
         ...(row.mentioned ? [el('span', { className: 'inbox-tag', textContent: '@ you' })] : [])));
-    btn.addEventListener('click', () => openInboxItem(row));
-    list.append(btn);
+    main.addEventListener('click', () => openInboxItem(row));
+    const archiveBtn = el('button', { type: 'button', className: 'inbox-archive', title: 'Archive', textContent: '🗑' });
+    archiveBtn.addEventListener('click', (e) => { e.stopPropagation(); archiveInboxItem(row); });
+    list.append(el('div', { className: 'inbox-row ' + (row.read ? 'read' : 'unread') }, main, archiveBtn));
   });
+}
+async function archiveInboxItem(row) {
+  try {
+    const res = await fetch('/api/comments/archive', {
+      method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ person_id: state.activePerson, comment_id: row.id }),
+    });
+    const d = await res.json().catch(() => ({}));
+    if (res.ok) {
+      state.inbox = state.inbox.filter(r => r.id !== row.id);
+      if (typeof d.unread_count === 'number') state.unreadCount = d.unread_count;
+      updateInboxBadge();
+      renderInbox();
+    }
+  } catch (e) { console.error(e); }
 }
 async function openInboxItem(row) {
   try {

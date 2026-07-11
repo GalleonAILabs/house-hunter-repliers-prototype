@@ -621,6 +621,16 @@ def init_db() -> None:
                 read_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
                 PRIMARY KEY (comment_id, person_id)
             );
+
+            -- Per-(person, comment) archive receipts. A read comment stays in
+            -- the inbox until the person archives it; archiving is what removes
+            -- it from the inbox list. Distinct from read so history is kept.
+            CREATE TABLE IF NOT EXISTS comment_archives (
+                comment_id INTEGER NOT NULL REFERENCES listing_comments(id),
+                person_id INTEGER NOT NULL REFERENCES people(id),
+                archived_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                PRIMARY KEY (comment_id, person_id)
+            );
             """
         )
 
@@ -3122,39 +3132,49 @@ def comments_for_listings(
     return result
 
 
+def unread_count_for(conn: sqlite3.Connection, person_id: int) -> int:
+    """Comments authored by someone else that this person has not read and has
+    not archived. Drives the topbar badge."""
+    return conn.execute(
+        """
+        SELECT COUNT(*) FROM listing_comments c
+        LEFT JOIN comment_reads r ON r.comment_id = c.id AND r.person_id = ?
+        LEFT JOIN comment_archives ar ON ar.comment_id = c.id AND ar.person_id = ?
+        WHERE c.person_id != ? AND r.comment_id IS NULL AND ar.comment_id IS NULL
+        """,
+        (person_id, person_id, person_id),
+    ).fetchone()[0]
+
+
 def inbox_for_person(conn: sqlite3.Connection, person_id: int) -> dict[str, Any]:
-    """Unread comments for a person: authored by someone else and not yet read.
-    mentioned flags a direct @mention. Returns the list (newest first, capped)
-    plus the exact unread_count of the whole set."""
+    """A person's inbox: comments authored by someone else that the person has
+    NOT archived, newest first. Read items stay in the inbox (flagged read)
+    until archived; mentioned flags a direct @mention. unread_count counts only
+    the not-read, not-archived items."""
     rows = conn.execute(
         """
         SELECT c.id, c.listing_id, c.listing_address, c.body, c.created_at,
                c.person_id AS author_id, a.name AS author_name,
-               CASE WHEN m.person_id IS NOT NULL THEN 1 ELSE 0 END AS mentioned
+               CASE WHEN m.person_id IS NOT NULL THEN 1 ELSE 0 END AS mentioned,
+               CASE WHEN r.comment_id IS NOT NULL THEN 1 ELSE 0 END AS is_read
         FROM listing_comments c
         JOIN people a ON a.id = c.person_id
         LEFT JOIN comment_mentions m ON m.comment_id = c.id AND m.person_id = ?
         LEFT JOIN comment_reads r ON r.comment_id = c.id AND r.person_id = ?
-        WHERE c.person_id != ? AND r.comment_id IS NULL
+        LEFT JOIN comment_archives ar ON ar.comment_id = c.id AND ar.person_id = ?
+        WHERE c.person_id != ? AND ar.comment_id IS NULL
         ORDER BY c.id DESC
         LIMIT 100
         """,
-        (person_id, person_id, person_id),
+        (person_id, person_id, person_id, person_id),
     ).fetchall()
-    count = conn.execute(
-        """
-        SELECT COUNT(*) FROM listing_comments c
-        LEFT JOIN comment_reads r ON r.comment_id = c.id AND r.person_id = ?
-        WHERE c.person_id != ? AND r.comment_id IS NULL
-        """,
-        (person_id, person_id),
-    ).fetchone()[0]
     inbox = []
     for row in rows:
         d = dict(row)
         d["mentioned"] = bool(d["mentioned"])
+        d["read"] = bool(d.pop("is_read"))
         inbox.append(d)
-    return {"inbox": inbox, "unread_count": count}
+    return {"inbox": inbox, "unread_count": unread_count_for(conn, person_id)}
 
 
 def handle_comment_post(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
@@ -3235,13 +3255,46 @@ def handle_comment_read_post(body: dict[str, Any]) -> tuple[dict[str, Any], int]
                 (person_id, listing_id, person_id),
             )
         conn.commit()
-        count = conn.execute(
-            "SELECT COUNT(*) FROM listing_comments c "
-            "LEFT JOIN comment_reads r ON r.comment_id = c.id AND r.person_id = ? "
-            "WHERE c.person_id != ? AND r.comment_id IS NULL",
-            (person_id, person_id),
-        ).fetchone()[0]
-        return {"ok": True, "unread_count": count}, 200
+        return {"ok": True, "unread_count": unread_count_for(conn, person_id)}, 200
+    finally:
+        conn.close()
+
+
+def handle_comment_archive_post(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """Archive comments for a person (removes them from the inbox): one
+    comment_id, or every comment on a listing_id not authored by that person.
+    Read stays independent; a comment stays in the inbox until archived.
+    Idempotent. Returns the recomputed unread_count."""
+    person_id = body.get("person_id")
+    comment_id = body.get("comment_id")
+    listing_id = body.get("listing_id")
+
+    has_comment = isinstance(comment_id, int) and not isinstance(comment_id, bool)
+    has_listing = isinstance(listing_id, str) and bool(listing_id)
+    if has_comment == has_listing:
+        return {"error": "invalid_request", "detail": "provide exactly one of comment_id or listing_id"}, 400
+
+    conn = get_db()
+    try:
+        if not person_exists(conn, person_id):
+            return {"error": "unknown_person", "detail": f"person_id {person_id!r} not found"}, 400
+        if has_comment:
+            exists = conn.execute("SELECT 1 FROM listing_comments WHERE id = ?", (comment_id,)).fetchone()
+            if exists is None:
+                return {"error": "not_found", "detail": f"comment_id {comment_id!r} not found"}, 404
+            conn.execute(
+                "INSERT OR IGNORE INTO comment_archives (comment_id, person_id) "
+                "SELECT id, ? FROM listing_comments WHERE id = ? AND person_id != ?",
+                (person_id, comment_id, person_id),
+            )
+        else:
+            conn.execute(
+                "INSERT OR IGNORE INTO comment_archives (comment_id, person_id) "
+                "SELECT id, ? FROM listing_comments WHERE listing_id = ? AND person_id != ?",
+                (person_id, listing_id, person_id),
+            )
+        conn.commit()
+        return {"ok": True, "unread_count": unread_count_for(conn, person_id)}, 200
     finally:
         conn.close()
 
@@ -3598,6 +3651,23 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
                     return
                 data, status = handle_comment_read_post(body)
+                self.send_json(data, status)
+                return
+            if parsed.path == "/api/comments/archive":
+                if not require_auth(self):
+                    self.send_json({"error": "unauthorized"}, 401)
+                    return
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                raw_body = self.rfile.read(length) if length else b""
+                try:
+                    body = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    self.send_json({"error": "invalid_request", "detail": "malformed JSON body"}, 400)
+                    return
+                if not isinstance(body, dict):
+                    self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
+                    return
+                data, status = handle_comment_archive_post(body)
                 self.send_json(data, status)
                 return
             if parsed.path == "/api/potential-purchase-prices":
