@@ -482,6 +482,8 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .area-row{display:flex;align-items:center;gap:4px}
 .area-chip{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .area-by{color:var(--muted);font-weight:400}
+.area-dot{display:inline-block;flex-shrink:0;width:9px;height:9px;border-radius:50%;margin:0 4px}
+.area-exclude-tag{color:#d11a2a;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.02em}
 .area-del{flex-shrink:0;border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:14px;line-height:1;padding:4px 8px;min-height:32px;border-radius:8px}
 .area-del:hover{color:#b3261e;background:var(--bg)}
 .poi-layer-list{display:flex;flex-direction:column;gap:5px}

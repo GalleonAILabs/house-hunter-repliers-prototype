@@ -166,6 +166,7 @@ const MAP_COLORS = {
   poiSchool: '#2b67d6', poiHospital: '#b3261e', poiWork: '#8e44ad', poiWorship: '#e8b400', poiOther: '#68726f',
   hwy413: '#b3261e', goPlanned: '#e8b400', rejectedPin: '#aaaaaa',
   white: '#ffffff', labelInk: '#18211f', blue: '#2b67d6', dim: '#0b1622',
+  drawExclude: '#d11a2a', // GAL-63: exclude zones drawn red
 };
 function loadMapColors() {
   try {
@@ -992,9 +993,20 @@ function setAreaActive(id, on) {
   if (on) ids.push(id);
   saveActiveAreaIds(ids);
 }
-// The polygons of every currently-active saved area (as [lng,lat] rings).
+// Every currently-active saved area (include or exclude).
+function activeAreas() {
+  return state.savedAreas.filter(a => isAreaActive(a.id));
+}
+// GAL-63: an area is an exclude zone iff its kind is 'exclude'.
+function isExcludeArea(a) { return a && a.kind === 'exclude'; }
+// Active include-zone rings (scope the result set). Kept named activeAreaPolygons
+// for the callers that only ever meant the include set.
 function activeAreaPolygons() {
-  return state.savedAreas.filter(a => isAreaActive(a.id)).map(a => a.polygon);
+  return activeAreas().filter(a => !isExcludeArea(a)).map(a => a.polygon);
+}
+// Active exclude-zone rings (subtract from the result set).
+function activeExcludePolygons() {
+  return activeAreas().filter(a => isExcludeArea(a)).map(a => a.polygon);
 }
 // Fit the map to a saved area's polygon boundary itself (not to the listings
 // inside it). Turning an area on in the Layers panel jumps here so you see the
@@ -1018,11 +1030,18 @@ function pointInRing(lng, lat, ring) {
   }
   return inside;
 }
+// GAL-63: a listing passes the draw filter when it is inside at least one
+// include zone (or there are none) AND inside no exclude zone. Use case: draw
+// Toronto (include), then a few neighbourhoods as exclude (red) to subtract.
 function matchesDrawArea(item) {
-  const polys = activeAreaPolygons();
-  if (!polys.length) return true;
-  if (item.lng == null || item.lat == null) return false;
-  return polys.some(ring => pointInRing(item.lng, item.lat, ring));
+  const inc = activeAreaPolygons();
+  const exc = activeExcludePolygons();
+  if (!inc.length && !exc.length) return true;
+  if (item.lng == null || item.lat == null) return inc.length ? false : true;
+  const inInclude = inc.length ? inc.some(ring => pointInRing(item.lng, item.lat, ring)) : true;
+  if (!inInclude) return false;
+  const inExclude = exc.some(ring => pointInRing(item.lng, item.lat, ring));
+  return !inExclude;
 }
 
 function matchesStatusFilter(listingId, value) {
@@ -1893,11 +1912,21 @@ function addMapLayers() {
   // Draw-an-area: completed polygons (fill + outline), the in-progress ring
   // (dashed line), and its vertices (dots).
   map.addSource('draw', { type: 'geojson', data: emptyFC() });
+  // GAL-63: exclude zones render red, include zones blue (keyed off the
+  // feature `kind` property set in renderDrawLayer; the in-progress line has no
+  // kind and falls through to blue).
   map.addLayer({ id: 'draw-fill', type: 'fill', source: 'draw',
-    filter: ['==', '$type', 'Polygon'], paint: { 'fill-color': MAP_COLORS.blue, 'fill-opacity': 0.12 } });
+    filter: ['==', '$type', 'Polygon'],
+    paint: {
+      'fill-color': ['case', ['==', ['get', 'kind'], 'exclude'], MAP_COLORS.drawExclude, MAP_COLORS.blue],
+      'fill-opacity': ['case', ['==', ['get', 'kind'], 'exclude'], 0.18, 0.12],
+    } });
   map.addLayer({ id: 'draw-line', type: 'line', source: 'draw',
     filter: ['in', '$type', 'Polygon', 'LineString'],
-    paint: { 'line-color': MAP_COLORS.blue, 'line-width': 2, 'line-dasharray': [2, 1] } });
+    paint: {
+      'line-color': ['case', ['==', ['get', 'kind'], 'exclude'], MAP_COLORS.drawExclude, MAP_COLORS.blue],
+      'line-width': 2, 'line-dasharray': [2, 1],
+    } });
   map.addLayer({ id: 'draw-verts', type: 'circle', source: 'draw',
     filter: ['==', '$type', 'Point'],
     paint: { 'circle-radius': 5, 'circle-color': MAP_COLORS.blue, 'circle-stroke-width': 2, 'circle-stroke-color': MAP_COLORS.white } });
@@ -3570,8 +3599,10 @@ function renderDrawLayer() {
   if (!state.mapReady || !state.map.getSource('draw')) return; // guard mid style-switch
   const fc = emptyFC();
   // Every currently-active saved area, plus the polygon being drawn right now.
-  activeAreaPolygons().forEach(ring => {
-    fc.features.push({ type: 'Feature', geometry: { type: 'Polygon', coordinates: [ring] }, properties: {} });
+  // GAL-63: carry the include/exclude kind so the fill/line pick red vs blue.
+  activeAreas().forEach(area => {
+    fc.features.push({ type: 'Feature', geometry: { type: 'Polygon', coordinates: [area.polygon] },
+      properties: { kind: isExcludeArea(area) ? 'exclude' : 'include' } });
   });
   if (state.drawCurrent.length >= 2) {
     fc.features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: state.drawCurrent }, properties: {} });
@@ -3598,10 +3629,17 @@ async function finishPolygon() {
   ring.push(ring[0]); // close the ring (first point == last)
   const defaultName = 'Area ' + (state.savedAreas.length + 1);
   const name = (window.prompt('Name this area', defaultName) || '').trim() || defaultName;
+  // GAL-63: choose include (keep properties inside) or exclude (remove them,
+  // drawn red). OK = exclude, Cancel = include (the normal case).
+  const kind = window.confirm(
+    'Make "' + name + '" an EXCLUDE zone (red)?\n\n'
+    + 'OK = Exclude: properties inside this area are removed from results.\n'
+    + 'Cancel = Include: the normal area (keep properties inside).'
+  ) ? 'exclude' : 'include';
   try {
     const res = await fetch('/api/areas', {
       method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ person_id: state.activePerson, name, polygon: ring }),
+      body: JSON.stringify({ person_id: state.activePerson, name, polygon: ring, kind }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || data.error || 'save failed');
@@ -3672,7 +3710,19 @@ function renderAreaLayers() {
       if (cb.checked) fitMapToArea(area);
     });
     label.appendChild(cb);
+    // GAL-63: a coloured dot (red = exclude, blue = include) and, for exclude
+    // zones, an explicit tag so their subtractive effect is obvious in the list.
+    const dot = document.createElement('span');
+    dot.className = 'area-dot';
+    dot.style.background = isExcludeArea(area) ? MAP_COLORS.drawExclude : MAP_COLORS.blue;
+    label.appendChild(dot);
     label.appendChild(document.createTextNode(' ' + area.name));
+    if (isExcludeArea(area)) {
+      const tag = document.createElement('span');
+      tag.className = 'area-exclude-tag';
+      tag.textContent = ' exclude';
+      label.appendChild(tag);
+    }
     if (area.created_by_name) {
       const by = document.createElement('span');
       by.className = 'area-by';

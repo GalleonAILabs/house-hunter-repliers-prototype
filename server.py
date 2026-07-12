@@ -429,6 +429,17 @@ def migrate_add_is_admin(conn: sqlite3.Connection) -> dict[str, Any] | None:
     return {"column_added": added, "seeded_admin_id": seeded_admin, "prior_admin_count": admin_count}
 
 
+def migrate_add_area_kind(conn: sqlite3.Connection) -> dict[str, Any] | None:
+    """GAL-63: add saved_areas.kind ('include'/'exclude') to a pre-existing DB.
+    CREATE TABLE IF NOT EXISTS never alters an existing table. Idempotent:
+    returns None once the column exists."""
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(saved_areas)").fetchall()]
+    if "kind" in cols:
+        return None
+    conn.execute("ALTER TABLE saved_areas ADD COLUMN kind TEXT NOT NULL DEFAULT 'include'")
+    return {"column_added": True}
+
+
 def migrate_poi_type_drop_check(conn: sqlite3.Connection) -> dict[str, Any] | None:
     """GAL-66: rebuild poi_pins to drop the original five-value CHECK on
     `type`, so the category-icon set can grow (heart, home, gym, ...) without a
@@ -527,10 +538,15 @@ def init_db() -> None:
             -- across the whole buyer group like POI pins, not per device. A
             -- zone is a household concept, so created_by is attribution, not a
             -- privacy boundary. `polygon` is a JSON closed ring [[lng,lat],...].
+            -- GAL-63: `kind` is 'include' (default, keep properties inside) or
+            -- 'exclude' (remove properties inside, drawn red). Exclude filtering
+            -- is applied client-side over the loaded set, so the Repliers `map`
+            -- fetch param still carries only include polygons.
             CREATE TABLE IF NOT EXISTS saved_areas (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
                 polygon TEXT NOT NULL,
+                kind TEXT NOT NULL DEFAULT 'include',
                 created_by INTEGER NOT NULL REFERENCES people(id),
                 created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             );
@@ -749,6 +765,11 @@ def init_db() -> None:
         poi_type_migration = migrate_poi_type_drop_check(conn)
         if poi_type_migration is not None:
             print(f"poi type CHECK migration: {poi_type_migration}")
+
+        # GAL-63: add saved_areas.kind for include/exclude draw zones.
+        area_kind_migration = migrate_add_area_kind(conn)
+        if area_kind_migration is not None:
+            print(f"area kind migration: {area_kind_migration}")
 
         conn.commit()
     finally:
@@ -1260,6 +1281,9 @@ def handle_area_post(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
     person_id = body.get("person_id")
     name = body.get("name")
     polygon = body.get("polygon")
+    # GAL-63: include (default) keeps properties inside the zone; exclude
+    # removes them. Anything other than 'exclude' is treated as 'include'.
+    kind = "exclude" if (body.get("kind") == "exclude") else "include"
 
     if not isinstance(name, str) or not name.strip():
         return {"error": "invalid_request", "detail": "name is required"}, 400
@@ -1274,13 +1298,13 @@ def handle_area_post(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         if not person_exists(conn, person_id):
             return {"error": "unknown_person", "detail": f"person_id {person_id!r} not found"}, 400
         cursor = conn.execute(
-            "INSERT INTO saved_areas (name, polygon, created_by) VALUES (?, ?, ?)",
-            (name.strip()[:120], json.dumps(polygon), person_id),
+            "INSERT INTO saved_areas (name, polygon, kind, created_by) VALUES (?, ?, ?, ?)",
+            (name.strip()[:120], json.dumps(polygon), kind, person_id),
         )
         conn.commit()
         row = conn.execute(
             """
-            SELECT a.id, a.name, a.polygon, a.created_by, pe.name AS created_by_name, a.created_at
+            SELECT a.id, a.name, a.polygon, a.kind, a.created_by, pe.name AS created_by_name, a.created_at
             FROM saved_areas a JOIN people pe ON pe.id = a.created_by
             WHERE a.id = ?
             """,
@@ -3533,7 +3557,7 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     rows = conn.execute(
                         """
-                        SELECT a.id, a.name, a.polygon, a.created_by,
+                        SELECT a.id, a.name, a.polygon, a.kind, a.created_by,
                                pe.name AS created_by_name, a.created_at
                         FROM saved_areas a JOIN people pe ON pe.id = a.created_by
                         ORDER BY a.id

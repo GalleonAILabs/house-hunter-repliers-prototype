@@ -738,6 +738,26 @@ class SavedAreaTests(ServerTestCase):
         self.assertEqual(area["name"], "Barrie area")
         self.assertEqual(area["polygon"], self.RING)
         self.assertEqual(area["created_by_name"], "Mark")
+        self.assertEqual(area["kind"], "include")  # GAL-63: default
+
+    def test_post_exclude_area_records_kind(self) -> None:
+        # GAL-63: an exclude zone (properties inside removed, drawn red).
+        status, data = self.request(
+            "POST", "/api/areas", token=self.TOKEN,
+            body={"person_id": 1, "name": "Skip these blocks", "polygon": self.RING, "kind": "exclude"},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(data["kind"], "exclude")
+        _, data = self.request("GET", "/api/areas", token=self.TOKEN)
+        self.assertEqual(data["areas"][0]["kind"], "exclude")
+
+    def test_post_area_unknown_kind_defaults_include(self) -> None:
+        status, data = self.request(
+            "POST", "/api/areas", token=self.TOKEN,
+            body={"person_id": 1, "name": "Weird", "polygon": self.RING, "kind": "banana"},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(data["kind"], "include")
 
     def test_delete_area(self) -> None:
         _, data = self.request(
