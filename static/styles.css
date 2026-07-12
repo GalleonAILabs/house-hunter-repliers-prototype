@@ -479,15 +479,18 @@ button.secondary { background:var(--bg); color:var(--ink); }
 @media (max-width:699px){
   .combined-panel{position:fixed;left:0;right:0;bottom:0;border-top-left-radius:16px;border-top-right-radius:16px;border-top:1px solid var(--line);transition:height .18s ease}
   /* Collapsed rests as a strip only: the grip, the count, and Sort. No card
-     row until dragged up. Height matches the header so no cards peek through. */
-  .combined-panel.collapsed{height:56px}
+     row until dragged up. GAL-73: taller strip with a clear top grab band so
+     the handle sits well above the count/sort row and is not hit by accident. */
+  .combined-panel.collapsed{height:66px}
   .combined-panel.collapsed .combined-cards{display:none}
   .combined-panel.expanded{height:74vh}
-  .combined-header{cursor:grab;touch-action:none;justify-content:center;position:relative;padding-top:14px}
+  .combined-header{cursor:grab;touch-action:none;justify-content:center;position:relative;padding-top:26px}
   /* Grip uses the mid gray (--muted), not --line: --line is nearly the panel
-     colour in dark mode, leaving the handle invisible. --muted reads in both. */
-  .combined-grip{display:block;position:absolute;top:6px;left:50%;transform:translateX(-50%);width:38px;height:4px;border-radius:999px;background:var(--muted)}
-  .combined-header .sort-inline{margin-left:12px}
+     colour in dark mode, leaving the handle invisible. --muted reads in both.
+     GAL-73: raised and enlarged so the grab target is obvious and clear of the
+     sort control below it. */
+  .combined-grip{display:block;position:absolute;top:9px;left:50%;transform:translateX(-50%);width:48px;height:5px;border-radius:999px;background:var(--muted)}
+  .combined-header .sort-inline,.combined-header .sort-control{margin-left:12px}
   .combined-panel.expanded .combined-cards{display:flex;flex-direction:column;gap:10px;padding:10px;overflow-y:auto;overflow-x:hidden}
   body.combined .status-bar{display:none}
 }
