@@ -3721,22 +3721,46 @@ function undoDrawVertex() {
   renderDrawLayer();
   updateDrawToolbar();
 }
-// Finish = save the drawn polygon as a named, shared area, then activate it for
-// this device. Prompts for a name (Area N by default).
-async function finishPolygon() {
+// GAL-63: the closed ring waiting to be saved, held while the save modal is open.
+let pendingAreaRing = null;
+
+// Finish = open the save modal (name + include/exclude radios). Replaces the
+// old prompt() + OK/Cancel confirm, which was not user friendly.
+function finishPolygon() {
   if (state.drawCurrent.length < 3) { updateDrawToolbar(); return; }
   if (!state.activePerson) { alert('Select who you are ("I am", top right) before saving an area.'); return; }
   const ring = state.drawCurrent.slice();
   ring.push(ring[0]); // close the ring (first point == last)
-  const defaultName = 'Area ' + (state.savedAreas.length + 1);
-  const name = (window.prompt('Name this area', defaultName) || '').trim() || defaultName;
-  // GAL-63: choose include (keep properties inside) or exclude (remove them,
-  // drawn red). OK = exclude, Cancel = include (the normal case).
-  const kind = window.confirm(
-    'Make "' + name + '" an EXCLUDE zone (red)?\n\n'
-    + 'OK = Exclude: properties inside this area are removed from results.\n'
-    + 'Cancel = Include: the normal area (keep properties inside).'
-  ) ? 'exclude' : 'include';
+  openAreaSaveModal(ring);
+}
+
+function openAreaSaveModal(ring) {
+  pendingAreaRing = ring;
+  const nameEl = $('areaSaveName');
+  if (nameEl) nameEl.value = 'Area ' + (state.savedAreas.length + 1);
+  const inc = document.querySelector('input[name="areaKind"][value="include"]');
+  if (inc) inc.checked = true;
+  const status = $('areaSaveStatus'); if (status) status.textContent = '';
+  $('areaSaveOverlay').hidden = false;
+  $('areaSaveModal').hidden = false;
+  if (nameEl) { nameEl.focus(); nameEl.select(); }
+}
+
+// Cancel just closes the modal and keeps the in-progress polygon, so the user
+// can adjust points (Undo) or Finish again.
+function closeAreaSaveModal() {
+  $('areaSaveOverlay').hidden = true;
+  $('areaSaveModal').hidden = true;
+  pendingAreaRing = null;
+}
+
+async function saveDrawnArea() {
+  if (!pendingAreaRing) return;
+  const name = ($('areaSaveName').value || '').trim() || ('Area ' + (state.savedAreas.length + 1));
+  const kindEl = document.querySelector('input[name="areaKind"]:checked');
+  const kind = kindEl && kindEl.value === 'exclude' ? 'exclude' : 'include';
+  const status = $('areaSaveStatus');
+  const ring = pendingAreaRing;
   try {
     const res = await fetch('/api/areas', {
       method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
@@ -3744,6 +3768,7 @@ async function finishPolygon() {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || data.error || 'save failed');
+    closeAreaSaveModal();
     state.drawCurrent = [];
     exitDrawModeQuietly();
     await loadAreas();
@@ -3752,8 +3777,8 @@ async function finishPolygon() {
     renderDrawLayer();
     onDrawAreaChanged();
   } catch (e) {
-    alert('Could not save the area: ' + e.message);
-    updateDrawToolbar();
+    if (status) showFeedbackStatus(status, 'Could not save the area: ' + e.message, true);
+    else alert('Could not save the area: ' + e.message);
   }
 }
 function toggleDrawMode() { if (state.drawMode) cancelDrawing(); else enterDrawMode(); }
@@ -5563,8 +5588,16 @@ window.addEventListener('DOMContentLoaded', () => {
   $('compassBtn')?.addEventListener('click', () => state.map?.easeTo({ bearing: 0, pitch: 0 }));
   // Draw-an-area controls
   $('drawAreaBtn')?.addEventListener('click', toggleDrawMode);
-  $('drawFinishBtn')?.addEventListener('click', () => finishPolygon().catch(err => console.error(err)));
+  $('drawFinishBtn')?.addEventListener('click', () => finishPolygon());
   $('drawUndoBtn')?.addEventListener('click', undoDrawVertex);
+  // GAL-63: area-save modal (name + include/exclude radios).
+  $('areaSaveGo')?.addEventListener('click', () => saveDrawnArea().catch(err => console.error(err)));
+  $('areaSaveCancel')?.addEventListener('click', closeAreaSaveModal);
+  $('areaSaveClose')?.addEventListener('click', closeAreaSaveModal);
+  $('areaSaveOverlay')?.addEventListener('click', closeAreaSaveModal);
+  $('areaSaveName')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); saveDrawnArea().catch(err => console.error(err)); }
+  });
   $('drawCancelBtn')?.addEventListener('click', cancelDrawing);
   $('drawIndicatorClear')?.addEventListener('click', deactivateAllAreas);
   $('sort')?.addEventListener('change', e => { syncSort(e.target.value); renderCards(state.listings); refreshMap(state.listings); renderCombined(); });
