@@ -1526,3 +1526,37 @@ All under the gitignored data/ dir, so not committed; this note is the record.
 **NEEDS MARK:** (1) confirm the 22:45:59 x5 (rating 4) burst can also be removed
 (it shadows POC-8's real 5); (2) the 05:23 x3 singles were left as likely-real
 but are close in time to the automated burst, flag if they were not yours.
+
+## Place search: Mapbox Search Box API, not classic geocoder (2026-07-11, GAL-53)
+
+**Decision.** The "Attach a place" search (per-card composer typeahead and the
+bulk grid attach) now uses the **Mapbox Search Box API** (`/suggest` +
+`/retrieve`, and `/forward` for a typed name with no pick), replacing the
+classic Mapbox Geocoding API (`/geocoding/v5/mapbox.places`). Mark's call after
+the trade-off writeup on GAL-53: "make that change, seems the best of both
+worlds."
+
+**Why.** The classic geocoder is address-oriented, so a named landmark like
+"Islington United Church" matched the nearest street (or "Islington" the
+neighbourhood), not the building. The Search Box API is POI-first. Verified
+live: "Islington United Church" now resolves to the actual church in Etobicoke
+(43.6494, -79.5298), not a street.
+
+**Cost / keys.** None new. Search Box uses the SAME Mapbox token already served
+via `/api/config`, and stays inside Mapbox's free tier at our scale. The
+two-call flow shares one `session_token` per composer for billing; a suggest
+plus its retrieve is one billed session. No new account, no new key.
+
+**Robustness.** Every path falls back to the classic geocoder on any Search Box
+error, so attaching a place never dead-ends. Suggestions from the fallback carry
+coordinates directly (no retrieve needed).
+
+**Deferred: Google Places (holding off, may revisit).** Google Places has the
+richest named-POI index and would be marginally better for obscure named
+places, but it needs its OWN Google Cloud API key with billing enabled and bills
+per Autocomplete session (a $200/month free credit, but a separate account and
+key to set up). We are NOT doing this now: Search Box gets most of the benefit
+with zero new billing or accounts. If named-place quality ever proves
+insufficient, revisit Google Places here. This paragraph is the record of that
+deferral (there is no separate parking-lot file; deferred items live inline in
+this DECISIONS.md, like the travel-time and Mapbox-migration deferrals above).

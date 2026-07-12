@@ -1735,7 +1735,7 @@ function wireInbox() {
 }
 
 // ─── Map (Mapbox GL JS) ────────────────────────────────────────────────────────
-const MAP_LAYER_IDS = ['listings-circles', 'clusters-circles', 'clusters-labels', 'go-stations-existing-circles', 'go-stations-planned-circles', 'go-lines-layer', 'hwy413-line', 'poi-pins-circles'];
+const MAP_LAYER_IDS = ['listings-circles', 'clusters-circles', 'clusters-labels', 'go-stations-existing-circles', 'go-stations-planned-circles', 'go-lines-layer', 'hwy413-line', 'poi-pins-circles', 'poi-pins-icons'];
 
 function findListing(mls) {
   return state.listings.find(x => x.mls === mls) || null;
@@ -2016,10 +2016,27 @@ function addMapLayers() {
     source: 'poi-pins',
     layout: { visibility: 'none' },
     paint: {
-      'circle-radius': 7,
+      // GAL-66: a slightly larger disc so the category emoji sits legibly on
+      // top. Colour still keys off the category, so the pin reads even before
+      // the emoji glyph resolves.
+      'circle-radius': 11,
       'circle-color': ['get', 'color'],
       'circle-stroke-width': 2,
       'circle-stroke-color': MAP_COLORS.white,
+    },
+  });
+  // GAL-66: the category emoji drawn on the disc, so the icon IS the pin.
+  map.addLayer({
+    id: 'poi-pins-icons',
+    type: 'symbol',
+    source: 'poi-pins',
+    layout: {
+      visibility: 'none',
+      'text-field': ['get', 'icon'],
+      'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
+      'text-size': 14,
+      'text-allow-overlap': true,
+      'text-ignore-placement': true,
     },
   });
 }
@@ -2116,10 +2133,11 @@ function wireMapHandlers() {
   map.on('mouseenter', 'poi-pins-circles', e => {
     map.getCanvas().style.cursor = 'pointer';
     const p = e.features[0].properties;
-    const typeLabel = (POI_TYPE_META[p.type] || POI_TYPE_META.other).label;
+    const meta = POI_TYPE_META[p.type] || POI_TYPE_META.other;
+    const typeLabel = `${meta.icon} ${meta.label}`;
     poiPopup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false, className: 'go-station-tooltip', offset: 10 })
       .setLngLat(e.features[0].geometry.coordinates)
-      .setHTML(`<strong>${esc(p.label || typeLabel)}</strong><br>${esc(typeLabel)}${p.created_by_name ? ' &middot; added by ' + esc(p.created_by_name) : ''}`)
+      .setHTML(`<strong>${esc(p.label || meta.label)}</strong><br>${esc(typeLabel)}${p.created_by_name ? ' &middot; added by ' + esc(p.created_by_name) : ''}`)
       .addTo(map);
   });
   map.on('mouseleave', 'poi-pins-circles', () => {
@@ -2228,14 +2246,24 @@ function updateOverlayLegibility() {
 // Visual/map-only for now, not wired into any commute or distance
 // calculation. Shared across the whole buyer group the same way listing
 // feedback is shared -- created_by just records who added it.
+// GAL-66: every place category carries an emoji icon, shown in the list, the
+// attach rows, the hover popup, and as the map pin itself. `color` on the five
+// original types is a live getter so it always reflects MAP_COLORS (the CSS
+// :root map palette); the icon-only types added here carry a literal colour
+// (they have no CSS variable and do not need one). Insertion order is the order
+// the picker shows: favourite first, then the common household categories.
 const POI_TYPE_META = {
-  // color is a live getter so it always reflects MAP_COLORS (the CSS :root map
-  // palette), never a captured literal.
-  school: { label: 'School', get color() { return MAP_COLORS.poiSchool; } },
-  hospital: { label: 'Hospital', get color() { return MAP_COLORS.poiHospital; } },
-  work: { label: 'Workplace', get color() { return MAP_COLORS.poiWork; } },
-  worship: { label: 'Place of worship', get color() { return MAP_COLORS.poiWorship; } },
-  other: { label: 'Other', get color() { return MAP_COLORS.poiOther; } },
+  heart: { label: 'Favourite', icon: '❤️', color: '#e0245e' },
+  home: { label: 'Home', icon: '🏠', color: '#2e7d32' },
+  family: { label: 'Family', icon: '👪', color: '#6a1b9a' },
+  work: { label: 'Workplace', icon: '💼', get color() { return MAP_COLORS.poiWork; } },
+  school: { label: 'School', icon: '🏫', get color() { return MAP_COLORS.poiSchool; } },
+  hospital: { label: 'Hospital', icon: '🏥', get color() { return MAP_COLORS.poiHospital; } },
+  worship: { label: 'Place of worship', icon: '🙏', get color() { return MAP_COLORS.poiWorship; } },
+  gym: { label: 'Gym', icon: '🏋️', color: '#ef6c00' },
+  grocery: { label: 'Groceries', icon: '🛒', color: '#00838f' },
+  park: { label: 'Park', icon: '🌳', color: '#388e3c' },
+  other: { label: 'Other', icon: '📍', get color() { return MAP_COLORS.poiOther; } },
 };
 
 function refreshPoiLayer() {
@@ -2249,6 +2277,7 @@ function refreshPoiLayer() {
         type: p.type,
         label: p.label || '',
         color: (POI_TYPE_META[p.type] || POI_TYPE_META.other).color,
+        icon: (POI_TYPE_META[p.type] || POI_TYPE_META.other).icon,
         created_by_name: p.created_by_name,
       },
     })),
@@ -2289,7 +2318,7 @@ function renderPoiList() {
     dot.className = 'poi-dot';
     dot.style.background = meta.color;
     label.appendChild(dot);
-    label.appendChild(document.createTextNode(' ' + (p.label || meta.label)));
+    label.appendChild(document.createTextNode(' ' + meta.icon + ' ' + (p.label || meta.label)));
     if (p.created_by_name) {
       const by = document.createElement('span');
       by.className = 'poi-by';
@@ -2355,6 +2384,8 @@ function openReportModal() {
   $('reportSend').addEventListener('click', () => sendReport().catch(err => {
     showFeedbackStatus($('reportStatus'), err.message || 'Could not send. Try again.', true);
   }));
+  // GAL-57: reflect how many images the tester picked, and flag the 5 cap.
+  $('reportImage')?.addEventListener('change', updateReportImageCount);
   $('reportOverlay').hidden = false;
   $('reportModal').hidden = false;
   $('reportText').focus();
@@ -2363,6 +2394,22 @@ function openReportModal() {
 function closeReportModal() {
   $('reportOverlay').hidden = true;
   $('reportModal').hidden = true;
+}
+
+// GAL-57: max images a tester can attach to one report. Mirrors the server's
+// REPORT_MAX_IMAGES; the client trims to this before sending.
+const REPORT_MAX_IMAGES = 5;
+
+function updateReportImageCount() {
+  const el = $('reportImageCount');
+  const input = $('reportImage');
+  if (!el || !input) return;
+  const n = input.files ? input.files.length : 0;
+  if (!n) { el.hidden = true; el.textContent = ''; return; }
+  el.hidden = false;
+  el.textContent = n > REPORT_MAX_IMAGES
+    ? `${n} selected, only the first ${REPORT_MAX_IMAGES} will be sent.`
+    : `${n} image${n === 1 ? '' : 's'} selected.`;
 }
 
 // Downscale a chosen image to a phone-friendly JPEG (max 1600px long edge) and
@@ -2423,8 +2470,10 @@ async function sendReport() {
   sendBtn.disabled = true;
   showFeedbackStatus(status, 'Sending...', false);
 
-  const file = $('reportImage')?.files?.[0] || null;
-  const image = await prepareReportImage(file);
+  // GAL-57: downscale up to REPORT_MAX_IMAGES chosen photos and send them as an
+  // array. Files that fail to decode drop out silently rather than blocking.
+  const files = Array.from($('reportImage')?.files || []).slice(0, REPORT_MAX_IMAGES);
+  const images = (await Promise.all(files.map(prepareReportImage))).filter(Boolean);
 
   const payload = {
     description,
@@ -2433,7 +2482,7 @@ async function sendReport() {
     milestone: $('reportMilestone')?.value || '',
     context: reportContext(),
   };
-  if (image) { payload.image_base64 = image.image_base64; payload.image_mimetype = image.image_mimetype; }
+  if (images.length) payload.images = images;
 
   let res, data;
   try {
@@ -2773,7 +2822,7 @@ function buildThresholdSettings() {
     // a destination is always a real pin, never free-typed text.
     const poiSel = el('select', { className: 'threshold-select threshold-select-poi' });
     const poiOpts = state.poi.length
-      ? state.poi.map(p => `<option value="${p.id}">${esc(p.label || (POI_TYPE_META[p.type] || POI_TYPE_META.other).label)}</option>`).join('')
+      ? state.poi.map(p => `<option value="${p.id}">${(POI_TYPE_META[p.type] || POI_TYPE_META.other).icon} ${esc(p.label || (POI_TYPE_META[p.type] || POI_TYPE_META.other).label)}</option>`).join('')
       : `<option value="">No places pinned yet, add one on the map</option>`;
     poiSel.innerHTML = poiOpts;
     if (t.travel_dest_ref != null) poiSel.value = String(t.travel_dest_ref);
@@ -2955,29 +3004,103 @@ async function addPoiPin() {
 // with who-added attribution. Straight-line distance shows immediately;
 // street-routed drive time is computed on attach and cached server-side, with a
 // recompute affordance. Deliberately NOT gated on any star rating in code.
-async function geocodePlace(query) {
+// GAL-53: place search uses the Mapbox Search Box API (POI-first), not the
+// classic address geocoder, so a named landmark like "Islington United Church"
+// resolves to the building instead of the nearest street. Same Mapbox token,
+// same free tier, no new account (decision logged in DECISIONS.md 2026-07-11;
+// Google Places is deferred there). The Search Box flow is two calls that share
+// one session_token: /suggest lists candidates (no coordinates), /retrieve
+// resolves the picked one to lng/lat. A free-text attach with no pick uses
+// /forward (single call). Every path falls back to the classic geocoder on
+// error, so attaching a place never dead-ends.
+const GTA_PROXIMITY = '-79.5,44.0';
+
+// A session_token groups a suggest/retrieve cycle for Search Box billing. One
+// per composer is fine. crypto.randomUUID where available, else a v4-ish id.
+function newSearchSession() {
   try {
-    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json`
-      + `?access_token=${encodeURIComponent(MAPBOX_TOKEN)}&proximity=-79.5,44.0&limit=1&country=ca`;
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const data = await res.json();
-    const f = (data.features || [])[0];
-    return f ? { lng: f.center[0], lat: f.center[1], label: f.place_name } : null;
-  } catch (err) { console.error(err); return null; }
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  } catch (e) { /* fall through */ }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.floor(Math.random() * 16), v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
 }
 
-// GAL-53: typeahead suggestions for adding a place by name or address (e.g.
-// "Islington United Church"). Returns up to 5 Mapbox matches near the GTA.
-async function geocodeSuggest(query) {
+// Classic Geocoding API fallback: returns [{lng, lat, label}].
+async function classicGeocode(query, limit) {
   try {
     const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json`
-      + `?access_token=${encodeURIComponent(MAPBOX_TOKEN)}&proximity=-79.5,44.0&limit=5&country=ca`;
+      + `?access_token=${encodeURIComponent(MAPBOX_TOKEN)}&proximity=${GTA_PROXIMITY}&limit=${limit}&country=ca`;
     const res = await fetch(url);
     if (!res.ok) return [];
     const data = await res.json();
     return (data.features || []).map(f => ({ lng: f.center[0], lat: f.center[1], label: f.place_name }));
   } catch (err) { console.error(err); return []; }
+}
+
+function searchBoxLabel(nameOrProps) {
+  const name = nameOrProps.name || '';
+  const place = nameOrProps.place_formatted || '';
+  return place ? `${name}, ${place}` : name;
+}
+
+// Search Box /suggest: candidates by name or address, no coordinates yet.
+// Returns [{mapbox_id, label}]. Falls back to the classic geocoder on error
+// (those items carry lng/lat instead of mapbox_id, handled at retrieve time).
+async function geocodeSuggest(query, sessionToken) {
+  try {
+    const url = `https://api.mapbox.com/search/searchbox/v1/suggest?q=${encodeURIComponent(query)}`
+      + `&access_token=${encodeURIComponent(MAPBOX_TOKEN)}&session_token=${encodeURIComponent(sessionToken)}`
+      + `&country=ca&language=en&limit=5&proximity=${GTA_PROXIMITY}`
+      + `&types=poi,address,place,neighborhood,locality,street`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('suggest ' + res.status);
+    const data = await res.json();
+    const items = (data.suggestions || [])
+      .filter(s => s.mapbox_id)
+      .map(s => ({ mapbox_id: s.mapbox_id, label: searchBoxLabel(s) }));
+    return items.length ? items : await classicGeocode(query, 5);
+  } catch (err) {
+    console.error(err);
+    return classicGeocode(query, 5);
+  }
+}
+
+// Search Box /retrieve: resolve a picked suggestion's mapbox_id to coordinates.
+// Returns {lng, lat, label} or null.
+async function searchBoxRetrieve(mapboxId, sessionToken) {
+  try {
+    const url = `https://api.mapbox.com/search/searchbox/v1/retrieve/${encodeURIComponent(mapboxId)}`
+      + `?access_token=${encodeURIComponent(MAPBOX_TOKEN)}&session_token=${encodeURIComponent(sessionToken)}`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const f = (data.features || [])[0];
+    if (!f || !f.geometry) return null;
+    const c = f.geometry.coordinates;
+    return { lng: c[0], lat: c[1], label: searchBoxLabel(f.properties || {}) };
+  } catch (err) { console.error(err); return null; }
+}
+
+// Single-call resolve for a typed name/address with no picked suggestion.
+// Search Box /forward (POI-first) with the classic geocoder as fallback.
+async function geocodePlace(query) {
+  try {
+    const url = `https://api.mapbox.com/search/searchbox/v1/forward?q=${encodeURIComponent(query)}`
+      + `&access_token=${encodeURIComponent(MAPBOX_TOKEN)}&country=ca&language=en&limit=1&proximity=${GTA_PROXIMITY}`;
+    const res = await fetch(url);
+    if (res.ok) {
+      const data = await res.json();
+      const f = (data.features || [])[0];
+      if (f && f.geometry) {
+        const c = f.geometry.coordinates;
+        return { lng: c[0], lat: c[1], label: searchBoxLabel(f.properties || {}) };
+      }
+    }
+  } catch (err) { console.error(err); }
+  const arr = await classicGeocode(query, 1);
+  return arr[0] || null;
 }
 
 // GAL-55: which listing's "Attach a place" composer should stay open across a
@@ -3001,13 +3124,14 @@ function buildPlaceAttachments(node, item) {
   const activeT = thresholdFor(state.activePerson);
 
   (state.placeAttachments[item.mls] || []).forEach(a => {
-    const typeLabel = (POI_TYPE_META[a.poi_type] || POI_TYPE_META.other).label;
+    const typeMeta = POI_TYPE_META[a.poi_type] || POI_TYPE_META.other;
+    const typeLabel = typeMeta.label;
     const straight = a.straight_km != null ? `${num(a.straight_km)} km straight-line` : '';
     const drive = a.drive_minutes != null
       ? `${num(a.drive_minutes)} min drive` + (a.drive_km != null ? ` (${num(a.drive_km)} km)` : '')
       : 'drive time unavailable';
     const info = el('div', { className: 'attach-info' },
-      el('span', { className: 'attach-name', textContent: a.poi_label || typeLabel }),
+      el('span', { className: 'attach-name', textContent: typeMeta.icon + ' ' + (a.poi_label || typeLabel) }),
       el('span', { className: 'attach-detail', textContent: [straight, drive].filter(Boolean).join(' · ') }),
       el('span', { className: 'attach-by', textContent: `added by ${a.created_by_name}` }));
 
@@ -3051,7 +3175,7 @@ function buildPlaceAttachments(node, item) {
   const poiSel = el('select', { className: 'attach-select' });
   const refreshPoiOptions = () => {
     poiSel.innerHTML = state.poi.length
-      ? state.poi.map(p => `<option value="${p.id}">${esc(p.label || (POI_TYPE_META[p.type] || POI_TYPE_META.other).label)}</option>`).join('')
+      ? state.poi.map(p => `<option value="${p.id}">${(POI_TYPE_META[p.type] || POI_TYPE_META.other).icon} ${esc(p.label || (POI_TYPE_META[p.type] || POI_TYPE_META.other).label)}</option>`).join('')
       : `<option value="">No places pinned yet</option>`;
   };
   refreshPoiOptions();
@@ -3062,15 +3186,29 @@ function buildPlaceAttachments(node, item) {
   const suggestBox = el('div', { className: 'attach-suggest' });
   suggestBox.hidden = true;
   const selectedPlaceRef = { value: null };
+  const sessionToken = newSearchSession(); // GAL-53: one Search Box session per composer
   let suggestTimer = null, suggestItems = [], suggestIdx = -1;
   const closeSuggest = () => { suggestBox.hidden = true; suggestBox.innerHTML = ''; suggestItems = []; suggestIdx = -1; };
   const updateSuggestActive = () => { [...suggestBox.children].forEach((c, i) => c.classList.toggle('active', i === suggestIdx)); };
-  const pickSuggestion = (p) => { addrInput.value = p.label; selectedPlaceRef.value = p; closeSuggest(); addrInput.focus(); };
+  // A Search Box suggestion has a mapbox_id but no coordinates yet; retrieve
+  // them on pick. A classic-geocoder fallback item already carries lng/lat.
+  const pickSuggestion = async (p) => {
+    addrInput.value = p.label;
+    selectedPlaceRef.value = null;
+    closeSuggest();
+    addrInput.focus();
+    if (p.lng != null && p.lat != null) { selectedPlaceRef.value = p; return; }
+    if (p.mapbox_id) {
+      const full = await searchBoxRetrieve(p.mapbox_id, sessionToken);
+      // Apply only if the field still shows this pick (user did not keep typing).
+      if (full && addrInput.value.trim() === p.label.trim()) selectedPlaceRef.value = full;
+    }
+  };
   const runSuggest = async () => {
     const q = addrInput.value.trim();
     selectedPlaceRef.value = null; // typing invalidates a prior pick
     if (q.length < 3) { closeSuggest(); return; }
-    const places = await geocodeSuggest(q);
+    const places = await geocodeSuggest(q, sessionToken);
     if (addrInput.value.trim() !== q) return; // a newer keystroke superseded this
     if (!places.length) { closeSuggest(); return; }
     suggestItems = places; suggestIdx = -1;
@@ -3098,7 +3236,7 @@ function buildPlaceAttachments(node, item) {
     if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); confirmBtn.click(); }
   });
   const typeSel = el('select', { className: 'attach-select' });
-  typeSel.innerHTML = Object.entries(POI_TYPE_META).map(([k, v]) => `<option value="${k}">${esc(v.label)}</option>`).join('');
+  typeSel.innerHTML = Object.entries(POI_TYPE_META).map(([k, v]) => `<option value="${k}">${v.icon} ${esc(v.label)}</option>`).join('');
   typeSel.value = 'work';
   const newWrap = el('div', { className: 'attach-new-wrap' }, addrInput, suggestBox, typeSel);
 
@@ -4256,7 +4394,7 @@ function gridCommuteVal(i) { return i.poc?.goTotal ?? i.goMin ?? null; }
 function gridLatestNote(i) { return personFeedbackFor(i.mls, state.activePerson)?.note || ''; }
 function gridAttachSummary(i) {
   return (state.placeAttachments[i.mls] || []).map(a =>
-    `${a.poi_label || (POI_TYPE_META[a.poi_type] || POI_TYPE_META.other).label}${a.drive_minutes != null ? ' (' + a.drive_minutes + ' min)' : ''}`).join('; ');
+    `${(POI_TYPE_META[a.poi_type] || POI_TYPE_META.other).icon} ${a.poi_label || (POI_TYPE_META[a.poi_type] || POI_TYPE_META.other).label}${a.drive_minutes != null ? ' (' + a.drive_minutes + ' min)' : ''}`).join('; ');
 }
 // Data columns (checkbox + thumbnail are rendered separately). `get` returns the
 // raw value (numbers stay numbers for sort + export typing); `fmt` is the display
@@ -4630,20 +4768,19 @@ async function bulkNoteGo() {
   } catch (e) { alert('Could not add notes: ' + e.message); }
 }
 
+// GAL-53: bulk (grid) attach resolves a typed name/address through the same
+// Search Box path as the per-card composer, so named places resolve there too.
+// Returns the {center:[lng,lat], place_name} shape its callers expect.
 async function geocodeAddress(query) {
-  const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json`
-    + `?access_token=${encodeURIComponent(MAPBOX_TOKEN)}&proximity=-79.5,44.0&limit=1&country=ca`;
-  const res = await fetch(url);
-  if (!res.ok) return null;
-  const data = await res.json();
-  return (data.features || [])[0] || null;
+  const place = await geocodePlace(query);
+  return place ? { center: [place.lng, place.lat], place_name: place.label } : null;
 }
 function openBulkAttach() {
   if (!state.gridSelection.size) return;
   if (!state.activePerson) { alert('Select who you are (top right) first.'); return; }
   const poiSel = $('bulkAttachPoi');
   poiSel.innerHTML = '<option value="">— pick an existing place —</option>'
-    + state.poi.map(p => `<option value="${p.id}">${esc((POI_TYPE_META[p.type] || POI_TYPE_META.other).label)}: ${esc(p.label || '')}</option>`).join('');
+    + state.poi.map(p => `<option value="${p.id}">${(POI_TYPE_META[p.type] || POI_TYPE_META.other).icon} ${esc((POI_TYPE_META[p.type] || POI_TYPE_META.other).label)}: ${esc(p.label || '')}</option>`).join('');
   $('bulkAttachAddr').value = '';
   $('bulkAttachStatus').textContent = '';
   $('bulkAttachTitle').textContent = `Attach a place to ${state.gridSelection.size} listings`;
@@ -4739,7 +4876,7 @@ function everythingColumns() {
   });
   // Attachments (all places attached to the listing, summarized).
   cols.push({ key: 'attachments', label: 'Attached places', type: 'text', get: i =>
-    (state.placeAttachments[i.mls] || []).map(a => `${a.poi_label || (POI_TYPE_META[a.poi_type] || POI_TYPE_META.other).label}${a.drive_minutes != null ? ' (' + a.drive_minutes + ' min)' : ''}`).join('; ') });
+    (state.placeAttachments[i.mls] || []).map(a => `${(POI_TYPE_META[a.poi_type] || POI_TYPE_META.other).icon} ${a.poi_label || (POI_TYPE_META[a.poi_type] || POI_TYPE_META.other).label}${a.drive_minutes != null ? ' (' + a.drive_minutes + ' min)' : ''}`).join('; ') });
   // Computed financial breakdown itemized.
   const bd = i => i.mortgageBreakdown || null;
   cols.push({ key: 'downPayment', label: 'Down payment', type: 'number', get: i => bd(i)?.downPayment?.amount ?? null });
@@ -5094,6 +5231,11 @@ function applyPersistedLayerVisibility() {
     const cb = $(checkboxId);
     if (cb) state.map.setLayoutProperty(layerId, 'visibility', cb.checked ? 'visible' : 'none');
   });
+  // GAL-66: the POI emoji layer rides the same toggle as its disc layer.
+  if (state.map.getLayer('poi-pins-icons') && state.map.getLayer('poi-pins-circles')) {
+    state.map.setLayoutProperty('poi-pins-icons', 'visibility',
+      state.map.getLayoutProperty('poi-pins-circles', 'visibility'));
+  }
   // Satellite-mode casings mirror the GO lines / Highway 413 toggle state.
   updateOverlayLegibility();
   updateBasemapDim(); // dim the basemap iff transit lines are on
@@ -5152,7 +5294,9 @@ window.addEventListener('DOMContentLoaded', () => {
   $('addPoiBtn')?.addEventListener('click', () => addPoiPin().catch(err => console.error(err)));
   $('layerPoiPins')?.addEventListener('change', e => {
     if (!state.mapReady) return;
-    state.map.setLayoutProperty('poi-pins-circles', 'visibility', e.target.checked ? 'visible' : 'none');
+    const vis = e.target.checked ? 'visible' : 'none';
+    state.map.setLayoutProperty('poi-pins-circles', 'visibility', vis);
+    if (state.map.getLayer('poi-pins-icons')) state.map.setLayoutProperty('poi-pins-icons', 'visibility', vis);
   });
   $('layerGoStations')?.addEventListener('change', e => {
     if (!state.mapReady) return;

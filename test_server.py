@@ -617,6 +617,19 @@ class PoiEndpointTests(ServerTestCase):
         status, data = self.request("GET", "/api/poi", token=self.TOKEN)
         self.assertEqual(len(data["poi"]), 2)
 
+    def test_post_poi_accepts_new_icon_types(self) -> None:
+        # GAL-66: the category-icon set grew beyond the original five and the
+        # DB CHECK was dropped, so a "heart" (favourite) place must save.
+        for i, ptype in enumerate(("heart", "home", "family", "gym", "grocery", "park")):
+            status, data = self.request(
+                "POST", "/api/poi", token=self.TOKEN,
+                body={"person_id": 1, "type": ptype, "lat": 43.6 + i * 0.01, "lng": -79.4},
+            )
+            self.assertEqual(status, 200, f"{ptype} should be accepted")
+        status, data = self.request("GET", "/api/poi", token=self.TOKEN)
+        self.assertEqual({p["type"] for p in data["poi"]},
+                         {"heart", "home", "family", "gym", "grocery", "park"})
+
     def test_delete_poi_without_token_401(self) -> None:
         status, _ = self.request("DELETE", "/api/poi", body={"id": 1})
         self.assertEqual(status, 401)
@@ -1725,7 +1738,47 @@ class ReportIssueTests(ServerTestCase):
         )
         self.assertEqual(status, 200)
         self.assertFalse(data["image_attached"])
-        self.assertIn("Image upload failed", self.created[0]["description"])
+        self.assertIn("image upload failed", self.created[0]["description"])
+
+    def test_multiple_images_all_embedded(self) -> None:
+        # GAL-57: an `images` array uploads and embeds each screenshot.
+        imgs = [
+            {"image_base64": base64.b64encode(b"first").decode("ascii"), "image_mimetype": "image/png"},
+            {"image_base64": base64.b64encode(b"second").decode("ascii"), "image_mimetype": "image/jpeg"},
+            {"image_base64": base64.b64encode(b"third").decode("ascii"), "image_mimetype": "image/webp"},
+        ]
+        status, data = self.request(
+            "POST", "/api/report-issue", token=self.TOKEN,
+            body={"description": "three shots", "images": imgs},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(data["image_attached"])
+        self.assertEqual(data["image_count"], 3)
+        self.assertEqual([u["data"] for u in self.uploaded], [b"first", b"second", b"third"])
+        desc = self.created[0]["description"]
+        self.assertIn("tester screenshot 1", desc)
+        self.assertIn("tester screenshot 3", desc)
+
+    def test_more_than_five_images_rejected(self) -> None:
+        imgs = [
+            {"image_base64": base64.b64encode(f"img{i}".encode()).decode("ascii"), "image_mimetype": "image/png"}
+            for i in range(6)
+        ]
+        status, data = self.request(
+            "POST", "/api/report-issue", token=self.TOKEN,
+            body={"description": "too many", "images": imgs},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(data["error"], "too_many_images")
+
+    def test_images_array_bad_mimetype_rejected(self) -> None:
+        imgs = [{"image_base64": base64.b64encode(b"x").decode("ascii"), "image_mimetype": "application/pdf"}]
+        status, data = self.request(
+            "POST", "/api/report-issue", token=self.TOKEN,
+            body={"description": "x", "images": imgs},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(data["error"], "invalid_request")
 
     def test_bad_base64_rejected(self) -> None:
         status, data = self.request(
@@ -2071,6 +2124,79 @@ class HighwayHouseholdMigrationTests(unittest.TestCase):
             self.assertEqual(hv, "7")
             cols = [r[1] for r in conn.execute("PRAGMA table_info(person_thresholds)").fetchall()]
             self.assertNotIn("highway_km", cols)
+        finally:
+            conn.close()
+
+
+class PoiTypeCheckMigrationTests(unittest.TestCase):
+    """GAL-66: rebuilding poi_pins to drop the original five-value CHECK on
+    type, so new category icons (heart, home, ...) save without a schema
+    migration. Preserves ids and rows; idempotent."""
+
+    def setUp(self) -> None:
+        self.tmpdir = tempfile.mkdtemp()
+        self.db_path = Path(self.tmpdir) / "old.db"
+        self._orig = server.DB_PATH
+        server.DB_PATH = self.db_path
+        # Build poi_pins on the OLD schema: CHECK restricts type to five values.
+        conn = sqlite3.connect(self.db_path)
+        conn.executescript(
+            """
+            CREATE TABLE people (id INTEGER PRIMARY KEY, name TEXT, role TEXT);
+            CREATE TABLE poi_pins (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                type TEXT NOT NULL CHECK (
+                    type IN ('school', 'hospital', 'work', 'worship', 'other')
+                ),
+                label TEXT, lat REAL NOT NULL, lng REAL NOT NULL,
+                created_by INTEGER NOT NULL REFERENCES people(id),
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+            INSERT INTO people (id, name, role) VALUES (1, 'Mark', 'buyer');
+            INSERT INTO poi_pins (id, type, label, lat, lng, created_by)
+                VALUES (1, 'school', 'Local elementary', 43.6, -79.4, 1);
+            """
+        )
+        conn.commit()
+        conn.close()
+
+    def tearDown(self) -> None:
+        server.DB_PATH = self._orig
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_migration_drops_check_preserves_rows_allows_new_types(self) -> None:
+        conn = server.get_db()
+        try:
+            # Before: the old CHECK rejects a new "heart" type.
+            with self.assertRaises(sqlite3.IntegrityError):
+                conn.execute(
+                    "INSERT INTO poi_pins (type, lat, lng, created_by) VALUES ('heart', 43.7, -79.5, 1)"
+                )
+            conn.rollback()
+
+            result = server.migrate_poi_type_drop_check(conn)
+            conn.commit()
+            self.assertIsNotNone(result)
+            self.assertEqual(result["poi_pins_before"], result["poi_pins_after"])
+
+            # Existing row survives with its id and label.
+            row = conn.execute("SELECT type, label FROM poi_pins WHERE id=1").fetchone()
+            self.assertEqual(tuple(row), ("school", "Local elementary"))
+            # CHECK is gone from the rebuilt schema.
+            schema = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='poi_pins'"
+            ).fetchone()[0]
+            self.assertNotIn("CHECK (", schema)
+            # A new icon type now inserts cleanly.
+            conn.execute(
+                "INSERT INTO poi_pins (type, lat, lng, created_by) VALUES ('heart', 43.7, -79.5, 1)"
+            )
+            conn.commit()
+            self.assertEqual(
+                conn.execute("SELECT COUNT(*) FROM poi_pins WHERE type='heart'").fetchone()[0], 1
+            )
+            # Idempotent: a second run is a no-op.
+            self.assertIsNone(server.migrate_poi_type_drop_check(conn))
         finally:
             conn.close()
 

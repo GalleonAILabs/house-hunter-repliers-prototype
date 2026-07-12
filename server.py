@@ -83,8 +83,17 @@ ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_TRIAGE_MODEL = "claude-haiku-4-5-20251001"
 REPORT_IMAGE_MAX_BYTES = 8 * 1024 * 1024
 REPORT_IMAGE_MIMETYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+REPORT_MAX_IMAGES = 5  # GAL-57: a tester can attach up to this many screenshots
 ALLOWED_ACTION_TYPES = {"rating", "note", "reject", "research_request"}
-ALLOWED_POI_TYPES = {"school", "hospital", "work", "worship", "other"}
+# GAL-66: category icons. Each type maps to an emoji icon client-side
+# (POI_TYPE_META in app.js); this set is the server-side allow-list. The
+# poi_pins.type column no longer carries a CHECK constraint (see
+# migrate_poi_type_drop_check), so adding a new icon type here is the only
+# change needed, never a schema migration.
+ALLOWED_POI_TYPES = {
+    "heart", "home", "family", "work", "school", "hospital",
+    "worship", "gym", "grocery", "park", "other",
+}
 
 # Per-person location thresholds (person_thresholds table). Unlike
 # household_settings (one shared value per key for the whole group), these
@@ -420,6 +429,47 @@ def migrate_add_is_admin(conn: sqlite3.Connection) -> dict[str, Any] | None:
     return {"column_added": added, "seeded_admin_id": seeded_admin, "prior_admin_count": admin_count}
 
 
+def migrate_poi_type_drop_check(conn: sqlite3.Connection) -> dict[str, Any] | None:
+    """GAL-66: rebuild poi_pins to drop the original five-value CHECK on
+    `type`, so the category-icon set can grow (heart, home, gym, ...) without a
+    schema migration each time. Validation now lives in ALLOWED_POI_TYPES.
+    Preserves every id (poi ids are referenced by listing_place_attachments).
+    Idempotent: returns None once the CHECK is gone (fresh DBs and already
+    migrated DBs)."""
+    schema = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='poi_pins'"
+    ).fetchone()
+    # Match the constraint itself ("CHECK ("), not the word "CHECK" in the
+    # schema comment, which SQLite preserves in sqlite_master.sql.
+    if not schema or "CHECK (" not in schema[0]:
+        return None  # already migrated, or a fresh DB created without the CHECK
+
+    before = conn.execute("SELECT COUNT(*) FROM poi_pins").fetchone()[0]
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.executescript(
+        """
+        BEGIN;
+        CREATE TABLE poi_pins_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type TEXT NOT NULL,
+            label TEXT,
+            lat REAL NOT NULL,
+            lng REAL NOT NULL,
+            created_by INTEGER NOT NULL REFERENCES people(id),
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        );
+        INSERT INTO poi_pins_new (id, type, label, lat, lng, created_by, created_at)
+            SELECT id, type, label, lat, lng, created_by, created_at FROM poi_pins;
+        DROP TABLE poi_pins;
+        ALTER TABLE poi_pins_new RENAME TO poi_pins;
+        COMMIT;
+        """
+    )
+    conn.execute("PRAGMA foreign_keys = ON")
+    after = conn.execute("SELECT COUNT(*) FROM poi_pins").fetchone()[0]
+    return {"poi_pins_before": before, "poi_pins_after": after}
+
+
 def init_db() -> None:
     """Create the schema (if missing) and seed the four demo participants."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -460,9 +510,12 @@ def init_db() -> None:
 
             CREATE TABLE IF NOT EXISTS poi_pins (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                type TEXT NOT NULL CHECK (
-                    type IN ('school', 'hospital', 'work', 'worship', 'other')
-                ),
+                -- GAL-66: no CHECK on type. The category icon set grows over
+                -- time (heart, home, gym, ...); validation lives in
+                -- ALLOWED_POI_TYPES so a new icon never needs a schema change.
+                -- migrate_poi_type_drop_check rebuilds older DBs that still
+                -- carry the original five-value CHECK.
+                type TEXT NOT NULL,
                 label TEXT,
                 lat REAL NOT NULL,
                 lng REAL NOT NULL,
@@ -690,6 +743,12 @@ def init_db() -> None:
         admin_migration = migrate_add_is_admin(conn)
         if admin_migration is not None:
             print(f"is_admin migration: {admin_migration}")
+
+        # GAL-66: drop the old five-value CHECK on poi_pins.type so the
+        # category-icon set can grow without a schema migration.
+        poi_type_migration = migrate_poi_type_drop_check(conn)
+        if poi_type_migration is not None:
+            print(f"poi type CHECK migration: {poi_type_migration}")
 
         conn.commit()
     finally:
@@ -2906,21 +2965,23 @@ def anthropic_triage_firstpass(
 
 def _report_description(
     description: str, ctx: dict[str, Any], user_agent: str | None,
-    asset_url: str | None, image_present: bool, duplicate_of: str | None,
+    asset_urls: list[str], image_count: int, duplicate_of: str | None,
     ai_ok: bool,
 ) -> str:
-    """Assemble the issue body: tester text, optional image, optional dup note,
-    and the captured context block."""
+    """Assemble the issue body: tester text, any images, optional dup note,
+    and the captured context block. GAL-57: up to five images."""
     def g(key: str) -> str:
         val = ctx.get(key)
         return str(val).strip() if val not in (None, "") else ""
 
     lines = ["## Tester report", "", _strip_dashes(description).strip(), ""]
-    if image_present:
-        if asset_url:
-            lines += [f"![tester screenshot]({asset_url})", ""]
-        else:
-            lines += ["(Image upload failed.)", ""]
+    if image_count:
+        for idx, url in enumerate(asset_urls, 1):
+            label = "tester screenshot" if image_count == 1 else f"tester screenshot {idx}"
+            lines += [f"![{label}]({url})", ""]
+        failed = image_count - len(asset_urls)
+        if failed > 0:
+            lines += [f"({failed} image upload{'s' if failed != 1 else ''} failed.)", ""]
     if duplicate_of:
         lines += ["## Possible duplicate", f"Looks similar to {duplicate_of}.", ""]
 
@@ -2970,24 +3031,45 @@ def handle_report_issue_post(
     if len(description) > 5000:
         return {"error": "invalid_request", "detail": "description must be 5000 characters or fewer"}, 400
 
-    image_b64 = body.get("image_base64")
-    image_bytes: bytes | None = None
-    mimetype = body.get("image_mimetype")
-    if image_b64:
-        if not isinstance(image_b64, str):
+    # GAL-57: up to REPORT_MAX_IMAGES images. New clients send an `images` array
+    # of {image_base64, image_mimetype}; older clients (and the single-image
+    # tests) send one image_base64/image_mimetype pair, still supported.
+    raw_images = body.get("images")
+    if raw_images is None:
+        if body.get("image_base64"):
+            raw_images = [{"image_base64": body.get("image_base64"),
+                           "image_mimetype": body.get("image_mimetype")}]
+        else:
+            raw_images = []
+    if not isinstance(raw_images, list):
+        return {"error": "invalid_request", "detail": "images must be a list"}, 400
+    if len(raw_images) > REPORT_MAX_IMAGES:
+        return {"error": "too_many_images",
+                "detail": f"at most {REPORT_MAX_IMAGES} images are allowed"}, 400
+
+    decoded_images: list[tuple[bytes, str]] = []
+    for entry in raw_images:
+        if not isinstance(entry, dict):
+            return {"error": "invalid_request", "detail": "each image must be an object"}, 400
+        b64 = entry.get("image_base64")
+        mt = entry.get("image_mimetype")
+        if not b64:
+            continue  # skip empty slots so a stray blank entry is not an error
+        if not isinstance(b64, str):
             return {"error": "invalid_request", "detail": "image_base64 must be a string"}, 400
         # Strip a data: URL prefix defensively.
-        if "," in image_b64 and image_b64.strip().lower().startswith("data:"):
-            image_b64 = image_b64.split(",", 1)[1]
+        if "," in b64 and b64.strip().lower().startswith("data:"):
+            b64 = b64.split(",", 1)[1]
         try:
             # binascii.Error (raised on bad base64) is a subclass of ValueError.
-            image_bytes = base64.b64decode(image_b64, validate=True)
+            img_bytes = base64.b64decode(b64, validate=True)
         except ValueError:
             return {"error": "invalid_request", "detail": "image_base64 is not valid base64"}, 400
-        if mimetype not in REPORT_IMAGE_MIMETYPES:
+        if mt not in REPORT_IMAGE_MIMETYPES:
             return {"error": "invalid_request", "detail": "image_mimetype must be one of " + ", ".join(sorted(REPORT_IMAGE_MIMETYPES))}, 400
-        if len(image_bytes) > REPORT_IMAGE_MAX_BYTES:
+        if len(img_bytes) > REPORT_IMAGE_MAX_BYTES:
             return {"error": "image_too_large", "detail": "image exceeds the 8 MB limit"}, 413
+        decoded_images.append((img_bytes, mt))
 
     ctx = body.get("context") if isinstance(body.get("context"), dict) else {}
 
@@ -3028,14 +3110,16 @@ def handle_report_issue_post(
         label_id = labels.get("needs-triage")
     label_ids = [label_id] if label_id else []
 
-    asset_url = None
-    if image_bytes is not None:
-        ext = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}.get(mimetype, "img")
-        asset_url = linear_upload_image(image_bytes, mimetype, f"report.{ext}")
+    asset_urls: list[str] = []
+    for img_bytes, mt in decoded_images:
+        ext = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}.get(mt, "img")
+        url = linear_upload_image(img_bytes, mt, f"report.{ext}")
+        if url:
+            asset_urls.append(url)
 
     description_md = _report_description(
-        description, ctx, user_agent, asset_url,
-        image_present=image_bytes is not None,
+        description, ctx, user_agent, asset_urls,
+        image_count=len(decoded_images),
         duplicate_of=duplicate_of, ai_ok=bool(ai),
     )
 
@@ -3060,7 +3144,8 @@ def handle_report_issue_post(
         "milestone": milestone_key.title() if milestone_set else None,
         "duplicate_of": duplicate_of,
         "ai_triage": bool(ai),
-        "image_attached": bool(asset_url),
+        "image_attached": bool(asset_urls),
+        "image_count": len(asset_urls),
     }, 200
 
 
