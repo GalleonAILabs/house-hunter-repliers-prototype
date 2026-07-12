@@ -5198,6 +5198,43 @@ function syncSort(value) {
   if ($('sort')) $('sort').value = value;
   if ($('sortList')) $('sortList').value = value;
   if ($('sortCombined')) $('sortCombined').value = value;
+  updateSortBtnTitle();
+}
+
+// GAL-73: sort is a compact icon button (#sortBtn) that opens a small menu
+// driving the hidden native #sort select. The button title names the current
+// sort so it is not a mystery icon.
+function updateSortBtnTitle() {
+  const btn = $('sortBtn'), sel = $('sort');
+  if (!btn || !sel || !sel.selectedOptions.length) return;
+  btn.title = 'Sort: ' + sel.selectedOptions[0].textContent.trim();
+}
+function buildSortMenu() {
+  const menu = $('sortMenu'), sel = $('sort');
+  if (!menu || !sel) return;
+  menu.innerHTML = '';
+  Array.from(sel.options).forEach(opt => {
+    const b = el('button', { type: 'button', textContent: opt.textContent });
+    if (opt.value === sel.value) b.classList.add('active');
+    b.addEventListener('click', () => {
+      if (sel.value !== opt.value) { sel.value = opt.value; sel.dispatchEvent(new Event('change')); }
+      closeSortMenu();
+    });
+    menu.append(b);
+  });
+}
+function openSortMenu() {
+  buildSortMenu();
+  const m = $('sortMenu'); if (m) m.hidden = false;
+  $('sortBtn')?.setAttribute('aria-expanded', 'true');
+}
+function closeSortMenu() {
+  const m = $('sortMenu'); if (m) m.hidden = true;
+  $('sortBtn')?.setAttribute('aria-expanded', 'false');
+}
+function toggleSortMenu() {
+  const m = $('sortMenu'); if (!m) return;
+  if (m.hidden) openSortMenu(); else closeSortMenu();
 }
 
 function sortListings(list) {
@@ -5607,6 +5644,14 @@ window.addEventListener('DOMContentLoaded', () => {
   $('drawCancelBtn')?.addEventListener('click', cancelDrawing);
   $('drawIndicatorClear')?.addEventListener('click', deactivateAllAreas);
   $('sort')?.addEventListener('change', e => { syncSort(e.target.value); renderCards(state.listings); refreshMap(state.listings); renderCombined(); });
+  // GAL-73: compact sort icon + popup menu (drives the hidden #sort select).
+  $('sortBtn')?.addEventListener('click', (e) => { e.stopPropagation(); toggleSortMenu(); });
+  document.addEventListener('click', (e) => {
+    const m = $('sortMenu');
+    if (m && !m.hidden && !e.target.closest('.sort-control')) closeSortMenu();
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSortMenu(); });
+  updateSortBtnTitle();
   $('sortList')?.addEventListener('change', e => { syncSort(e.target.value); renderCards(state.listings); });
   // Combined sort: reuse the same option list; changing it re-sorts every view.
   if ($('sortCombined') && $('sort')) {
