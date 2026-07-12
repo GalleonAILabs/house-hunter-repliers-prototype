@@ -10,7 +10,7 @@
        any app.js/styles.css change forces browsers and the Cloudflare edge
        off a stale copy immediately, without a manual cache purge. Bump it
        whenever app.js or styles.css changes. -->
-  <link rel="stylesheet" href="/styles.css?v=20260712-162141" />
+  <link rel="stylesheet" href="/styles.css?v=20260712-183815" />
 </head>
 <body>
 
@@ -131,10 +131,18 @@
           <option value="8">8/8</option>
         </select>
       </label>
-      <!-- Group-level exclusion first, then per-person refinement below it. -->
-      <div class="filter-toggle-row">
-        <label class="chip"><input type="checkbox" id="hideVetoed" /> Hide listings rejected by any buyer</label>
-      </div>
+      <!-- GAL-19: group-consensus filter sits above the per-person rows. It
+           replaces the old "hide if anyone rejected" checkbox (now one of its
+           options). "Everyone likes it" needs a 4+ rating from every buyer;
+           "veto member" uses the admin-assigned veto-power flag. -->
+      <label>Group consensus
+        <select id="consensusFilter">
+          <option value="">Any</option>
+          <option value="everyone_likes">Everyone likes it (4★+)</option>
+          <option value="hide_anyone_no">Hide if anyone said no</option>
+          <option value="hide_veto_no">Hide if a veto member said no</option>
+        </select>
+      </label>
       <div id="personFilters" class="contents"></div>
       <!-- Household keyword features (garage/pool/basement seeded, editable in
            Settings). Rendered into #featureKeywordRow from the household list. -->
@@ -782,6 +790,6 @@
   </template>
 
   <script src="https://api.mapbox.com/mapbox-gl-js/v3.25.0/mapbox-gl.js"></script>
-  <script src="/app.js?v=20260712-162141"></script>
+  <script src="/app.js?v=20260712-183815"></script>
 </body>
 </html>
