@@ -10,7 +10,7 @@
        any app.js/styles.css change forces browsers and the Cloudflare edge
        off a stale copy immediately, without a manual cache purge. Bump it
        whenever app.js or styles.css changes. -->
-  <link rel="stylesheet" href="/styles.css?v=20260712-132856" />
+  <link rel="stylesheet" href="/styles.css?v=20260712-153647" />
 </head>
 <body>
 
@@ -154,8 +154,15 @@
   <!-- 3. STATUS BAR, flex: 0 0 auto, always in flow -->
   <div class="status-bar">
     <span id="summary">Loading…</span>
-    <label class="sort-inline" data-ctrl-icon="sort" title="Sort"><span class="ctrl-glyph"></span><span class="ctrl-label">Sort</span>
-      <select id="sort">
+    <!-- GAL-73: Sort is a compact icon button (opens a small menu) instead of a
+         wide dropdown, which sat too close to the list drawer handle and got
+         hit by accident. The native #sort select stays in the DOM (hidden) so
+         all sort logic and the combined-view mirror keep working; the menu just
+         drives it. -->
+    <div class="sort-control">
+      <button type="button" class="map-ctrl-btn sort-icon-btn" id="sortBtn" data-ctrl-icon="sort" title="Sort" aria-label="Sort" aria-haspopup="listbox" aria-expanded="false"><span class="ctrl-glyph"></span></button>
+      <div class="sort-menu" id="sortMenu" role="listbox" hidden></div>
+      <select id="sort" class="sort-native-hidden">
         <option value="fit-desc">Fit ↓</option>
         <option value="fit-asc">Fit ↑</option>
         <option value="price-asc">Price ↑</option>
@@ -176,7 +183,7 @@
         <option value="due-desc">Due at closing ↓</option>
         <option value="myrating-desc">My rating ↓</option>
       </select>
-    </label>
+    </div>
   </div>
 
   <!-- 4. MAP VIEW, flex: 1 1 0, min-height: 0 (takes all remaining space) -->
@@ -758,6 +765,6 @@
   </template>
 
   <script src="https://api.mapbox.com/mapbox-gl-js/v3.25.0/mapbox-gl.js"></script>
-  <script src="/app.js?v=20260712-132856"></script>
+  <script src="/app.js?v=20260712-153647"></script>
 </body>
 </html>
