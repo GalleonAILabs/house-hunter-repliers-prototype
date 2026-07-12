@@ -2986,43 +2986,109 @@ async function saveThreshold(personId, fields) {
 // Search-then-drop, using Mapbox's Geocoding API (same token as the map
 // tiles, see DECISIONS.md T14 for why this is a new external call and why
 // it was judged low-risk enough to add directly rather than stopping to ask).
-async function addPoiPin() {
+// GAL-53 rework: the Layers "Add place" flow now uses the SAME Search Box
+// typeahead + icon dropdown as the property-card composer, instead of a chain
+// of prompt() dialogs on the classic geocoder. Toggling the button builds an
+// inline composer once and shows/hides it.
+function togglePoiComposer() {
   if (!state.activePerson) { alert('Select who you are (top right) first.'); return; }
-  const query = (prompt('Search for a place (school, hospital, workplace, place of worship, etc.):') || '').trim();
-  if (!query) return;
+  const box = $('poiAddComposer');
+  if (!box) return;
+  if (!box.hidden) { box.hidden = true; return; }
+  buildPoiComposer(box);
+  box.hidden = false;
+}
 
-  let feature = null;
-  try {
-    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json`
-      + `?access_token=${encodeURIComponent(MAPBOX_TOKEN)}&proximity=-79.5,44.0&limit=1&country=ca`;
-    const res = await fetch(url);
-    if (res.ok) {
-      const data = await res.json();
-      feature = (data.features || [])[0] || null;
+function buildPoiComposer(box) {
+  box.innerHTML = '';
+  const sessionToken = newSearchSession();
+  const selectedPlaceRef = { value: null };
+
+  const addrInput = el('input', { type: 'text', className: 'attach-input',
+    placeholder: 'Search a name or address, e.g. Islington United Church' });
+  const suggestBox = el('div', { className: 'attach-suggest' });
+  suggestBox.hidden = true;
+  let suggestTimer = null, suggestItems = [], suggestIdx = -1;
+  const closeSuggest = () => { suggestBox.hidden = true; suggestBox.innerHTML = ''; suggestItems = []; suggestIdx = -1; };
+  const updateActive = () => { [...suggestBox.children].forEach((c, i) => c.classList.toggle('active', i === suggestIdx)); };
+  const pick = async (p) => {
+    addrInput.value = p.label;
+    selectedPlaceRef.value = null;
+    closeSuggest();
+    addrInput.focus();
+    if (p.lng != null && p.lat != null) { selectedPlaceRef.value = p; return; }
+    if (p.mapbox_id) {
+      const full = await searchBoxRetrieve(p.mapbox_id, sessionToken);
+      if (full && addrInput.value.trim() === p.label.trim()) selectedPlaceRef.value = full;
     }
-  } catch (err) {
-    console.error(err);
-  }
-  if (!feature) { alert(`No place found for "${query}". Try a different search.`); return; }
-
-  const typeChoices = Object.keys(POI_TYPE_META).join(', ');
-  const typedType = (prompt(`Type (${typeChoices}):`, 'other') || 'other').trim().toLowerCase();
-  const type = POI_TYPE_META[typedType] ? typedType : 'other';
-  const label = (prompt('Label (optional):', feature.place_name) || feature.place_name || '').trim();
-  const [lng, lat] = feature.center;
-
-  try {
-    const res = await fetch('/api/poi', {
-      method: 'POST',
-      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ person_id: state.activePerson, type, label, lat, lng }),
+  };
+  const runSuggest = async () => {
+    const q = addrInput.value.trim();
+    selectedPlaceRef.value = null;
+    if (q.length < 3) { closeSuggest(); return; }
+    const places = await geocodeSuggest(q, sessionToken);
+    if (addrInput.value.trim() !== q) return;
+    if (!places.length) { closeSuggest(); return; }
+    suggestItems = places; suggestIdx = -1;
+    suggestBox.innerHTML = '';
+    places.forEach(p => {
+      const opt = el('button', { type: 'button', className: 'attach-suggest-item', textContent: p.label });
+      opt.addEventListener('mousedown', (e) => { e.preventDefault(); pick(p); });
+      suggestBox.append(opt);
     });
-    if (!res.ok) throw new Error('save failed');
-    await loadPoi();
-  } catch (err) {
-    console.error(err);
-    alert('Could not save the place. Try again.');
-  }
+    suggestBox.hidden = false;
+  };
+  addrInput.addEventListener('input', () => { clearTimeout(suggestTimer); suggestTimer = setTimeout(runSuggest, 250); });
+  addrInput.addEventListener('keydown', (e) => {
+    if (!suggestBox.hidden && suggestItems.length) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); suggestIdx = (suggestIdx + 1) % suggestItems.length; updateActive(); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); suggestIdx = (suggestIdx - 1 + suggestItems.length) % suggestItems.length; updateActive(); return; }
+      if (e.key === 'Enter') { e.preventDefault(); pick(suggestItems[suggestIdx >= 0 ? suggestIdx : 0]); return; }
+      if (e.key === 'Escape') { e.preventDefault(); closeSuggest(); return; }
+    }
+    if (e.key === 'Enter') { e.preventDefault(); addBtn.click(); }
+  });
+
+  const typeSel = el('select', { className: 'attach-select' });
+  typeSel.innerHTML = Object.entries(POI_TYPE_META).map(([k, v]) => `<option value="${k}">${v.icon} ${esc(v.label)}</option>`).join('');
+  typeSel.value = 'other';
+
+  const statusEl = el('div', { className: 'feedback-status' });
+  const addBtn = el('button', { type: 'button', textContent: 'Add place' });
+  const cancelBtn = el('button', { type: 'button', className: 'secondary', textContent: 'Cancel' });
+  cancelBtn.addEventListener('click', () => { box.hidden = true; });
+
+  addBtn.addEventListener('click', async () => {
+    const query = addrInput.value.trim();
+    if (!query) { showFeedbackStatus(statusEl, 'Search for a place first.', true); return; }
+    addBtn.disabled = true;
+    let place = selectedPlaceRef.value;
+    if (!place) { showFeedbackStatus(statusEl, 'Looking up place…', false); place = await geocodePlace(query); }
+    if (!place) { showFeedbackStatus(statusEl, 'No place found for that name or address.', true); addBtn.disabled = false; return; }
+    try {
+      const res = await fetch('/api/poi', {
+        method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ person_id: state.activePerson, type: typeSel.value, label: place.label, lat: place.lat, lng: place.lng }),
+      });
+      if (!res.ok) throw new Error('save failed');
+      await loadPoi();
+      refreshPoiLayer();
+      // Turn the Places layer on so the new pin is visible immediately.
+      const cb = $('layerPoiPins');
+      if (cb && !cb.checked) { cb.checked = true; cb.dispatchEvent(new Event('change')); }
+      box.hidden = true;
+    } catch (err) {
+      console.error(err);
+      showFeedbackStatus(statusEl, 'Could not save the place. Try again.', true);
+      addBtn.disabled = false;
+    }
+  });
+
+  box.append(
+    el('div', { className: 'attach-new-wrap' }, addrInput, suggestBox),
+    el('div', { className: 'poi-add-row' }, typeSel, addBtn, cancelBtn),
+    statusEl,
+  );
 }
 
 // ─── Per-property place attachments ───────────────────────────────────────────
@@ -5376,7 +5442,7 @@ window.addEventListener('DOMContentLoaded', () => {
     .catch(showError);
   bindHouseholdToggle('firstTimeBuyerToggle', 'first_time_buyer');
   HOUSEHOLD_NUMBER_SETTINGS.forEach(({ id, key }) => bindHouseholdNumberInput(id, key));
-  $('addPoiBtn')?.addEventListener('click', () => addPoiPin().catch(err => console.error(err)));
+  $('addPoiBtn')?.addEventListener('click', () => togglePoiComposer());
   $('layerPoiPins')?.addEventListener('change', e => {
     if (!state.mapReady) return;
     const vis = e.target.checked ? 'visible' : 'none';
