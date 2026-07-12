@@ -1121,6 +1121,23 @@ function matchesFeatureKeywords(item) {
   return checked.every(kw => text.includes(kw.toLowerCase()));
 }
 
+// GAL-75: property-type filter. POC listings carry a placeholder type, so it is
+// excluded and the control hides for POC; Sample Data (and a real Canadian feed)
+// carry a genuine propertyType that drives the chips.
+const POC_PLACEHOLDER_PROPTYPE = 'House Hunter POC';
+function propTypeOf(item) {
+  const t = (item.propertyType || '').trim();
+  return (!t || t === POC_PLACEHOLDER_PROPTYPE) ? '' : t;
+}
+function currentCheckedPropTypes() {
+  return Array.from(document.querySelectorAll('#propTypeRow input.prop-type:checked')).map(cb => cb.dataset.pt);
+}
+function matchesPropertyType(item) {
+  const checked = currentCheckedPropTypes();
+  if (!checked.length) return true;
+  return checked.includes(propTypeOf(item));
+}
+
 // Same "any buyer rejected" definition as the card's group-sentiment
 // headline (buyerHeadline), reused directly so this filter can never
 // disagree with what the card already labels Vetoed. Unrelated to
@@ -1155,11 +1172,13 @@ function filterByFeedback(listings) {
     if (!matchesAttachDriveFilter(item)) return false;
     if (!matchesDrawArea(item)) return false;
     if (!matchesFeatureKeywords(item)) return false;
+    if (!matchesPropertyType(item)) return false;
     return personFilters.every(pf => matchesPersonFilter(item.mls, pf.id, pf.values));
   });
 }
 
 function applyFiltersAndRender() {
+  buildPropTypeChips(); // GAL-75: keep the type chips in step with the loaded data
   state.listings = filterByFeedback(state.rawListings);
   refreshMap(state.listings);
   renderCards(state.listings);
@@ -2614,6 +2633,43 @@ function buildFeatureKeywordChips() {
     row.appendChild(label);
   });
 }
+// GAL-75: build the property-type checkboxes from the distinct types in the
+// loaded data. Hides the whole group when there are fewer than two meaningful
+// types (POC's placeholder, or a source without the field), so it is a no-op
+// there. Preserves which are checked across rebuilds (live DOM + persisted).
+function buildPropTypeChips() {
+  const row = $('propTypeRow');
+  const heading = $('propTypeHeading');
+  if (!row || !heading) return;
+  const types = Array.from(new Set((state.rawListings || []).map(propTypeOf).filter(Boolean))).sort();
+  if (types.length < 2) {
+    // Nothing useful to filter on: hide and drop any stale selection so it
+    // cannot silently filter a source that has no types.
+    row.innerHTML = '';
+    row.hidden = true;
+    heading.hidden = true;
+    return;
+  }
+  const checkedNow = new Set(currentCheckedPropTypes());
+  const persisted = new Set(loadSavedFilterState()._propTypes || []);
+  row.innerHTML = '';
+  types.forEach(t => {
+    const label = document.createElement('label');
+    label.className = 'chip';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'prop-type';
+    cb.dataset.pt = t;
+    cb.checked = checkedNow.has(t) || persisted.has(t);
+    cb.addEventListener('change', () => { saveFilterState(); applyFiltersAndRender(); });
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(' ' + t));
+    row.appendChild(label);
+  });
+  row.hidden = false;
+  heading.hidden = false;
+}
+
 // Settings-drawer keyword editor: one row per keyword with a delete button,
 // plus an add field. Persists the whole list to household_settings.
 function renderKeywordEditor() {
@@ -5193,6 +5249,7 @@ function activeFilterCount() {
   valueFields.forEach(id => { const el = $(id); if (el && String(el.value || '').trim() !== '') n++; });
   if ($('hideVetoed')?.checked) n++;
   n += currentCheckedKeywords().length; // each checked household keyword
+  n += currentCheckedPropTypes().length; // GAL-75: each checked property type
   state.people.forEach(p => PERSON_FILTER_OPTIONS.forEach(o => { if ($(personFilterCbId(p.id, o.value))?.checked) n++; }));
   n += state.savedAreas.filter(a => isAreaActive(a.id)).length; // each enabled drawn area
   return n;
@@ -5386,6 +5443,7 @@ function reset() {
   $('resultsPerPage').value = '60';
   const hv = $('hideVetoed'); if (hv) hv.checked = false;
   document.querySelectorAll('#featureKeywordRow input.feat-kw').forEach(cb => { cb.checked = false; });
+  document.querySelectorAll('#propTypeRow input.prop-type').forEach(cb => { cb.checked = false; }); // GAL-75
   state.people.forEach(p => {
     PERSON_FILTER_OPTIONS.forEach(o => { const cb = $(personFilterCbId(p.id, o.value)); if (cb) cb.checked = false; });
   });
@@ -5440,6 +5498,7 @@ function saveFilterState() {
   PERSISTED_CHECKBOX_IDS.forEach(id => { const el = $(id); if (el) saved[id] = el.checked; });
   saved._personFilters = Array.from(document.querySelectorAll('#personFilters input[type=checkbox]:checked')).map(cb => cb.id);
   saved._featureKeywords = currentCheckedKeywords(); // household keyword checkboxes (dynamic)
+  saved._propTypes = currentCheckedPropTypes(); // GAL-75: property-type chips (dynamic)
   localStorage.setItem(FILTER_STATE_KEY, JSON.stringify(saved));
   updateFilterBadge(); // the badge tracks live edits, not just applied loads
 }

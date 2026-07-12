@@ -449,6 +449,8 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .filterbox input.filter-filled,.filterbox select.filter-filled{border-color:var(--blue);background:rgba(43,103,214,0.08)}
 /* Household keyword filter chips + the settings-drawer keyword editor. */
 .feature-keyword-row{display:flex;flex-wrap:wrap;gap:8px}
+.prop-type-row{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px}
+.prop-type-row[hidden]{display:none}
 .keyword-editor-list{display:flex;flex-direction:column;gap:0;padding:2px 6px}
 .keyword-editor-row{display:flex;align-items:center;justify-content:space-between;padding:10px 8px;border-bottom:1px solid var(--line)}
 .keyword-name{font-size:15px}
