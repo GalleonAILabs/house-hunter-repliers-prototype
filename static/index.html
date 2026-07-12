@@ -10,7 +10,7 @@
        any app.js/styles.css change forces browsers and the Cloudflare edge
        off a stale copy immediately, without a manual cache purge. Bump it
        whenever app.js or styles.css changes. -->
-  <link rel="stylesheet" href="/styles.css?v=20260712-161320" />
+  <link rel="stylesheet" href="/styles.css?v=20260712-162141" />
 </head>
 <body>
 
@@ -86,6 +86,11 @@
           </div>
         </label>
       </div>
+      <!-- GAL-75: property-type filter. Chips are built from the distinct
+           propertyType values in the loaded data; the whole group hides when the
+           data has no meaningful types (e.g. POC, whose type is a placeholder). -->
+      <div class="filter-group-heading" id="propTypeHeading" hidden>Property type</div>
+      <div id="propTypeRow" class="prop-type-row" hidden></div>
       <div class="filter-group-heading">Location &amp; commute</div>
       <label>Max commute (min)
         <input id="maxCommute" type="number" min="0" step="1" placeholder="Any" />
@@ -777,6 +782,6 @@
   </template>
 
   <script src="https://api.mapbox.com/mapbox-gl-js/v3.25.0/mapbox-gl.js"></script>
-  <script src="/app.js?v=20260712-161320"></script>
+  <script src="/app.js?v=20260712-162141"></script>
 </body>
 </html>
