@@ -2426,6 +2426,35 @@ class ColumnPermissionTests(ServerTestCase):
                                  body={"actor_id": mark, "new_admin_id": anees})
         self.assertEqual(status, 400)
 
+    # ── GAL-19 veto power ─────────────────────────────────────────────────────
+    def test_people_report_veto_power_default_true(self) -> None:
+        _, data = self.request("GET", "/api/people", token=self.TOKEN)
+        buyers = [p for p in data["people"] if p["role"] == "buyer"]
+        self.assertTrue(buyers)
+        self.assertTrue(all(p["has_veto_power"] == 1 for p in buyers))
+
+    def test_admin_toggles_veto_power(self) -> None:
+        mark, katie = self.person_id("Mark"), self.person_id("Katie")
+        status, data = self.request("POST", "/api/veto-power", token=self.TOKEN,
+                                    body={"actor_id": mark, "person_id": katie, "has_veto_power": False})
+        self.assertEqual(status, 200)
+        self.assertEqual(data["has_veto_power"], 0)
+        _, people = self.request("GET", "/api/people", token=self.TOKEN)
+        katie_row = next(p for p in people["people"] if p["id"] == katie)
+        self.assertEqual(katie_row["has_veto_power"], 0)
+
+    def test_non_admin_cannot_set_veto(self) -> None:
+        katie = self.person_id("Katie")
+        status, _ = self.request("POST", "/api/veto-power", token=self.TOKEN,
+                                 body={"actor_id": katie, "person_id": katie, "has_veto_power": False})
+        self.assertEqual(status, 403)
+
+    def test_veto_power_is_buyer_only(self) -> None:
+        mark, anees = self.person_id("Mark"), self.person_id("Anees")
+        status, _ = self.request("POST", "/api/veto-power", token=self.TOKEN,
+                                 body={"actor_id": mark, "person_id": anees, "has_veto_power": False})
+        self.assertEqual(status, 400)
+
     # ── admin grants ──────────────────────────────────────────────────────────
     def test_non_admin_cannot_set_permission(self) -> None:
         katie = self.person_id("Katie")

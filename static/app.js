@@ -638,6 +638,9 @@ function buildColumnAccessSettings() {
   const members = state.people.filter(p => p.role === 'buyer');
   let html = '<div class="col-access-scroll"><table class="col-access-table"><thead><tr><th>Member</th>';
   groups.forEach(g => { html += `<th>${esc(g.label)}</th>`; });
+  // GAL-19: veto-power column, used by the "hide if a veto member said no"
+  // group-consensus filter.
+  html += '<th title="Whether this buyer\'s No hides a listing under the veto-member consensus filter">Veto</th>';
   html += '</tr></thead><tbody>';
   members.forEach(m => {
     const perms = state.columnPermissions[m.id] || {};
@@ -649,11 +652,13 @@ function buildColumnAccessSettings() {
       const dis = selfProtected ? ' disabled title="You cannot remove your own Financial access"' : '';
       html += `<td><input type="checkbox" class="col-access-cb" data-person="${m.id}" data-group="${esc(g.key)}" ${permitted ? 'checked' : ''}${dis} /></td>`;
     });
+    html += `<td><input type="checkbox" class="veto-cb" data-person="${m.id}" ${m.has_veto_power ? 'checked' : ''} /></td>`;
     html += '</tr>';
   });
   html += '</tbody></table></div>';
   matrix.innerHTML = html;
   matrix.querySelectorAll('.col-access-cb').forEach(cb => cb.addEventListener('change', onColumnAccessToggle));
+  matrix.querySelectorAll('.veto-cb').forEach(cb => cb.addEventListener('change', onVetoToggle));
 
   const others = members.filter(m => m.id !== state.adminId);
   const tr = $('columnAccessTransfer');
@@ -688,6 +693,27 @@ async function onColumnAccessToggle(e) {
   } catch (err) {
     cb.checked = !permitted;
     alert('Could not change permission: ' + err.message);
+  }
+}
+// GAL-19: admin toggles a buyer's veto power. Updates state.people so the
+// "hide if a veto member said no" consensus filter reflects it immediately.
+async function onVetoToggle(e) {
+  const cb = e.target;
+  const personId = Number(cb.dataset.person);
+  const hasVeto = cb.checked;
+  try {
+    const res = await fetch('/api/veto-power', {
+      method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ actor_id: state.activePerson, person_id: personId, has_veto_power: hasVeto }),
+    });
+    const data = await res.json();
+    if (!res.ok) { cb.checked = !hasVeto; alert(data.detail || 'Could not change veto power.'); return; }
+    const p = state.people.find(x => x.id === personId);
+    if (p) p.has_veto_power = hasVeto ? 1 : 0;
+    applyFiltersAndRender();
+  } catch (err) {
+    cb.checked = !hasVeto;
+    alert('Could not change veto power: ' + err.message);
   }
 }
 async function onTransferAdmin() {
@@ -1149,6 +1175,25 @@ function isVetoed(item) {
   return buyerHeadline(buyers, feedbackByPerson).word === 'Vetoed';
 }
 
+// GAL-19: group-consensus filter. Only buyers count (realtors/advisors never
+// contribute to consensus). "likes it" = a rating of 4 or more; an unrated
+// buyer is treated as not-yet-consensus (blocks "everyone likes it"). Veto
+// power is the admin-assigned has_veto_power flag.
+const CONSENSUS_LIKE_MIN = 4;
+function matchesConsensus(item) {
+  const mode = $('consensusFilter')?.value || '';
+  if (!mode) return true;
+  const buyers = state.people.filter(p => p.role === 'buyer');
+  if (!buyers.length) return mode !== 'everyone_likes'; // no buyers = no consensus to meet
+  const fb = new Map((state.feedback[item.mls] || []).map(f => [f.person_id, f]));
+  const likes = p => { const f = fb.get(p.id); return f && f.rating != null && f.rating >= CONSENSUS_LIKE_MIN; };
+  const saidNo = p => fb.get(p.id)?.status === 'rejected';
+  if (mode === 'everyone_likes') return buyers.every(likes);
+  if (mode === 'hide_anyone_no') return !buyers.some(saidNo);
+  if (mode === 'hide_veto_no') return !buyers.some(p => p.has_veto_power && saidNo(p));
+  return true;
+}
+
 function filterByFeedback(listings) {
   const statusVal = $('filterStatus')?.value || '';
   const keyword = ($('q')?.value || '').trim().toLowerCase();
@@ -1161,7 +1206,7 @@ function filterByFeedback(listings) {
     // out when the card is closed (closeMapCard re-runs the filters).
     if (openMls && item.mls === openMls) return true;
     if (!matchesStatusFilter(item.mls, statusVal)) return false;
-    if ($('hideVetoed')?.checked && isVetoed(item)) return false;
+    if (!matchesConsensus(item)) return false;
     if (!matchesKeyword(item, keyword)) return false;
     if (!matchesRange(effectivePitNum(item), 'minPit', 'maxPit')) return false;
     if (!matchesRange(effectiveDueNum(item), 'minDue', 'maxDue')) return false;
@@ -5247,7 +5292,7 @@ function activeFilterCount() {
     'minHwyKm', 'maxHwyKm', 'minAttachDrive', 'maxAttachDrive', 'minPit', 'maxPit',
     'minDue', 'maxDue', 'minFit'];
   valueFields.forEach(id => { const el = $(id); if (el && String(el.value || '').trim() !== '') n++; });
-  if ($('hideVetoed')?.checked) n++;
+  if (($('consensusFilter')?.value || '') !== '') n++; // GAL-19 group consensus
   n += currentCheckedKeywords().length; // each checked household keyword
   n += currentCheckedPropTypes().length; // GAL-75: each checked property type
   state.people.forEach(p => PERSON_FILTER_OPTIONS.forEach(o => { if ($(personFilterCbId(p.id, o.value))?.checked) n++; }));
@@ -5441,7 +5486,7 @@ function reset() {
   ['q','minPrice','maxPrice','minBeds','maxBeds','minBaths','maxBaths','minSqft','maxSqft','minAcres','maxAcres','maxCommute','minHwyKm','maxHwyKm','minAttachDrive','maxAttachDrive','minPit','maxPit','minDue','maxDue','minFit','filterStatus']
     .forEach(id => { const el=$(id); if(el) { el.value=''; delete el.dataset.raw; } });
   $('resultsPerPage').value = '60';
-  const hv = $('hideVetoed'); if (hv) hv.checked = false;
+  const cf = $('consensusFilter'); if (cf) cf.value = ''; // GAL-19
   document.querySelectorAll('#featureKeywordRow input.feat-kw').forEach(cb => { cb.checked = false; });
   document.querySelectorAll('#propTypeRow input.prop-type').forEach(cb => { cb.checked = false; }); // GAL-75
   state.people.forEach(p => {
@@ -5484,10 +5529,10 @@ const PERSISTED_FIELD_IDS = [
   'minSqft', 'maxSqft', 'minAcres', 'maxAcres', 'maxCommute', 'minHwyKm', 'maxHwyKm',
   'minAttachDrive', 'maxAttachDrive',
   'minPit', 'maxPit', 'minDue', 'maxDue', 'minFit', 'filterStatus',
+  'consensusFilter', // GAL-19: group-consensus select (replaced hideVetoed)
   'resultsPerPage', 'source', 'sort',
 ];
 const PERSISTED_CHECKBOX_IDS = [
-  'hideVetoed',
   'layerGoStations', 'layerGoStationsPlanned', 'layerGoLines',
   'layerTtcLines', 'layerTtcStations', 'layerHwy413', 'layerPoiPins',
 ];
@@ -5639,7 +5684,7 @@ window.addEventListener('DOMContentLoaded', () => {
   $('minDue')?.addEventListener('change', applyFiltersAndRender);
   $('maxDue')?.addEventListener('change', applyFiltersAndRender);
   ['minSqft','maxSqft','minAcres','maxAcres','maxCommute','minHwyKm','maxHwyKm','minAttachDrive','maxAttachDrive'].forEach(id => $(id)?.addEventListener('change', applyFiltersAndRender));
-  $('hideVetoed')?.addEventListener('change', applyFiltersAndRender);
+  $('consensusFilter')?.addEventListener('change', () => { saveFilterState(); applyFiltersAndRender(); });
   // Keyword filter chips wire their own change handlers in buildFeatureKeywordChips().
   buildFeatureKeywordChips();
   updateResultsPerFetchVisibility();

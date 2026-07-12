@@ -429,6 +429,18 @@ def migrate_add_is_admin(conn: sqlite3.Connection) -> dict[str, Any] | None:
     return {"column_added": added, "seeded_admin_id": seeded_admin, "prior_admin_count": admin_count}
 
 
+def migrate_add_veto_power(conn: sqlite3.Connection) -> dict[str, Any] | None:
+    """GAL-19: add people.has_veto_power to a pre-existing DB. Existing rows
+    default to 1 (everyone already in the group keeps veto power, matching the
+    'buyers are decision-makers' default); the admin can revoke per member.
+    Idempotent: returns None once the column exists."""
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(people)").fetchall()]
+    if "has_veto_power" in cols:
+        return None
+    conn.execute("ALTER TABLE people ADD COLUMN has_veto_power INTEGER NOT NULL DEFAULT 1")
+    return {"column_added": True}
+
+
 def migrate_add_area_kind(conn: sqlite3.Connection) -> dict[str, Any] | None:
     """GAL-63: add saved_areas.kind ('include'/'exclude') to a pre-existing DB.
     CREATE TABLE IF NOT EXISTS never alters an existing table. Idempotent:
@@ -499,6 +511,12 @@ def init_db() -> None:
                 -- constraint, since "exactly one" spans rows. Transferable,
                 -- admin-only, via /api/transfer-admin.
                 is_admin INTEGER NOT NULL DEFAULT 0,
+                -- GAL-19: veto power for the group-consensus "hide if a veto
+                -- member said no" filter. Buyers hold it by default (they are
+                -- the decision-makers); the admin can revoke it per member via
+                -- /api/veto-power. Only buyers count in consensus math, so a
+                -- realtor's flag is irrelevant.
+                has_veto_power INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             );
 
@@ -770,6 +788,11 @@ def init_db() -> None:
         area_kind_migration = migrate_add_area_kind(conn)
         if area_kind_migration is not None:
             print(f"area kind migration: {area_kind_migration}")
+
+        # GAL-19: add people.has_veto_power for group-consensus filters.
+        veto_migration = migrate_add_veto_power(conn)
+        if veto_migration is not None:
+            print(f"veto power migration: {veto_migration}")
 
         conn.commit()
     finally:
@@ -2125,6 +2148,31 @@ def handle_transfer_admin_post(body: dict[str, Any]) -> tuple[dict[str, Any], in
         conn.execute("UPDATE people SET is_admin = 1 WHERE id = ?", (new_admin_id,))
         conn.commit()
         return {"ok": True, "admin_id": new_admin_id}, 200
+    finally:
+        conn.close()
+
+
+def handle_veto_power_post(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """GAL-19 admin-only: set whether a buyer holds veto power (used by the
+    'hide if a veto member said no' group-consensus filter). actor_id must be
+    the current admin; person_id must be a buyer."""
+    actor_id = body.get("actor_id")
+    person_id = body.get("person_id")
+    has_veto = 1 if body.get("has_veto_power") else 0
+    conn = get_db()
+    try:
+        if not person_exists(conn, actor_id):
+            return {"error": "unknown_person", "detail": f"actor_id {actor_id!r} not found"}, 400
+        if not person_exists(conn, person_id):
+            return {"error": "unknown_person", "detail": f"person_id {person_id!r} not found"}, 400
+        if not is_admin_person(conn, actor_id):
+            return {"error": "forbidden", "detail": "only the admin can change veto power"}, 403
+        target = conn.execute("SELECT role FROM people WHERE id = ?", (person_id,)).fetchone()
+        if target is None or target["role"] != "buyer":
+            return {"error": "invalid_request", "detail": "veto power applies to buyers only"}, 400
+        conn.execute("UPDATE people SET has_veto_power = ? WHERE id = ?", (has_veto, person_id))
+        conn.commit()
+        return {"ok": True, "person_id": person_id, "has_veto_power": has_veto}, 200
     finally:
         conn.close()
 
@@ -3528,7 +3576,9 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 conn = get_db()
                 try:
-                    rows = conn.execute("SELECT id, name, role FROM people ORDER BY id").fetchall()
+                    rows = conn.execute(
+                        "SELECT id, name, role, is_admin, has_veto_power FROM people ORDER BY id"
+                    ).fetchall()
                     self.send_json({"people": [dict(row) for row in rows]})
                 finally:
                     conn.close()
@@ -3965,7 +4015,7 @@ class Handler(BaseHTTPRequestHandler):
                 data, status = handle_person_thresholds_post(body)
                 self.send_json(data, status)
                 return
-            if parsed.path in ("/api/column-permissions", "/api/grid-prefs", "/api/transfer-admin"):
+            if parsed.path in ("/api/column-permissions", "/api/grid-prefs", "/api/transfer-admin", "/api/veto-power"):
                 if not require_auth(self):
                     self.send_json({"error": "unauthorized"}, 401)
                     return
@@ -3983,6 +4033,8 @@ class Handler(BaseHTTPRequestHandler):
                     data, status = handle_column_permission_post(body)
                 elif parsed.path == "/api/grid-prefs":
                     data, status = handle_grid_prefs_post(body)
+                elif parsed.path == "/api/veto-power":
+                    data, status = handle_veto_power_post(body)
                 else:
                     data, status = handle_transfer_admin_post(body)
                 self.send_json(data, status)
