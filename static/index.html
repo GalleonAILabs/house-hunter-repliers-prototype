@@ -10,7 +10,7 @@
        any app.js/styles.css change forces browsers and the Cloudflare edge
        off a stale copy immediately, without a manual cache purge. Bump it
        whenever app.js or styles.css changes. -->
-  <link rel="stylesheet" href="/styles.css?v=20260712-132047" />
+  <link rel="stylesheet" href="/styles.css?v=20260712-132341" />
 </head>
 <body>
 
@@ -196,6 +196,9 @@
         <label class="chip"><input type="checkbox" id="layerHwy413" /> Highway 413</label>
         <label class="chip"><input type="checkbox" id="layerPoiPins" /> Places (school, hospital, etc.)</label>
         <button class="secondary" id="addPoiBtn" title="Search for a place and drop a pin, shared with the whole group">📍 Add place</button>
+        <!-- GAL-53: inline add-place composer with the same Search Box typeahead
+             as the property-card flow. Built by buildPoiComposer(). -->
+        <div class="poi-add-composer" id="poiAddComposer" hidden></div>
         <!-- Shared POI pins. Each row: the place label/type, who added it, and a
              delete button. Rendered by renderPoiList(). -->
         <div class="poi-layer-list" id="poiLayerList"></div>
@@ -732,6 +735,6 @@
   </template>
 
   <script src="https://api.mapbox.com/mapbox-gl-js/v3.25.0/mapbox-gl.js"></script>
-  <script src="/app.js?v=20260712-132047"></script>
+  <script src="/app.js?v=20260712-132341"></script>
 </body>
 </html>
