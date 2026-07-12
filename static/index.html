@@ -10,7 +10,7 @@
        any app.js/styles.css change forces browsers and the Cloudflare edge
        off a stale copy immediately, without a manual cache purge. Bump it
        whenever app.js or styles.css changes. -->
-  <link rel="stylesheet" href="/styles.css?v=20260712-132341" />
+  <link rel="stylesheet" href="/styles.css?v=20260712-132742" />
 </head>
 <body>
 
@@ -342,6 +342,29 @@
       </label>
       <div class="app-modal-status" id="bulkAttachStatus"></div>
       <button id="bulkAttachGo">Attach to selected</button>
+    </div>
+  </div>
+
+  <!-- GAL-63: save a drawn area. Name + include/exclude radios, replacing the
+       old OK/Cancel confirm dialog. -->
+  <div class="modal-overlay" id="areaSaveOverlay" hidden></div>
+  <div class="app-modal" id="areaSaveModal" hidden>
+    <div class="app-modal-head"><span>Save this area</span><button class="close-btn" id="areaSaveClose">✕</button></div>
+    <div class="app-modal-body">
+      <label>Name
+        <input type="text" id="areaSaveName" placeholder="Area name" />
+      </label>
+      <div class="area-kind-choice">
+        <label class="area-kind-opt"><input type="radio" name="areaKind" value="include" checked />
+          <span><strong>Include</strong> (blue): keep properties inside this area</span></label>
+        <label class="area-kind-opt"><input type="radio" name="areaKind" value="exclude" />
+          <span><strong>Exclude</strong> (red): remove properties inside this area</span></label>
+      </div>
+      <div class="app-modal-status" id="areaSaveStatus"></div>
+      <div class="area-save-btns">
+        <button id="areaSaveGo">Save area</button>
+        <button class="secondary" id="areaSaveCancel">Cancel</button>
+      </div>
     </div>
   </div>
 
@@ -735,6 +758,6 @@
   </template>
 
   <script src="https://api.mapbox.com/mapbox-gl-js/v3.25.0/mapbox-gl.js"></script>
-  <script src="/app.js?v=20260712-132341"></script>
+  <script src="/app.js?v=20260712-132742"></script>
 </body>
 </html>
