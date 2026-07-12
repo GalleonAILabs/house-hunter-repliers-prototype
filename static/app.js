@@ -4957,6 +4957,12 @@ function openBulkAttach() {
   const poiSel = $('bulkAttachPoi');
   poiSel.innerHTML = '<option value="">— pick an existing place —</option>'
     + state.poi.map(p => `<option value="${p.id}">${(POI_TYPE_META[p.type] || POI_TYPE_META.other).icon} ${esc((POI_TYPE_META[p.type] || POI_TYPE_META.other).label)}: ${esc(p.label || '')}</option>`).join('');
+  // GAL-66: emoji category dropdown here too (was a stale 5-option static list).
+  const typeSel = $('bulkAttachType');
+  if (typeSel) {
+    typeSel.innerHTML = Object.entries(POI_TYPE_META).map(([k, v]) => `<option value="${k}">${v.icon} ${esc(v.label)}</option>`).join('');
+    typeSel.value = 'other';
+  }
   $('bulkAttachAddr').value = '';
   $('bulkAttachStatus').textContent = '';
   $('bulkAttachTitle').textContent = `Attach a place to ${state.gridSelection.size} listings`;
