@@ -1997,6 +1997,21 @@ function addMapLayers() {
     layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
     paint: { 'line-color': MAP_COLORS.white, 'line-width': 6, 'line-opacity': 0.9 },
   });
+  // GAL-25: Line 6 Finch West's official colour is a low-contrast grey
+  // (#808080) that blends into the street basemap. Both Line 5 and Line 6 are in
+  // revenue service (Line 6 opened 2025-12-07, Line 5 2026-02-08), so EXISTING
+  // tiering is correct; the only fix is legibility. Keep the official grey but
+  // give ONLY Line 6 a white casing that shows on the street basemap too (the
+  // general ttc-lines-casing is satellite-only), so the grey line reads without
+  // recolouring it. Drawn under the coloured line layer.
+  map.addLayer({
+    id: 'ttc-line6-casing',
+    type: 'line',
+    source: 'ttc-lines',
+    filter: ['==', ['get', 'line'], 'Line 6'],
+    layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': MAP_COLORS.white, 'line-width': 7, 'line-opacity': 0.95 },
+  });
   map.addLayer({
     id: 'ttc-lines-layer',
     type: 'line',
@@ -2268,6 +2283,9 @@ function updateOverlayLegibility() {
   if (map.getLayer('go-lines-casing')) map.setLayoutProperty('go-lines-casing', 'visibility', (sat && goOn) ? 'visible' : 'none');
   if (map.getLayer('hwy413-casing')) map.setLayoutProperty('hwy413-casing', 'visibility', (sat && hwyOn) ? 'visible' : 'none');
   if (map.getLayer('ttc-lines-casing')) map.setLayoutProperty('ttc-lines-casing', 'visibility', (sat && ttcOn) ? 'visible' : 'none');
+  // GAL-25: Line 6's white casing shows whenever the TTC lines are on (street
+  // and satellite), so the grey line reads on the light basemap too.
+  if (map.getLayer('ttc-line6-casing')) map.setLayoutProperty('ttc-line6-casing', 'visibility', ttcOn ? 'visible' : 'none');
   if (map.getLayer('hwy413-line')) map.setPaintProperty('hwy413-line', 'line-opacity', sat ? 0.9 : 0.55);
 }
 
