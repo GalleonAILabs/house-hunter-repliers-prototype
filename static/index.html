@@ -10,7 +10,7 @@
        any app.js/styles.css change forces browsers and the Cloudflare edge
        off a stale copy immediately, without a manual cache purge. Bump it
        whenever app.js or styles.css changes. -->
-  <link rel="stylesheet" href="/styles.css?v=20260712-153647" />
+  <link rel="stylesheet" href="/styles.css?v=20260712-160325" />
 </head>
 <body>
 
@@ -284,9 +284,13 @@
     <div class="combined-header" id="combinedHandle">
       <span class="combined-grip" aria-hidden="true"></span>
       <span class="combined-count" id="combinedCount">0 listings</span>
-      <label class="sort-inline">Sort
-        <select id="sortCombined"></select>
-      </label>
+      <!-- GAL-73: same compact sort icon + menu as the status bar, so the drawer
+           handle is not flanked by a wide dropdown that gets hit by accident. -->
+      <div class="sort-control">
+        <button type="button" class="map-ctrl-btn sort-icon-btn" id="sortCombinedBtn" data-ctrl-icon="sort" title="Sort" aria-label="Sort" aria-haspopup="listbox" aria-expanded="false"><span class="ctrl-glyph"></span></button>
+        <div class="sort-menu" id="sortCombinedMenu" role="listbox" hidden></div>
+        <select id="sortCombined" class="sort-native-hidden"></select>
+      </div>
     </div>
     <div class="combined-cards" id="combinedCards"></div>
   </div>
@@ -765,6 +769,6 @@
   </template>
 
   <script src="https://api.mapbox.com/mapbox-gl-js/v3.25.0/mapbox-gl.js"></script>
-  <script src="/app.js?v=20260712-153647"></script>
+  <script src="/app.js?v=20260712-160325"></script>
 </body>
 </html>
