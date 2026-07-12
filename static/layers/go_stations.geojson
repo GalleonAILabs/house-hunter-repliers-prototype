@@ -1,1348 +1,1384 @@
 {
-  "type": "FeatureCollection",
-  "features": [
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.3806,
-          43.645195
-        ]
-      },
-      "properties": {
-        "name": "Union Station",
-        "status": "Existing",
-        "lines": "Barrie, Kitchener, Lakeshore East, Lakeshore West, Milton, Richmond Hill, Stouffville",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -78.884807,
-          43.871004
-        ]
-      },
-      "properties": {
-        "name": "Durham College Oshawa",
-        "status": "Existing",
-        "lines": "Lakeshore East",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.418927,
-          43.635549
-        ]
-      },
-      "properties": {
-        "name": "Exhibition",
-        "status": "Existing",
-        "lines": "Lakeshore West",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -78.93818,
-          43.86484
-        ]
-      },
-      "properties": {
-        "name": "Whitby",
-        "status": "Existing",
-        "lines": "Lakeshore East",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.450192,
-          43.656928
-        ]
-      },
-      "properties": {
-        "name": "Bloor",
-        "status": "Existing",
-        "lines": "Kitchener",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.497762,
-          43.616411
-        ]
-      },
-      "properties": {
-        "name": "Mimico",
-        "status": "Existing",
-        "lines": "Lakeshore West",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.48703,
-          43.68749
-        ]
-      },
-      "properties": {
-        "name": "Mount Dennis",
-        "status": "Existing",
-        "lines": "Kitchener",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.041372,
-          43.847766
-        ]
-      },
-      "properties": {
-        "name": "Ajax",
-        "status": "Existing",
-        "lines": "Lakeshore East",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.51368,
-          43.70029
-        ]
-      },
-      "properties": {
-        "name": "Weston",
-        "status": "Existing",
-        "lines": "Kitchener",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.546149,
-          43.591317
-        ]
-      },
-      "properties": {
-        "name": "Long Branch",
-        "status": "Existing",
-        "lines": "Lakeshore West",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.536287,
-          43.636955
-        ]
-      },
-      "properties": {
-        "name": "Kipling",
-        "status": "Existing",
-        "lines": "Milton",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.262706,
-          43.733045
-        ]
-      },
-      "properties": {
-        "name": "Kennedy",
-        "status": "Existing",
-        "lines": "Stouffville",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.084594,
-          43.831576
-        ]
-      },
-      "properties": {
-        "name": "Pickering",
-        "status": "Existing",
-        "lines": "Lakeshore East",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.47835,
-          43.7536333
-        ]
-      },
-      "properties": {
-        "name": "Downsview Park",
-        "status": "Existing",
-        "lines": "Barrie",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.563506,
-          43.706172
-        ]
-      },
-      "properties": {
-        "name": "Etobicoke North",
-        "status": "Existing",
-        "lines": "Kitchener",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.364275,
-          43.765518
-        ]
-      },
-      "properties": {
-        "name": "Oriole",
-        "status": "Existing",
-        "lines": "Richmond Hill",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.577762,
-          43.608022
-        ]
-      },
-      "properties": {
-        "name": "Dixie",
-        "status": "Existing",
-        "lines": "Milton",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.586881,
-          43.555999
-        ]
-      },
-      "properties": {
-        "name": "Port Credit",
-        "status": "Existing",
-        "lines": "Lakeshore West",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.284385,
-          43.78611
-        ]
-      },
-      "properties": {
-        "name": "Agincourt",
-        "status": "Existing",
-        "lines": "Stouffville",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.371403,
-          43.793703
-        ]
-      },
-      "properties": {
-        "name": "Old Cummer",
-        "status": "Existing",
-        "lines": "Richmond Hill",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.63823,
-          43.705153
-        ]
-      },
-      "properties": {
-        "name": "Malton",
-        "status": "Existing",
-        "lines": "Kitchener",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.130646,
-          43.780375
-        ]
-      },
-      "properties": {
-        "name": "Rouge Hill",
-        "status": "Existing",
-        "lines": "Lakeshore East",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.623695,
-          43.582973
-        ]
-      },
-      "properties": {
-        "name": "Cooksville",
-        "status": "Existing",
-        "lines": "Milton",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.301785,
-          43.823227
-        ]
-      },
-      "properties": {
-        "name": "Milliken",
-        "status": "Existing",
-        "lines": "Stouffville",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.633206,
-          43.513127
-        ]
-      },
-      "properties": {
-        "name": "Clarkson",
-        "status": "Existing",
-        "lines": "Lakeshore West",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.498819,
-          43.838487
-        ]
-      },
-      "properties": {
-        "name": "Rutherford",
-        "status": "Existing",
-        "lines": "Barrie",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.6887512,
-          43.7022591
-        ]
-      },
-      "properties": {
-        "name": "Bramalea",
-        "status": "Existing",
-        "lines": "Kitchener",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.423139,
-          43.838546
-        ]
-      },
-      "properties": {
-        "name": "Langstaff",
-        "status": "Existing",
-        "lines": "Richmond Hill",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.668506,
-          43.567235
-        ]
-      },
-      "properties": {
-        "name": "Erindale",
-        "status": "Existing",
-        "lines": "Milton",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.506984,
-          43.859481
-        ]
-      },
-      "properties": {
-        "name": "Maple",
-        "status": "Existing",
-        "lines": "Barrie",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.314332,
-          43.851689
-        ]
-      },
-      "properties": {
-        "name": "Unionville",
-        "status": "Existing",
-        "lines": "Stouffville",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.198252,
-          43.755272
-        ]
-      },
-      "properties": {
-        "name": "Guildwood",
-        "status": "Existing",
-        "lines": "Lakeshore East",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.70882,
-          43.575584
-        ]
-      },
-      "properties": {
-        "name": "Streetsville",
-        "status": "Existing",
-        "lines": "Milton",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.289211,
-          43.873601
-        ]
-      },
-      "properties": {
-        "name": "Centennial",
-        "status": "Existing",
-        "lines": "Stouffville",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.426167,
-          43.874307
-        ]
-      },
-      "properties": {
-        "name": "Richmond Hill",
-        "status": "Existing",
-        "lines": "Richmond Hill",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.23231,
-          43.739621
-        ]
-      },
-      "properties": {
-        "name": "Eglinton",
-        "status": "Existing",
-        "lines": "Lakeshore East",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.7628632,
-          43.6869087
-        ]
-      },
-      "properties": {
-        "name": "Brampton Innovation District",
-        "status": "Existing",
-        "lines": "Kitchener",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.682242,
-          43.455594
-        ]
-      },
-      "properties": {
-        "name": "Oakville",
-        "status": "Existing",
-        "lines": "Lakeshore West",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.262469,
-          43.882691
-        ]
-      },
-      "properties": {
-        "name": "Markham",
-        "status": "Existing",
-        "lines": "Stouffville",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.526886,
-          43.920037
-        ]
-      },
-      "properties": {
-        "name": "King City",
-        "status": "Existing",
-        "lines": "Barrie",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.254722,
-          43.716945
-        ]
-      },
-      "properties": {
-        "name": "Scarborough",
-        "status": "Existing",
-        "lines": "Lakeshore East",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.754328,
-          43.597566
-        ]
-      },
-      "properties": {
-        "name": "Meadowvale",
-        "status": "Existing",
-        "lines": "Milton",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.26313,
-          43.900521
-        ]
-      },
-      "properties": {
-        "name": "Mount Joy",
-        "status": "Existing",
-        "lines": "Stouffville",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.8221817,
-          43.6749763
-        ]
-      },
-      "properties": {
-        "name": "Mount Pleasant",
-        "status": "Existing",
-        "lines": "Kitchener",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.722294,
-          43.416774
-        ]
-      },
-      "properties": {
-        "name": "Bronte",
-        "status": "Existing",
-        "lines": "Lakeshore West",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.788539,
-          43.590791
-        ]
-      },
-      "properties": {
-        "name": "Lisgar",
-        "status": "Existing",
-        "lines": "Milton",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.399033,
-          43.941617
-        ]
-      },
-      "properties": {
-        "name": "Gormley",
-        "status": "Existing",
-        "lines": "Richmond Hill",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.300358,
-          43.686462
-        ]
-      },
-      "properties": {
-        "name": "Danforth",
-        "status": "Existing",
-        "lines": "Lakeshore East",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.760991,
-          43.379429
-        ]
-      },
-      "properties": {
-        "name": "Appleby",
-        "status": "Existing",
-        "lines": "Lakeshore West",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.249989,
-          43.970924
-        ]
-      },
-      "properties": {
-        "name": "Stouffville",
-        "status": "Existing",
-        "lines": "Stouffville",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.397258,
-          43.975949
-        ]
-      },
-      "properties": {
-        "name": "Bloomington",
-        "status": "Existing",
-        "lines": "Richmond Hill",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.919054,
-          43.655373
-        ]
-      },
-      "properties": {
-        "name": "Georgetown",
-        "status": "Existing",
-        "lines": "Kitchener",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.459725,
-          44.000758
-        ]
-      },
-      "properties": {
-        "name": "Aurora",
-        "status": "Existing",
-        "lines": "Barrie",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.237098,
-          43.990395
-        ]
-      },
-      "properties": {
-        "name": "Old Elm",
-        "status": "Existing",
-        "lines": "Stouffville",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.867172,
-          43.52364
-        ]
-      },
-      "properties": {
-        "name": "Milton",
-        "status": "Existing",
-        "lines": "Milton",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.809141,
-          43.341265
-        ]
-      },
-      "properties": {
-        "name": "Burlington",
-        "status": "Existing",
-        "lines": "Lakeshore West",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.459289,
-          44.060426
-        ]
-      },
-      "properties": {
-        "name": "Newmarket",
-        "status": "Existing",
-        "lines": "Barrie",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.855659,
-          43.313385
-        ]
-      },
-      "properties": {
-        "name": "Aldershot",
-        "status": "Existing",
-        "lines": "Lakeshore West",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -80.034111,
-          43.6338043
-        ]
-      },
-      "properties": {
-        "name": "Acton",
-        "status": "Existing",
-        "lines": "Kitchener",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.455776,
-          44.077996
-        ]
-      },
-      "properties": {
-        "name": "East Gwillimbury",
-        "status": "Existing",
-        "lines": "Barrie",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.866222,
-          43.266775
-        ]
-      },
-      "properties": {
-        "name": "West Harbour",
-        "status": "Existing",
-        "lines": "Lakeshore West",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.555394,
-          44.116513
-        ]
-      },
-      "properties": {
-        "name": "Bradford",
-        "status": "Existing",
-        "lines": "Barrie",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.760331,
-          43.241874
-        ]
-      },
-      "properties": {
-        "name": "Confederation",
-        "status": "Existing",
-        "lines": "Lakeshore West",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -80.246917,
-          43.544353
-        ]
-      },
-      "properties": {
-        "name": "Guelph Central",
-        "status": "Existing",
-        "lines": "Kitchener",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.627441,
-          44.35112
-        ]
-      },
-      "properties": {
-        "name": "Barrie South",
-        "status": "Existing",
-        "lines": "Barrie",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -80.49313,
-          43.455686
-        ]
-      },
-      "properties": {
-        "name": "Kitchener",
-        "status": "Existing",
-        "lines": "Kitchener",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.687858,
-          44.374139
-        ]
-      },
-      "properties": {
-        "name": "Allandale Waterfront",
-        "status": "Existing",
-        "lines": "Barrie",
-        "statusColor": "#16803a",
-        "source": "Metrolinx GTFS stops.txt"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.4116,
-          43.6901
-        ]
-      },
-      "properties": {
-        "name": "St Clair",
-        "status": "Planned: SmartTrack",
-        "lines": "Kitchener",
-        "municipality": "Toronto",
-        "statusColor": "#e8b400"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.4216,
-          43.6401
-        ]
-      },
-      "properties": {
-        "name": "Liberty Village",
-        "status": "Planned: SmartTrack",
-        "lines": "Lakeshore West",
-        "municipality": "Toronto",
-        "statusColor": "#e8b400"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.3497,
-          43.6534
-        ]
-      },
-      "properties": {
-        "name": "East Harbour",
-        "status": "Planned: SmartTrack",
-        "lines": "Lakeshore East, Stouffville",
-        "municipality": "Toronto",
-        "statusColor": "#e8b400"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.3497,
-          43.7808
-        ]
-      },
-      "properties": {
-        "name": "Finch",
-        "status": "Planned: SmartTrack",
-        "lines": "Stouffville",
-        "municipality": "Toronto",
-        "statusColor": "#e8b400"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.3197,
-          43.6697
-        ]
-      },
-      "properties": {
-        "name": "Woodbine",
-        "status": "Planned: SmartTrack hub",
-        "lines": "Lakeshore East, Stouffville",
-        "municipality": "Toronto",
-        "statusColor": "#e8b400"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.4812,
-          44.0768
-        ]
-      },
-      "properties": {
-        "name": "Mulock",
-        "status": "Planned: GO Expansion",
-        "lines": "Barrie",
-        "municipality": "Newmarket",
-        "statusColor": "#e8b400"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.5431,
-          44.1568
-        ]
-      },
-      "properties": {
-        "name": "Innisfil",
-        "status": "Planned: GO Expansion",
-        "lines": "Barrie",
-        "municipality": "Innisfil",
-        "statusColor": "#e8b400"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.6931,
-          44.3997
-        ]
-      },
-      "properties": {
-        "name": "Barrie Allandale",
-        "status": "Planned: GO Expansion",
-        "lines": "Barrie",
-        "municipality": "Barrie",
-        "statusColor": "#e8b400"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.2441,
-          43.7134
-        ]
-      },
-      "properties": {
-        "name": "Goldhawk",
-        "status": "Planned: GO Expansion",
-        "lines": "Stouffville",
-        "municipality": "Markham",
-        "statusColor": "#e8b400"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.2641,
-          43.8134
-        ]
-      },
-      "properties": {
-        "name": "Steeles",
-        "status": "Planned: GO Expansion",
-        "lines": "Stouffville",
-        "municipality": "Markham",
-        "statusColor": "#e8b400"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -78.6831,
-          43.9134
-        ]
-      },
-      "properties": {
-        "name": "Bowmanville",
-        "status": "Proposed: under study",
-        "lines": "Lakeshore East",
-        "municipality": "Clarington",
-        "statusColor": "#8a8f8c"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -79.5397,
-          43.7808
-        ]
-      },
-      "properties": {
-        "name": "Finch West",
-        "status": "Proposed: former SmartTrack on hold",
-        "lines": "Kitchener",
-        "municipality": "Toronto",
-        "statusColor": "#8a8f8c"
-      }
-    }
-  ]
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.3806,
+     43.645195
+    ]
+   },
+   "properties": {
+    "name": "Union Station",
+    "status": "Existing",
+    "lines": "Barrie, Kitchener, Lakeshore East, Lakeshore West, Milton, Richmond Hill, Stouffville",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -78.884807,
+     43.871004
+    ]
+   },
+   "properties": {
+    "name": "Durham College Oshawa",
+    "status": "Existing",
+    "lines": "Lakeshore East",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.418927,
+     43.635549
+    ]
+   },
+   "properties": {
+    "name": "Exhibition",
+    "status": "Existing",
+    "lines": "Lakeshore West",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -78.93818,
+     43.86484
+    ]
+   },
+   "properties": {
+    "name": "Whitby",
+    "status": "Existing",
+    "lines": "Lakeshore East",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.450192,
+     43.656928
+    ]
+   },
+   "properties": {
+    "name": "Bloor",
+    "status": "Existing",
+    "lines": "Kitchener",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.497762,
+     43.616411
+    ]
+   },
+   "properties": {
+    "name": "Mimico",
+    "status": "Existing",
+    "lines": "Lakeshore West",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.48703,
+     43.68749
+    ]
+   },
+   "properties": {
+    "name": "Mount Dennis",
+    "status": "Existing",
+    "lines": "Kitchener",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.041372,
+     43.847766
+    ]
+   },
+   "properties": {
+    "name": "Ajax",
+    "status": "Existing",
+    "lines": "Lakeshore East",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.51368,
+     43.70029
+    ]
+   },
+   "properties": {
+    "name": "Weston",
+    "status": "Existing",
+    "lines": "Kitchener",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.546149,
+     43.591317
+    ]
+   },
+   "properties": {
+    "name": "Long Branch",
+    "status": "Existing",
+    "lines": "Lakeshore West",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.536287,
+     43.636955
+    ]
+   },
+   "properties": {
+    "name": "Kipling",
+    "status": "Existing",
+    "lines": "Milton",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.262706,
+     43.733045
+    ]
+   },
+   "properties": {
+    "name": "Kennedy",
+    "status": "Existing",
+    "lines": "Stouffville",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.084594,
+     43.831576
+    ]
+   },
+   "properties": {
+    "name": "Pickering",
+    "status": "Existing",
+    "lines": "Lakeshore East",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.47835,
+     43.7536333
+    ]
+   },
+   "properties": {
+    "name": "Downsview Park",
+    "status": "Existing",
+    "lines": "Barrie",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.563506,
+     43.706172
+    ]
+   },
+   "properties": {
+    "name": "Etobicoke North",
+    "status": "Existing",
+    "lines": "Kitchener",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.364275,
+     43.765518
+    ]
+   },
+   "properties": {
+    "name": "Oriole",
+    "status": "Existing",
+    "lines": "Richmond Hill",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.577762,
+     43.608022
+    ]
+   },
+   "properties": {
+    "name": "Dixie",
+    "status": "Existing",
+    "lines": "Milton",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.586881,
+     43.555999
+    ]
+   },
+   "properties": {
+    "name": "Port Credit",
+    "status": "Existing",
+    "lines": "Lakeshore West",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.284385,
+     43.78611
+    ]
+   },
+   "properties": {
+    "name": "Agincourt",
+    "status": "Existing",
+    "lines": "Stouffville",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.371403,
+     43.793703
+    ]
+   },
+   "properties": {
+    "name": "Old Cummer",
+    "status": "Existing",
+    "lines": "Richmond Hill",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.63823,
+     43.705153
+    ]
+   },
+   "properties": {
+    "name": "Malton",
+    "status": "Existing",
+    "lines": "Kitchener",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.130646,
+     43.780375
+    ]
+   },
+   "properties": {
+    "name": "Rouge Hill",
+    "status": "Existing",
+    "lines": "Lakeshore East",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.623695,
+     43.582973
+    ]
+   },
+   "properties": {
+    "name": "Cooksville",
+    "status": "Existing",
+    "lines": "Milton",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.301785,
+     43.823227
+    ]
+   },
+   "properties": {
+    "name": "Milliken",
+    "status": "Existing",
+    "lines": "Stouffville",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.633206,
+     43.513127
+    ]
+   },
+   "properties": {
+    "name": "Clarkson",
+    "status": "Existing",
+    "lines": "Lakeshore West",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.498819,
+     43.838487
+    ]
+   },
+   "properties": {
+    "name": "Rutherford",
+    "status": "Existing",
+    "lines": "Barrie",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.6887512,
+     43.7022591
+    ]
+   },
+   "properties": {
+    "name": "Bramalea",
+    "status": "Existing",
+    "lines": "Kitchener",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.423139,
+     43.838546
+    ]
+   },
+   "properties": {
+    "name": "Langstaff",
+    "status": "Existing",
+    "lines": "Richmond Hill",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.668506,
+     43.567235
+    ]
+   },
+   "properties": {
+    "name": "Erindale",
+    "status": "Existing",
+    "lines": "Milton",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.506984,
+     43.859481
+    ]
+   },
+   "properties": {
+    "name": "Maple",
+    "status": "Existing",
+    "lines": "Barrie",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.314332,
+     43.851689
+    ]
+   },
+   "properties": {
+    "name": "Unionville",
+    "status": "Existing",
+    "lines": "Stouffville",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.198252,
+     43.755272
+    ]
+   },
+   "properties": {
+    "name": "Guildwood",
+    "status": "Existing",
+    "lines": "Lakeshore East",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.70882,
+     43.575584
+    ]
+   },
+   "properties": {
+    "name": "Streetsville",
+    "status": "Existing",
+    "lines": "Milton",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.289211,
+     43.873601
+    ]
+   },
+   "properties": {
+    "name": "Centennial",
+    "status": "Existing",
+    "lines": "Stouffville",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.426167,
+     43.874307
+    ]
+   },
+   "properties": {
+    "name": "Richmond Hill",
+    "status": "Existing",
+    "lines": "Richmond Hill",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.23231,
+     43.739621
+    ]
+   },
+   "properties": {
+    "name": "Eglinton",
+    "status": "Existing",
+    "lines": "Lakeshore East",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.7628632,
+     43.6869087
+    ]
+   },
+   "properties": {
+    "name": "Brampton Innovation District",
+    "status": "Existing",
+    "lines": "Kitchener",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.682242,
+     43.455594
+    ]
+   },
+   "properties": {
+    "name": "Oakville",
+    "status": "Existing",
+    "lines": "Lakeshore West",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.262469,
+     43.882691
+    ]
+   },
+   "properties": {
+    "name": "Markham",
+    "status": "Existing",
+    "lines": "Stouffville",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.526886,
+     43.920037
+    ]
+   },
+   "properties": {
+    "name": "King City",
+    "status": "Existing",
+    "lines": "Barrie",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.254722,
+     43.716945
+    ]
+   },
+   "properties": {
+    "name": "Scarborough",
+    "status": "Existing",
+    "lines": "Lakeshore East",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.754328,
+     43.597566
+    ]
+   },
+   "properties": {
+    "name": "Meadowvale",
+    "status": "Existing",
+    "lines": "Milton",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.26313,
+     43.900521
+    ]
+   },
+   "properties": {
+    "name": "Mount Joy",
+    "status": "Existing",
+    "lines": "Stouffville",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.8221817,
+     43.6749763
+    ]
+   },
+   "properties": {
+    "name": "Mount Pleasant",
+    "status": "Existing",
+    "lines": "Kitchener",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.722294,
+     43.416774
+    ]
+   },
+   "properties": {
+    "name": "Bronte",
+    "status": "Existing",
+    "lines": "Lakeshore West",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.788539,
+     43.590791
+    ]
+   },
+   "properties": {
+    "name": "Lisgar",
+    "status": "Existing",
+    "lines": "Milton",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.399033,
+     43.941617
+    ]
+   },
+   "properties": {
+    "name": "Gormley",
+    "status": "Existing",
+    "lines": "Richmond Hill",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.300358,
+     43.686462
+    ]
+   },
+   "properties": {
+    "name": "Danforth",
+    "status": "Existing",
+    "lines": "Lakeshore East",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.760991,
+     43.379429
+    ]
+   },
+   "properties": {
+    "name": "Appleby",
+    "status": "Existing",
+    "lines": "Lakeshore West",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.249989,
+     43.970924
+    ]
+   },
+   "properties": {
+    "name": "Stouffville",
+    "status": "Existing",
+    "lines": "Stouffville",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.397258,
+     43.975949
+    ]
+   },
+   "properties": {
+    "name": "Bloomington",
+    "status": "Existing",
+    "lines": "Richmond Hill",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.919054,
+     43.655373
+    ]
+   },
+   "properties": {
+    "name": "Georgetown",
+    "status": "Existing",
+    "lines": "Kitchener",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.459725,
+     44.000758
+    ]
+   },
+   "properties": {
+    "name": "Aurora",
+    "status": "Existing",
+    "lines": "Barrie",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.237098,
+     43.990395
+    ]
+   },
+   "properties": {
+    "name": "Old Elm",
+    "status": "Existing",
+    "lines": "Stouffville",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.867172,
+     43.52364
+    ]
+   },
+   "properties": {
+    "name": "Milton",
+    "status": "Existing",
+    "lines": "Milton",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.809141,
+     43.341265
+    ]
+   },
+   "properties": {
+    "name": "Burlington",
+    "status": "Existing",
+    "lines": "Lakeshore West",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.459289,
+     44.060426
+    ]
+   },
+   "properties": {
+    "name": "Newmarket",
+    "status": "Existing",
+    "lines": "Barrie",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.855659,
+     43.313385
+    ]
+   },
+   "properties": {
+    "name": "Aldershot",
+    "status": "Existing",
+    "lines": "Lakeshore West",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -80.034111,
+     43.6338043
+    ]
+   },
+   "properties": {
+    "name": "Acton",
+    "status": "Existing",
+    "lines": "Kitchener",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.455776,
+     44.077996
+    ]
+   },
+   "properties": {
+    "name": "East Gwillimbury",
+    "status": "Existing",
+    "lines": "Barrie",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.866222,
+     43.266775
+    ]
+   },
+   "properties": {
+    "name": "West Harbour",
+    "status": "Existing",
+    "lines": "Lakeshore West",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.555394,
+     44.116513
+    ]
+   },
+   "properties": {
+    "name": "Bradford",
+    "status": "Existing",
+    "lines": "Barrie",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.760331,
+     43.241874
+    ]
+   },
+   "properties": {
+    "name": "Confederation",
+    "status": "Existing",
+    "lines": "Lakeshore West",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -80.246917,
+     43.544353
+    ]
+   },
+   "properties": {
+    "name": "Guelph Central",
+    "status": "Existing",
+    "lines": "Kitchener",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.627441,
+     44.35112
+    ]
+   },
+   "properties": {
+    "name": "Barrie South",
+    "status": "Existing",
+    "lines": "Barrie",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -80.49313,
+     43.455686
+    ]
+   },
+   "properties": {
+    "name": "Kitchener",
+    "status": "Existing",
+    "lines": "Kitchener",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.687858,
+     44.374139
+    ]
+   },
+   "properties": {
+    "name": "Allandale Waterfront",
+    "status": "Existing",
+    "lines": "Barrie",
+    "statusColor": "#16803a",
+    "source": "Metrolinx GTFS stops.txt"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.4116,
+     43.6901
+    ]
+   },
+   "properties": {
+    "name": "St Clair",
+    "status": "Planned: SmartTrack",
+    "lines": "Kitchener",
+    "municipality": "Toronto",
+    "statusColor": "#e8b400",
+    "projectUrl": "https://www.toronto.ca/services-payments/streets-parking-transportation/transit-in-toronto/transit-expansion/smarttrack-stations-program/",
+    "statusText": "Planned station (SmartTrack)",
+    "openingNote": "Opening date not yet confirmed"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.4216,
+     43.6401
+    ]
+   },
+   "properties": {
+    "name": "Liberty Village",
+    "status": "Planned: SmartTrack",
+    "lines": "Lakeshore West",
+    "municipality": "Toronto",
+    "statusColor": "#e8b400",
+    "projectUrl": "https://www.toronto.ca/services-payments/streets-parking-transportation/transit-in-toronto/transit-expansion/smarttrack-stations-program/",
+    "statusText": "Planned station (SmartTrack)",
+    "openingNote": "Opening date not yet confirmed"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.3497,
+     43.6534
+    ]
+   },
+   "properties": {
+    "name": "East Harbour",
+    "status": "Planned: SmartTrack",
+    "lines": "Lakeshore East, Stouffville",
+    "municipality": "Toronto",
+    "statusColor": "#e8b400",
+    "projectUrl": "https://www.toronto.ca/services-payments/streets-parking-transportation/transit-in-toronto/transit-expansion/smarttrack-stations-program/",
+    "statusText": "Planned station (SmartTrack)",
+    "openingNote": "Opening date not yet confirmed"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.3497,
+     43.7808
+    ]
+   },
+   "properties": {
+    "name": "Finch",
+    "status": "Planned: SmartTrack",
+    "lines": "Stouffville",
+    "municipality": "Toronto",
+    "statusColor": "#e8b400",
+    "projectUrl": "https://www.toronto.ca/services-payments/streets-parking-transportation/transit-in-toronto/transit-expansion/smarttrack-stations-program/",
+    "statusText": "Planned station (SmartTrack)",
+    "openingNote": "Opening date not yet confirmed"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.3197,
+     43.6697
+    ]
+   },
+   "properties": {
+    "name": "Woodbine",
+    "status": "Planned: SmartTrack hub",
+    "lines": "Lakeshore East, Stouffville",
+    "municipality": "Toronto",
+    "statusColor": "#e8b400",
+    "projectUrl": "https://www.toronto.ca/services-payments/streets-parking-transportation/transit-in-toronto/transit-expansion/smarttrack-stations-program/",
+    "statusText": "Planned hub station (SmartTrack)",
+    "openingNote": "Opening date not yet confirmed"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.4812,
+     44.0768
+    ]
+   },
+   "properties": {
+    "name": "Mulock",
+    "status": "Planned: GO Expansion",
+    "lines": "Barrie",
+    "municipality": "Newmarket",
+    "statusColor": "#e8b400",
+    "projectUrl": "https://www.metrolinx.com/en/projects-and-programs/barrie-line-go-expansion",
+    "statusText": "Planned station (GO Expansion, Barrie Line)",
+    "openingNote": "Opening date not yet confirmed"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.5431,
+     44.1568
+    ]
+   },
+   "properties": {
+    "name": "Innisfil",
+    "status": "Planned: GO Expansion",
+    "lines": "Barrie",
+    "municipality": "Innisfil",
+    "statusColor": "#e8b400",
+    "projectUrl": "https://www.metrolinx.com/en/projects-and-programs/barrie-line-go-expansion",
+    "statusText": "Planned station (GO Expansion, Barrie Line)",
+    "openingNote": "Opening date not yet confirmed"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.6931,
+     44.3997
+    ]
+   },
+   "properties": {
+    "name": "Barrie Allandale",
+    "status": "Planned: GO Expansion",
+    "lines": "Barrie",
+    "municipality": "Barrie",
+    "statusColor": "#e8b400",
+    "projectUrl": "https://www.metrolinx.com/en/projects-and-programs/barrie-line-go-expansion",
+    "statusText": "Planned station (GO Expansion, Barrie Line)",
+    "openingNote": "Opening date not yet confirmed"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.2441,
+     43.7134
+    ]
+   },
+   "properties": {
+    "name": "Goldhawk",
+    "status": "Planned: GO Expansion",
+    "lines": "Stouffville",
+    "municipality": "Markham",
+    "statusColor": "#e8b400",
+    "projectUrl": "https://www.metrolinx.com/en/projects-and-programs/stouffville-line-go-expansion",
+    "statusText": "Planned station (GO Expansion, Stouffville Line)",
+    "openingNote": "Opening date not yet confirmed"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.2641,
+     43.8134
+    ]
+   },
+   "properties": {
+    "name": "Steeles",
+    "status": "Planned: GO Expansion",
+    "lines": "Stouffville",
+    "municipality": "Markham",
+    "statusColor": "#e8b400",
+    "projectUrl": "https://www.metrolinx.com/en/projects-and-programs/stouffville-line-go-expansion",
+    "statusText": "Planned station (GO Expansion, Stouffville Line)",
+    "openingNote": "Opening date not yet confirmed"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -78.6831,
+     43.9134
+    ]
+   },
+   "properties": {
+    "name": "Bowmanville",
+    "status": "Proposed: under study",
+    "lines": "Lakeshore East",
+    "municipality": "Clarington",
+    "statusColor": "#8a8f8c",
+    "projectUrl": "https://www.metrolinx.com/en/projects-and-programs/lakeshore-east-line-go-expansion/what-were-building/bowmanville-extension",
+    "statusText": "Proposed station (under study)",
+    "openingNote": "Under study, no opening date yet"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -79.5397,
+     43.7808
+    ]
+   },
+   "properties": {
+    "name": "Finch West",
+    "status": "Proposed: former SmartTrack on hold",
+    "lines": "Kitchener",
+    "municipality": "Toronto",
+    "statusColor": "#8a8f8c",
+    "projectUrl": "https://www.toronto.ca/services-payments/streets-parking-transportation/transit-in-toronto/transit-expansion/smarttrack-stations-program/",
+    "statusText": "Proposed station (on hold)",
+    "openingNote": "On hold, no opening date"
+   }
+  }
+ ]
 }

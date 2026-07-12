@@ -538,6 +538,12 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .go-station-tooltip{background:var(--panel);color:var(--ink);border-radius:8px;font-size:12px;padding:2px 4px}
 .go-station-tooltip .mapboxgl-popup-tip{border-top-color:var(--panel);border-bottom-color:var(--panel)}
 .go-station-tooltip .mapboxgl-popup-content{background:var(--panel);color:var(--ink);border-radius:8px;box-shadow:var(--shadow);padding:6px 10px}
+/* GAL-21: enriched planned-station popup. */
+.go-station-detail .mapboxgl-popup-content{max-width:240px;padding:8px 12px;line-height:1.5}
+.go-planned-status{font-weight:800;color:var(--go-planned,#e8b400)}
+.go-planned-hint{color:var(--muted);font-style:italic}
+.go-project-link{color:var(--blue);font-weight:700;text-decoration:none}
+.go-project-link:hover{text-decoration:underline}
 
 @media (max-width:600px){ h1{font-size:16px}.view-btn{padding:5px 8px;font-size:12px}.cards{grid-template-columns:1fr}.controls{grid-template-columns:1fr}.topbar{padding:0 10px}.topbar-right{gap:4px}.icon-btn{padding:5px 6px}.status-bar{left:10px;right:10px;bottom:10px}.who-am-i{max-width:64px} }
 /* GAL-67: a third topbar icon (inbox) makes the row tight on small phones.

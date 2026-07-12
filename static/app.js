@@ -2205,20 +2205,58 @@ function wireMapHandlers() {
   // mode so a tap never opens a card mid-draw.
   map.on('click', e => { if (state.drawMode) { addDrawVertex(e.lngLat); } });
 
+  // GAL-21: build a GO-station popup body. Existing stations stay minimal
+  // (name + lines); planned/proposed stations show a clear status, their lines,
+  // an honest opening note (none have a firm public date as of 2026), and, when
+  // withLink, a link to the Metrolinx/City project page. Declared as a function
+  // so it hoists above the handlers that use it.
+  function goStationHtml(p, withLink) {
+    const head = `<strong>${esc(p.name)}</strong>`;
+    if (p.status === 'Existing') {
+      return `${head}<br>${esc(p.lines || '')}${p.lines ? ' &middot; ' : ''}GO Station`;
+    }
+    const parts = [head];
+    if (p.statusText) parts.push(`<span class="go-planned-status">${esc(p.statusText)}</span>`);
+    if (p.lines) parts.push(esc(p.lines));
+    if (p.openingNote) parts.push(esc(p.openingNote));
+    if (withLink && p.projectUrl) {
+      parts.push(`<a class="go-project-link" href="${esc(p.projectUrl)}" target="_blank" rel="noopener">Metrolinx project page ↗</a>`);
+    } else if (p.projectUrl) {
+      parts.push('<span class="go-planned-hint">Click the station for the project link</span>');
+    }
+    return parts.join('<br>');
+  }
+
+  // GAL-21: status-dependent station popup. Hover shows a quick, richer tooltip
+  // (name + status + opening note); clicking a planned station opens a
+  // persistent popup that also carries the Metrolinx/City project link (a link
+  // is not usable inside a hover tooltip, which disappears on mouseleave).
   let goStationPopup = null;
+  let goStationClickPopup = null;
   ['go-stations-existing-circles', 'go-stations-planned-circles'].forEach(layerId => {
     map.on('mouseenter', layerId, e => {
       map.getCanvas().style.cursor = 'pointer';
       const p = e.features[0].properties;
       goStationPopup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false, className: 'go-station-tooltip', offset: 10 })
         .setLngLat(e.features[0].geometry.coordinates)
-        .setHTML(`<strong>${esc(p.name)}</strong>${p.status !== 'Existing' ? ' (planned)' : ''}<br>${esc(p.lines || '')}`)
+        .setHTML(goStationHtml(p, false))
         .addTo(map);
     });
     map.on('mouseleave', layerId, () => {
       map.getCanvas().style.cursor = '';
       goStationPopup?.remove();
       goStationPopup = null;
+    });
+    map.on('click', layerId, e => {
+      const p = e.features[0].properties;
+      if (p.status === 'Existing') return; // existing stations need no link/detail
+      e.originalEvent?.stopPropagation();
+      goStationPopup?.remove(); goStationPopup = null;
+      goStationClickPopup?.remove();
+      goStationClickPopup = new mapboxgl.Popup({ closeButton: true, closeOnClick: true, className: 'go-station-tooltip go-station-detail', offset: 10 })
+        .setLngLat(e.features[0].geometry.coordinates)
+        .setHTML(goStationHtml(p, true))
+        .addTo(map);
     });
   });
 
