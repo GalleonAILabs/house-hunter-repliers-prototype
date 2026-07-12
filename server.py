@@ -1221,6 +1221,43 @@ def handle_poi_post(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         conn.close()
 
 
+def handle_poi_update(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """GAL-66: edit a shared POI pin's category (and optionally its label) after
+    creation, so a place set to the wrong icon can be corrected without deleting
+    and re-adding it. A pin is the single source of truth for a place, so the
+    change is group-wide, the same as adding or deleting it. Only `type` and
+    `label` are editable here; coordinates are not (move = delete and re-add)."""
+    poi_id = body.get("id")
+    if not isinstance(poi_id, int) or isinstance(poi_id, bool):
+        return {"error": "invalid_request", "detail": "id must be an integer"}, 400
+    poi_type = body.get("type")
+    if poi_type not in ALLOWED_POI_TYPES:
+        return {
+            "error": "invalid_request",
+            "detail": f"type must be one of {sorted(ALLOWED_POI_TYPES)}",
+        }, 400
+    label = body.get("label")
+    if label is not None and not isinstance(label, str):
+        return {"error": "invalid_request", "detail": "label must be a string if present"}, 400
+
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT id FROM poi_pins WHERE id = ?", (poi_id,)).fetchone()
+        if row is None:
+            return {"error": "not_found", "detail": f"poi {poi_id} not found"}, 404
+        if label is None:
+            conn.execute("UPDATE poi_pins SET type = ? WHERE id = ?", (poi_type, poi_id))
+        else:
+            conn.execute(
+                "UPDATE poi_pins SET type = ?, label = ? WHERE id = ?",
+                (poi_type, label, poi_id),
+            )
+        conn.commit()
+        return {"ok": True, "id": poi_id, "type": poi_type}, 200
+    finally:
+        conn.close()
+
+
 def handle_poi_delete(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
     """Delete a shared POI pin. A pin is the single source of truth for a
     place, so deleting it is group-wide, the same way adding it is. Refuses
@@ -3811,6 +3848,23 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
                     return
                 data, status = handle_poi_post(body)
+                self.send_json(data, status)
+                return
+            if parsed.path == "/api/poi/update":
+                if not require_auth(self):
+                    self.send_json({"error": "unauthorized"}, 401)
+                    return
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                raw_body = self.rfile.read(length) if length else b""
+                try:
+                    body = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    self.send_json({"error": "invalid_request", "detail": "malformed JSON body"}, 400)
+                    return
+                if not isinstance(body, dict):
+                    self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
+                    return
+                data, status = handle_poi_update(body)
                 self.send_json(data, status)
                 return
             if parsed.path == "/api/report-issue":

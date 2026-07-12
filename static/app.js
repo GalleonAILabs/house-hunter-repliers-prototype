@@ -3186,11 +3186,30 @@ function buildPlaceAttachments(node, item) {
 
     const row = el('div', { className: 'attach-row' });
     row.append(info);
+    // GAL-66: edit the place's category/icon after adding it, via an inline
+    // dropdown of the emoji categories, without deleting and re-adding.
+    const editWrap = el('div', { className: 'attach-edit' });
+    editWrap.hidden = true;
+    const editSel = el('select', { className: 'attach-select' });
+    editSel.innerHTML = Object.entries(POI_TYPE_META).map(([k, v]) => `<option value="${k}">${v.icon} ${esc(v.label)}</option>`).join('');
+    editSel.value = POI_TYPE_META[a.poi_type] ? a.poi_type : 'other';
+    const editSave = el('button', { type: 'button', className: 'fb-btn', textContent: 'Save' });
+    const editCancel = el('button', { type: 'button', className: 'secondary fb-btn', textContent: 'Back' });
+    editSave.addEventListener('click', () => updatePoiType(item, a.poi_id, editSel.value));
+    editCancel.addEventListener('click', () => { editWrap.hidden = true; });
+    editWrap.append(el('span', { className: 'attach-edit-label', textContent: 'Category' }), editSel, editSave, editCancel);
+
+    const editBtn = el('button', { type: 'button', className: 'secondary fb-btn', textContent: '✎', title: 'Edit category / icon' });
+    editBtn.addEventListener('click', () => {
+      editWrap.hidden = !editWrap.hidden;
+      if (!editWrap.hidden) { editSel.value = POI_TYPE_META[a.poi_type] ? a.poi_type : 'other'; editSel.focus(); }
+    });
     const recomputeBtn = el('button', { type: 'button', className: 'secondary fb-btn', textContent: '↻', title: 'Recompute drive time' });
     recomputeBtn.addEventListener('click', () => recomputeAttachment(item, a.id));
     const removeBtn = el('button', { type: 'button', className: 'secondary fb-btn fb-btn-reject', textContent: '✕', title: 'Remove this place' });
     removeBtn.addEventListener('click', () => removeAttachment(item, a.id));
-    row.append(el('div', { className: 'attach-btns' }, recomputeBtn, removeBtn));
+    row.append(el('div', { className: 'attach-btns' }, editBtn, recomputeBtn, removeBtn));
+    row.append(editWrap);
     container.append(row);
   });
 
@@ -3336,6 +3355,22 @@ async function removeAttachment(item, id) {
     if (!res.ok) throw new Error('remove failed');
     await reloadAfterAttachmentChange(item);
   } catch (err) { console.error(err); alert('Could not remove the place. Try again.'); }
+}
+
+// GAL-66: change an attached place's category (and thus its icon) after adding.
+// Type lives on the shared POI pin, so this updates it everywhere the place
+// appears (list, map pin, other listings it is attached to).
+async function updatePoiType(item, poiId, type) {
+  try {
+    const res = await fetch('/api/poi/update', {
+      method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: poiId, type }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || data.error || 'update failed');
+    await reloadAfterAttachmentChange(item);
+    refreshPoiLayer();
+  } catch (err) { console.error(err); alert('Could not update the category: ' + err.message); }
 }
 
 async function recomputeAttachment(item, id) {

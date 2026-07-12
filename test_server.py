@@ -630,6 +630,42 @@ class PoiEndpointTests(ServerTestCase):
         self.assertEqual({p["type"] for p in data["poi"]},
                          {"heart", "home", "family", "gym", "grocery", "park"})
 
+    def test_update_poi_type(self) -> None:
+        # GAL-66: edit a place's category after creation.
+        _, data = self.request(
+            "POST", "/api/poi", token=self.TOKEN,
+            body={"person_id": 1, "type": "work", "label": "Office", "lat": 43.6, "lng": -79.4},
+        )
+        poi_id = data["id"]
+        status, out = self.request(
+            "POST", "/api/poi/update", token=self.TOKEN, body={"id": poi_id, "type": "school"},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(out["type"], "school")
+        _, data = self.request("GET", "/api/poi", token=self.TOKEN)
+        self.assertEqual(data["poi"][0]["type"], "school")
+
+    def test_update_poi_rejects_bad_type(self) -> None:
+        _, data = self.request(
+            "POST", "/api/poi", token=self.TOKEN,
+            body={"person_id": 1, "type": "work", "lat": 43.6, "lng": -79.4},
+        )
+        status, out = self.request(
+            "POST", "/api/poi/update", token=self.TOKEN, body={"id": data["id"], "type": "banana"},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(out["error"], "invalid_request")
+
+    def test_update_unknown_poi_404(self) -> None:
+        status, out = self.request(
+            "POST", "/api/poi/update", token=self.TOKEN, body={"id": 9999, "type": "school"},
+        )
+        self.assertEqual(status, 404)
+
+    def test_update_poi_without_token_401(self) -> None:
+        status, _ = self.request("POST", "/api/poi/update", body={"id": 1, "type": "school"})
+        self.assertEqual(status, 401)
+
     def test_delete_poi_without_token_401(self) -> None:
         status, _ = self.request("DELETE", "/api/poi", body={"id": 1})
         self.assertEqual(status, 401)
