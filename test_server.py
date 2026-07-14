@@ -177,7 +177,8 @@ class SchemaTests(ServerTestCase):
             conn.close()
         self.assertEqual(
             [(r["name"], r["role"]) for r in rows],
-            [("Mark", "buyer"), ("Katie", "buyer"), ("Anees", "realtor"), ("Kevin", "realtor")],
+            [("Mark", "buyer"), ("Katie", "buyer"), ("Anees", "realtor"),
+             ("Kevin", "realtor"), ("Sophie", "buyer")],
         )
         server.init_db()
         server.init_db()
@@ -186,7 +187,50 @@ class SchemaTests(ServerTestCase):
             count = conn.execute("SELECT COUNT(*) FROM people").fetchone()[0]
         finally:
             conn.close()
-        self.assertEqual(count, 4)
+        self.assertEqual(count, 5)
+
+    def test_ensure_seed_people_adds_missing_member(self) -> None:
+        # Simulate a DB seeded before Sophie was added: drop her and her
+        # threshold, then run the migration that backfills missing seed people.
+        conn = server.get_db()
+        try:
+            sid = conn.execute("SELECT id FROM people WHERE name = 'Sophie'").fetchone()[0]
+            conn.execute("DELETE FROM person_thresholds WHERE person_id = ?", (sid,))
+            conn.execute("DELETE FROM people WHERE id = ?", (sid,))
+            conn.commit()
+
+            added = server.ensure_seed_people_present(conn)
+            conn.commit()
+            self.assertEqual(added, {"added": ["Sophie"]})
+
+            row = conn.execute(
+                "SELECT role, is_admin, has_veto_power FROM people WHERE name = 'Sophie'"
+            ).fetchone()
+            self.assertEqual(row["role"], "buyer")
+            self.assertEqual(row["is_admin"], 0)          # single-admin invariant kept
+            self.assertEqual(row["has_veto_power"], 1)    # full voting member
+            # Full permissions == no explicit deny rows (default-allow model).
+            denies = conn.execute(
+                """
+                SELECT COUNT(*) FROM person_column_permissions
+                WHERE person_id = (SELECT id FROM people WHERE name = 'Sophie')
+                  AND permitted = 0
+                """
+            ).fetchone()[0]
+            self.assertEqual(denies, 0)
+            # Buyer gets the default nearest-GO travel threshold.
+            thr = conn.execute(
+                """
+                SELECT travel_minutes FROM person_thresholds
+                WHERE person_id = (SELECT id FROM people WHERE name = 'Sophie')
+                """
+            ).fetchone()[0]
+            self.assertEqual(thr, server.MIGRATED_GO_THRESHOLD_MIN)
+
+            # Idempotent: a second run is a no-op.
+            self.assertIsNone(server.ensure_seed_people_present(conn))
+        finally:
+            conn.close()
 
 
 class BackfillTests(ServerTestCase):
@@ -224,7 +268,10 @@ class PeopleEndpointTests(ServerTestCase):
     def test_get_people_with_correct_token_200(self) -> None:
         status, data = self.request("GET", "/api/people", token=self.TOKEN)
         self.assertEqual(status, 200)
-        self.assertEqual([p["name"] for p in data["people"]], ["Mark", "Katie", "Anees", "Kevin"])
+        self.assertEqual(
+            [p["name"] for p in data["people"]],
+            ["Mark", "Katie", "Anees", "Kevin", "Sophie"],
+        )
 
     def test_realtor_role_is_stored_not_mapped(self) -> None:
         # 'realtor' is now the stored value AND the displayed value, one
@@ -251,7 +298,7 @@ class FeedbackReadTests(ServerTestCase):
         self.assertEqual(status, 200)
         self.assertIn("POC-2", data["feedback"])
         self.assertIn("POC-3", data["feedback"])
-        self.assertEqual(len(data["feedback"]["POC-2"]), 4)
+        self.assertEqual(len(data["feedback"]["POC-2"]), 5)
 
     def test_latest_state_reflects_backfill(self) -> None:
         _, data = self.request("GET", "/api/feedback?listing_ids=POC-2", token=self.TOKEN)
@@ -1158,13 +1205,13 @@ class PersonThresholdsTests(ServerTestCase):
         status, data = self.request("GET", "/api/person-thresholds", token=self.TOKEN)
         self.assertEqual(status, 200)
         thresholds = data["person_thresholds"]
-        # Mark(1), Katie(2) are buyers; Anees(3), Kevin(4) are realtors and
-        # must be absent -- thresholds are a buyer-only concept.
-        self.assertEqual(set(thresholds.keys()), {"1", "2"})
+        # Mark(1), Katie(2), Sophie(5) are buyers; Anees(3), Kevin(4) are
+        # realtors and must be absent -- thresholds are a buyer-only concept.
+        self.assertEqual(set(thresholds.keys()), {"1", "2", "5"})
 
     def test_buyers_seeded_with_migrated_go_travel(self) -> None:
         _, data = self.request("GET", "/api/person-thresholds", token=self.TOKEN)
-        for pid in ("1", "2"):  # Mark, Katie
+        for pid in ("1", "2", "5"):  # Mark, Katie, Sophie
             entry = data["person_thresholds"][pid]
             self.assertEqual(entry["travel_minutes"], 20)
             self.assertEqual(entry["travel_mode"], "drive")

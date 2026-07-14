@@ -184,6 +184,7 @@ SEED_PEOPLE = [
     ("Katie", "buyer"),
     ("Anees", "realtor"),
     ("Kevin", "realtor"),
+    ("Sophie", "buyer"),
 ]
 
 # ─── Buying-party column-permission model ──────────────────────────────────────
@@ -493,6 +494,40 @@ def migrate_poi_type_drop_check(conn: sqlite3.Connection) -> dict[str, Any] | No
     return {"poi_pins_before": before, "poi_pins_after": after}
 
 
+def ensure_seed_people_present(conn: sqlite3.Connection) -> dict[str, Any] | None:
+    """Insert any SEED_PEOPLE missing from an existing DB, matched by name.
+
+    The empty-table seed in init_db only fires on a fresh DB, so a member added
+    to SEED_PEOPLE after the first run (a new buyer, say) would never reach an
+    existing database without this. Idempotent: a no-op once every seed name is
+    present. New buyers also get the default nearest-GO travel threshold the
+    original buyers were seeded with, since that seed block is likewise
+    empty-guarded and will not re-run. New rows take the schema defaults
+    (is_admin=0, has_veto_power=1), so the single-admin invariant is preserved
+    and a new buyer is a full voting member. Returns the added names, or None
+    when nothing was missing.
+    """
+    existing = {r[0] for r in conn.execute("SELECT name FROM people").fetchall()}
+    missing = [(name, role) for name, role in SEED_PEOPLE if name not in existing]
+    if not missing:
+        return None
+    conn.executemany("INSERT INTO people (name, role) VALUES (?, ?)", missing)
+    for name, role in missing:
+        if role != "buyer":
+            continue
+        pid = conn.execute("SELECT id FROM people WHERE name = ?", (name,)).fetchone()[0]
+        conn.execute(
+            """
+            INSERT INTO person_thresholds
+                (person_id, travel_minutes, travel_mode, travel_dest_kind,
+                 travel_dest_ref, updated_by)
+            VALUES (?, ?, 'drive', 'go_station', NULL, NULL)
+            """,
+            (pid, MIGRATED_GO_THRESHOLD_MIN),
+        )
+    return {"added": [name for name, _ in missing]}
+
+
 def init_db() -> None:
     """Create the schema (if missing) and seed the four demo participants."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -793,6 +828,13 @@ def init_db() -> None:
         veto_migration = migrate_add_veto_power(conn)
         if veto_migration is not None:
             print(f"veto power migration: {veto_migration}")
+
+        # Insert any SEED_PEOPLE added after the first run (the empty-table seed
+        # above only fires on a fresh DB). Runs last so the people table is in
+        # final schema form (roles renamed, is_admin and veto columns present).
+        seed_added = ensure_seed_people_present(conn)
+        if seed_added is not None:
+            print(f"seed people added: {seed_added}")
 
         conn.commit()
     finally:
