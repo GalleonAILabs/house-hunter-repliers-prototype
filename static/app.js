@@ -1999,7 +1999,38 @@ function addMapLayers() {
   // Stations and lines are DELIBERATELY separate sources/files (go-stations.geojson
   // is Point-only, go-lines.geojson is LineString-only) -- a single mixed source
   // previously caused GTFS route-shape vertices to render as station-like pins.
+  // GAL-83: the go-stations SOURCE is declared here, but its station-circle
+  // LAYERS are added AFTER the go-lines layer below so the station dots draw on
+  // top of the line (Mapbox paints later-added layers above earlier ones). The
+  // GTFS route shapes (go-lines) and stops (go-stations) come from separate
+  // files and their endpoints do not land on the exact same coordinate, so with
+  // the line on top the junction looked messy (line painted over the dot). TTC
+  // already adds stations after its lines for the same reason.
   map.addSource('go-stations', { type: 'geojson', data: '/layers/go-stations.geojson' });
+
+  map.addSource('go-lines', { type: 'geojson', data: '/layers/go-lines.geojson' });
+  // White casing beneath the coloured GO line, hidden by default and shown only
+  // in satellite mode (see updateOverlayLegibility): the GTFS route colours are
+  // legible on the street basemap but can vanish against dark imagery, so the
+  // casing gives them a light halo. Added before the coloured line so it sits
+  // underneath.
+  map.addLayer({
+    id: 'go-lines-casing',
+    type: 'line',
+    source: 'go-lines',
+    layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': MAP_COLORS.white, 'line-width': 6, 'line-opacity': 0.9 },
+  });
+  map.addLayer({
+    id: 'go-lines-layer',
+    type: 'line',
+    source: 'go-lines',
+    layout: { visibility: 'none' },
+    paint: { 'line-color': ['get', 'color'], 'line-width': 3 },
+  });
+
+  // GAL-83: station circles added here (after the GO line) so the dots sit ON
+  // TOP of the line and the line tucks under them, giving a clean junction.
   map.addLayer({
     id: 'go-stations-existing-circles',
     type: 'circle',
@@ -2027,27 +2058,6 @@ function addMapLayers() {
       'circle-stroke-width': 2,
       'circle-stroke-color': MAP_COLORS.goPlanned,
     },
-  });
-
-  map.addSource('go-lines', { type: 'geojson', data: '/layers/go-lines.geojson' });
-  // White casing beneath the coloured GO line, hidden by default and shown only
-  // in satellite mode (see updateOverlayLegibility): the GTFS route colours are
-  // legible on the street basemap but can vanish against dark imagery, so the
-  // casing gives them a light halo. Added before the coloured line so it sits
-  // underneath.
-  map.addLayer({
-    id: 'go-lines-casing',
-    type: 'line',
-    source: 'go-lines',
-    layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
-    paint: { 'line-color': MAP_COLORS.white, 'line-width': 6, 'line-opacity': 0.9 },
-  });
-  map.addLayer({
-    id: 'go-lines-layer',
-    type: 'line',
-    source: 'go-lines',
-    layout: { visibility: 'none' },
-    paint: { 'line-color': ['get', 'color'], 'line-width': 3 },
   });
 
   // TTC subway: same pattern as GO. Lines coloured by the official TTC route
