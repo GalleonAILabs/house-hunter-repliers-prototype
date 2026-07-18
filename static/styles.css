@@ -609,8 +609,13 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .app-modal-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--line);font-weight:800}
 .app-modal-body{padding:14px 16px;overflow-y:auto;display:flex;flex-direction:column;gap:12px}
 .app-modal-body > label{display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:700}
-.app-modal-body select,.app-modal-body input[type=text]{padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font-size:14px}
-.app-modal-body textarea{padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font-size:14px;font-family:inherit;resize:vertical;width:100%}
+/* GAL-82: font-size must stay >=16px. iOS Safari/Chrome auto-zooms the whole
+   page when a focused input/select/textarea has a computed font-size below 16px,
+   and the app viewport allows zoom, so the page never zooms back on blur. The
+   report modal focuses its textarea on open, so it fired every time. Keeping
+   every modal field at 16px removes the trigger without disabling user zoom. */
+.app-modal-body select,.app-modal-body input[type=text]{padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font-size:16px}
+.app-modal-body textarea{padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font-size:16px;font-family:inherit;resize:vertical;width:100%}
 /* Bulk confirmation gate: reads as a proofread, explicit Confirm required. Sits
    above the attach/note modals (901) so it dims and covers them when it opens. */
 #bulkConfirmOverlay{z-index:919}
