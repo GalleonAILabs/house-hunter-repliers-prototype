@@ -2467,6 +2467,17 @@ function renderPoiList() {
   const list = $('poiLayerList');
   if (!list) return;
   list.innerHTML = '';
+  // GAL-85: the "Places" layer only shows pins the group adds itself; there is
+  // no built-in hospitals/schools dataset. With none added, turning the layer
+  // on drew nothing and read as broken. Show an explicit empty-state so it is
+  // clear the layer is working and how to populate it.
+  if (!state.poi.length) {
+    const empty = document.createElement('div');
+    empty.className = 'poi-empty-hint';
+    empty.textContent = 'No places added yet. Use "Add place" above to pin a school, hospital, or anywhere else, shared with the whole group.';
+    list.appendChild(empty);
+    return;
+  }
   state.poi.forEach(p => {
     const meta = POI_TYPE_META[p.type] || POI_TYPE_META.other;
     const row = document.createElement('div');

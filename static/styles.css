@@ -523,6 +523,7 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .poi-add-row .attach-select{flex:1;min-width:110px}
 .poi-layer-list{display:flex;flex-direction:column;gap:5px}
 .poi-layer-list:not(:empty){margin-top:4px;padding-top:6px;border-top:1px solid var(--line)}
+.poi-empty-hint{font-size:12px;line-height:1.4;color:var(--muted);padding:2px 2px 4px}
 .poi-row{display:flex;align-items:center;gap:4px}
 .poi-chip{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center}
 .poi-dot{flex-shrink:0;width:9px;height:9px;border-radius:50%;margin-right:6px}
