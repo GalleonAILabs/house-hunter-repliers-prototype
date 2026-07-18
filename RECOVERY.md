@@ -171,12 +171,15 @@ restores Mark's dev cockpit.
 ### The chain
 
 1. **`ai.galleonglobal.vscode-autolaunch` (LaunchAgent, per-user, login).**
-   Plist at `~/Library/LaunchAgents/ai.galleonglobal.vscode-autolaunch.plist`,
-   source copy in `scripts/launchagents/`. `RunAtLoad` with no `KeepAlive`: it
-   is a one-shot job that fires once at login, not a kept-alive daemon. It runs
-   the deployed script at
-   `~/Library/Application Support/Galleon/vscode-autolaunch/open-project-windows.sh`
-   (source in `scripts/open-project-windows.sh`).
+   Plist at `~/Library/LaunchAgents/ai.galleonglobal.vscode-autolaunch.plist`.
+   This LaunchAgent and its script are shared machine infrastructure (they open
+   every registered project, not just House Hunter), so the source of truth
+   lives in the `galleon-dev-environment` workspace repo, not this repo:
+   `scripts/launchagents/ai.galleonglobal.vscode-autolaunch.plist` and
+   `scripts/open-project-windows.sh` at the workspace root. `RunAtLoad` with no
+   `KeepAlive`: it is a one-shot job that fires once at login, not a kept-alive
+   daemon. It runs the deployed script at
+   `~/Library/Application Support/Galleon/vscode-autolaunch/open-project-windows.sh`.
 
 2. **`open-project-windows.sh`.** Same Drive-mount problem as the server: the
    project folders live on the `CloudStorage` mount that only exists after
