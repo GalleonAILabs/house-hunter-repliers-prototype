@@ -2122,7 +2122,13 @@ function addMapLayers() {
     type: 'line',
     source: 'hwy413',
     layout: { visibility: 'none' },
-    paint: { 'line-color': MAP_COLORS.hwy413, 'line-opacity': 0.55, 'line-width': 4 },
+    // GAL-84: dashed, not solid. The 413 is not built and this alignment is a
+    // statistical approximation of MTO design geometry (see TODOS.md), so it
+    // will not lie exactly on any road in the basemap. A dashed "planned
+    // corridor" style plus the "(planned, approx.)" toggle label signals that
+    // it is a proposed route, not a surveyed road, so the offset reads as
+    // intentional rather than as a bug.
+    paint: { 'line-color': MAP_COLORS.hwy413, 'line-opacity': 0.55, 'line-width': 4, 'line-dasharray': [2, 2] },
   });
 
   // T14: POI pins. Own source (server data, not a static file), off by
