@@ -4166,12 +4166,24 @@ function renderPillMarkers(list) {
     const anchor = g.items[0];
     _pillMarkers.push(new mapboxgl.Marker({ element: el }).setLngLat([anchor.lng, anchor.lat]).addTo(state.map));
   });
+  // GAL-86: remember the zoom this layout was built at. Overlap-collapse groups
+  // by on-screen pixel distance, which only changes with zoom. A pure pan keeps
+  // every pairwise pixel gap identical, so the grouping is unchanged and Mapbox
+  // has already repositioned each marker by its lng/lat. schedulePillRelayout
+  // uses this to skip the rebuild on pan and only rebuild on an actual zoom
+  // change, which is what removes the pan flicker.
+  _pillLayoutZoom = state.map.getZoom();
 }
 let _pillRelayoutTimer = null;
+let _pillLayoutZoom = null;
 function schedulePillRelayout() {
   clearTimeout(_pillRelayoutTimer);
   _pillRelayoutTimer = setTimeout(() => {
-    if (!clusteringActive() && state.pillListings && state.pillListings.length) renderPillMarkers(state.pillListings);
+    if (clusteringActive() || !state.pillListings || !state.pillListings.length) return;
+    // Pure pan (zoom unchanged): markers are already in place, no regroup needed.
+    // Rebuilding here is what made the price pills flicker while dragging.
+    if (_pillLayoutZoom != null && Math.abs(state.map.getZoom() - _pillLayoutZoom) < 1e-3) return;
+    renderPillMarkers(state.pillListings);
   }, 150);
 }
 
