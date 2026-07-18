@@ -1618,3 +1618,46 @@ Deliverables: `PRAGMA` change in `server.py` (`get_db` + `init_db`);
 `scripts/healthcheck.sh` (agent loaded, local health, integrity_check, WAL
 mode, tunnel process, live domain); `scripts/backup_db.sh` (checkpoint +
 verified snapshot); `RECOVERY.md` runbook; cross-link in CLAUDE.md.
+
+## 2026-07-18 — Documented the dev workstation auto-open routine in RECOVERY.md
+
+Goal: capture the rest of the post-reboot chain beyond the server and tunnel,
+so RECOVERY.md describes the whole "what comes back after a power cut" picture:
+the two VS Code windows, Claude Code starting in each, and both sessions
+becoming reachable from the Claude mobile app.
+
+Doc-only change. Appended a "Dev workstation auto-open routine" section to
+RECOVERY.md. No code, plist, or script was modified; the artifacts it describes
+(`ai.galleonglobal.vscode-autolaunch.plist`, `open-project-windows.sh`,
+`.vscode/tasks.json`) already existed and are loaded/deployed. Verified before
+writing: the LaunchAgent is loaded (`launchctl list`), the deployed script is
+present under `~/Library/Application Support/Galleon/vscode-autolaunch/`, and
+Remote Control is in use (`~/.claude.json`).
+
+Judgment calls:
+
+1. **Framed the VS Code + Claude Code chain as dev convenience, not part of
+   serving the app.** House Hunter is live for phones the moment the server
+   LaunchAgent and the tunnel are up (the two processes already documented).
+   The auto-open routine only restores Mark's dev cockpit, so RECOVERY.md says
+   so explicitly to avoid implying the app depends on VS Code being open.
+
+2. **Documented the two one-time approvals as caveats to "no manual steps."**
+   The recurring reboot path is genuinely hands-off, but VS Code's per-project
+   "allow automatic tasks" prompt and the mobile app requiring an already
+   signed-in account are one-time, per-machine gates that reappear on a MM2
+   nuke-and-rebuild. Called out separately so the "zero manual steps" claim is
+   accurate rather than aspirational.
+
+3. **Recorded Remote Control as a persisted `/config` setting, not a plist.**
+   Per Mark, it is enabled via Claude Code `/config` and survives reboots. It
+   lives in `~/.claude.json` (user config), outside the LaunchAgent chain, so
+   it is documented as its own row rather than folded into the launchd table.
+
+4. **Noted the LaunchAgent is one-shot (RunAtLoad, no KeepAlive).** Unlike the
+   server agent, the auto-open job is not kept alive: it fires once at login to
+   open the windows and exits. Documented so a future reader does not expect it
+   to relaunch closed windows.
+
+Cross-check: CLAUDE.md still links to RECOVERY.md (the "Recovery" section),
+unchanged and still accurate. No CLAUDE.md edit needed.

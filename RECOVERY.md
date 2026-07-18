@@ -147,3 +147,89 @@ bash scripts/healthcheck.sh
    self-heals, or confirm the account is logged in.
 3. Tunnel not running: `sudo launchctl bootstrap` the daemon (above).
 4. Database integrity_check not "ok": restore from `data/backups` (above).
+
+## Dev workstation auto-open routine (VS Code + Claude Code)
+
+Beyond the app server and the tunnel, the workstation itself rebuilds its
+working state at login: two VS Code windows open, each with a Claude Code
+session running, and both sessions become reachable from the Claude mobile app
+Code tab within a few minutes of power returning. No manual steps.
+
+This is developer convenience, not part of serving House Hunter to users. The
+app is live for phones as soon as the server LaunchAgent and the tunnel are up
+(the two processes above); the VS Code and Claude Code chain below only
+restores Mark's dev cockpit.
+
+### What comes back, in order
+
+| Piece | What it is | Auto-starts | Kept alive |
+|---|---|---|---|
+| VS Code windows (House Hunter + MASS) | Per-user LaunchAgent `ai.galleonglobal.vscode-autolaunch` runs `open-project-windows.sh` | At **login** | No (one-shot, RunAtLoad only) |
+| Claude Code in each window | `.vscode/tasks.json` task, `runOn: folderOpen` | On each window open | No (interactive session) |
+| Mobile reachability | Claude Code Remote Control (persisted `/config` setting) | With each session | N/A |
+
+### The chain
+
+1. **`ai.galleonglobal.vscode-autolaunch` (LaunchAgent, per-user, login).**
+   Plist at `~/Library/LaunchAgents/ai.galleonglobal.vscode-autolaunch.plist`,
+   source copy in `scripts/launchagents/`. `RunAtLoad` with no `KeepAlive`: it
+   is a one-shot job that fires once at login, not a kept-alive daemon. It runs
+   the deployed script at
+   `~/Library/Application Support/Galleon/vscode-autolaunch/open-project-windows.sh`
+   (source in `scripts/open-project-windows.sh`).
+
+2. **`open-project-windows.sh`.** Same Drive-mount problem as the server: the
+   project folders live on the `CloudStorage` mount that only exists after
+   login and can be slow on a cold boot. The script polls for both project
+   paths (up to ~120s), waits a 5s settle, then opens each project in its own
+   window with `code --new-window`: House Hunter first, then MASS
+   (`projects/cgai/mass/mass-incident-report`). Logs to
+   `~/Library/Logs/vscode-autolaunch.log` (and the plist mirrors stdout/stderr
+   to `vscode-autolaunch.out.log` / `.err.log`).
+
+3. **`.vscode/tasks.json` (per project).** Each project ships a task labelled
+   "Launch Claude Code" with `runOptions.runOn: folderOpen`, so opening the
+   window starts `claude` in a dedicated panel. House Hunter's is committed at
+   `.vscode/tasks.json`; MASS has its own copy in that repo.
+
+4. **Claude Code Remote Control.** Remote Control for all sessions is enabled
+   in Claude Code via `/config`. That is a persisted user setting (stored in
+   `~/.claude.json`), so it survives reboots and does not need to be re-toggled.
+   With it on, each auto-started session registers itself and appears in the
+   Claude mobile app Code tab within a few minutes of the session starting, so
+   both projects are reachable from the phone with no action at the Mac.
+
+### One-time approvals (not automatic)
+
+Two prompts are one-time, per-machine, and only appear the first time. They are
+not part of the recurring reboot path once accepted, but a freshly rebuilt Mac
+(MM2 nuke-and-rebuild) will show them again:
+
+- VS Code asks once per project to **allow automatic tasks** before it will run
+  the `folderOpen` task. Until allowed, Claude Code will not auto-start in that
+  window. Accept it once per project.
+- The Claude mobile app connection relies on the account already being signed
+  in on both the Mac and the phone; Remote Control does not re-authenticate.
+
+### Managing the auto-open LaunchAgent
+
+```bash
+PLIST=~/Library/LaunchAgents/ai.galleonglobal.vscode-autolaunch.plist
+
+# Check it is loaded
+launchctl list | grep vscode-autolaunch
+
+# Reload (also what you do after editing the script or plist)
+launchctl unload -w "$PLIST" && launchctl load -w "$PLIST"
+
+# Run the open routine by hand without waiting for a login
+bash ~/Library/Application\ Support/Galleon/vscode-autolaunch/open-project-windows.sh
+
+# Tail its log
+tail -f ~/Library/Logs/vscode-autolaunch.log
+```
+
+If the windows do not open after a login, check the log: the usual cause is
+the Drive mount not being ready within the ~120s poll (the script logs
+`ERROR: drive not ready` and aborts). Log in, confirm the mount, and reload the
+plist or run the script by hand.

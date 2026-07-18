@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+	<dict>
+		<key>Label</key>
+		<string>ai.galleonglobal.vscode-autolaunch</string>
+		<key>ProgramArguments</key>
+		<array>
+			<string>/bin/bash</string>
+			<string>/Users/galleonglobalai/Library/Application Support/Galleon/vscode-autolaunch/open-project-windows.sh</string>
+		</array>
+		<key>RunAtLoad</key>
+		<true/>
+		<key>StandardOutPath</key>
+		<string>/Users/galleonglobalai/Library/Logs/vscode-autolaunch.out.log</string>
+		<key>StandardErrorPath</key>
+		<string>/Users/galleonglobalai/Library/Logs/vscode-autolaunch.err.log</string>
+	</dict>
+</plist>
