@@ -1560,3 +1560,61 @@ with zero new billing or accounts. If named-place quality ever proves
 insufficient, revisit Google Places here. This paragraph is the record of that
 deferral (there is no separate parking-lot file; deferred items live inline in
 this DECISIONS.md, like the travel-time and Mapbox-migration deferrals above).
+
+## 2026-07-18 — Reboot-survival and SQLite crash-safety hardening (GAL-90)
+
+Goal: House Hunter must come back up automatically after an unexpected
+shutdown, with zero manual steps and no data loss or corruption, to the same
+standard as the MASS project on this machine.
+
+Audit finding: the foundation was already there. The server already ran as a
+per-user LaunchAgent (`ai.galleonglobal.househunter-server`, RunAtLoad +
+KeepAlive + ThrottleInterval 10), the tunnel already ran as a root system
+LaunchDaemon (`com.cloudflare.cloudflared`, boot-start), and the DB was
+already in WAL mode. House Hunter already matched or exceeded the MASS pattern
+(MASS runs its tunnel as a per-user LaunchAgent; House Hunter's is a system
+LaunchDaemon that starts before login, which is more robust). So this work was
+hardening and documentation, not a new foundation. No LaunchAgent/plist change
+was made.
+
+Judgment calls (all confirmed with Mark before implementing):
+
+1. **Logs stay in `~/Library/Logs`, not a project `logs/` folder.** The
+   literal ask was "logs to a directory in the project," but the project is on
+   the Google Drive mount, and per-request log writes into a Drive-synced
+   folder cause constant sync churn for no benefit. `~/Library/Logs` is the
+   macOS standard, is where MASS already logs, and is not synced. Documented in
+   RECOVERY.md so the path is discoverable. Chosen over project-local logging.
+
+2. **`synchronous = FULL`, set explicitly in code.** The DB was already
+   crash-safe: WAL is persistent, and `synchronous` was defaulting to FULL. Two
+   problems with leaving it implicit: `synchronous` is per-connection (not
+   persistent), so it depended on the SQLite default never changing, and WAL
+   was only asserted in `init_db`. Fix: set `PRAGMA journal_mode = WAL` and
+   `PRAGMA synchronous = FULL` on every connection in `get_db` (and `init_db`).
+   Chose FULL over NORMAL: both are corruption-proof under WAL, but FULL also
+   guarantees the last committed transaction survives a power cut, matching the
+   stated "no data loss" bar. The write-speed cost is irrelevant at this app's
+   traffic (a handful of family users).
+
+3. **DB stays on the Google Drive mount; added a backup helper instead of
+   moving it.** SQLite on a cloud-sync filesystem is a slightly weaker place
+   than local disk (file-locking, sync client touching `-wal`/`-shm`), but
+   moving the DB local would break the CLAUDE.md "nothing lives local" rule and
+   remove its only off-machine copy (the `data/` folder is gitignored, so Drive
+   is the backup). Mitigation: `scripts/backup_db.sh` checkpoints the WAL and
+   takes a verified consistent snapshot via SQLite's online backup API (safe
+   while the server is live, stdlib-only, no CLI dependency).
+
+4. **Login caveat is documented, not "fixed."** "Zero manual steps after
+   reboot" holds only once the Mac is logged in, because the code and DB live
+   on the Drive mount that only exists post-login. A reboot that stops at the
+   login screen will not start the server (the tunnel starts at boot and
+   retries the origin until the server appears). This is inherent to running
+   from Drive and is identical for MASS; it cannot be removed without moving
+   the app off Drive. Recorded in RECOVERY.md rather than worked around.
+
+Deliverables: `PRAGMA` change in `server.py` (`get_db` + `init_db`);
+`scripts/healthcheck.sh` (agent loaded, local health, integrity_check, WAL
+mode, tunnel process, live domain); `scripts/backup_db.sh` (checkpoint +
+verified snapshot); `RECOVERY.md` runbook; cross-link in CLAUDE.md.

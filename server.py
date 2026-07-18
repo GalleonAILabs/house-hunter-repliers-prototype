@@ -299,6 +299,16 @@ def get_db() -> sqlite3.Connection:
     """
     conn = sqlite3.connect(DB_PATH, timeout=5)
     conn.execute("PRAGMA busy_timeout = 5000")
+    # Crash safety, asserted on every connection so it survives future edits
+    # rather than relying on init_db having run or on SQLite defaults. WAL is a
+    # persistent DB property (harmless to reassert); synchronous is per
+    # connection, so it MUST be set here. FULL means a power cut mid-write
+    # cannot corrupt the DB and cannot lose the last committed transaction. The
+    # DB lives on the Google Drive mount, so we favour durability over the small
+    # write-speed cost (traffic is a handful of family users). See DECISIONS.md
+    # 2026-07-18 and RECOVERY.md.
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = FULL")
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -534,6 +544,7 @@ def init_db() -> None:
     conn = sqlite3.connect(DB_PATH, timeout=5)
     try:
         conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = FULL")
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS people (

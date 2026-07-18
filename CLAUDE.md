@@ -137,6 +137,16 @@ broken after reload, `2` deployed locally but the live domain is
 unreachable (usually the on-demand tunnel is down: run
 `cloudflared tunnel run house-hunter`).
 
+## Recovery
+
+`RECOVERY.md` is the reboot and recovery runbook: what auto-starts after a
+power cut (server LaunchAgent at login, tunnel LaunchDaemon at boot), the
+launchctl commands to check/start/stop each, log locations, the SQLite
+crash-safety model (WAL + synchronous FULL), and how to back up and restore
+the DB. After a reboot, confirm the whole chain with `bash
+scripts/healthcheck.sh` (exit 0 = healthy). Snapshot the DB before risky work
+with `bash scripts/backup_db.sh`.
+
 ## Constraints
 - No em dashes in any output or comments
 - No Flask/FastAPI/pip deps
