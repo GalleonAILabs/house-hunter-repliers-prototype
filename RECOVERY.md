@@ -233,3 +233,40 @@ If the windows do not open after a login, check the log: the usual cause is
 the Drive mount not being ready within the ~120s poll (the script logs
 `ERROR: drive not ready` and aborts). Log in, confirm the mount, and reload the
 plist or run the script by hand.
+
+### Dev workstation: MASS window
+
+The second window this routine opens is the MASS incident-report project
+(`projects/cgai/mass/mass-incident-report`). This is Galleon-internal dev
+tooling; the MASS repo itself is client-bound and carries none of this detail,
+so the workstation recovery notes for MASS live here.
+
+- **MASS runs nothing of its own on this Mac to keep alive.** It has no app
+  server, no public tunnel, and no database on the workstation. Its live runtime
+  is Phase 2 on the MARS VPS (the app and both MariaDB databases) plus the
+  on-prem GPU box (Ollama and the 24B weights). What recovers at login is only
+  the dev cockpit: the MASS VS Code window and the Claude Code session in it,
+  via the same chain as House Hunter above.
+- **The dev-stand-in Ollama is not in the reboot chain.** Local inference on the
+  Mac uses Ollama running Mistral Nemo 12B, started on demand when a task needs
+  it, not a login-time service. If it is not running when needed, start it by
+  hand; nothing in the auto-open routine depends on it.
+- **MASS ships its own `.vscode/tasks.json`** with the same "Launch Claude Code"
+  `folderOpen` task, so Claude Code auto-starts when its window opens. VS Code's
+  one-time "allow automatic tasks" approval is per project, so MASS needs its own
+  acceptance the first time (or after an MM2 rebuild).
+
+MASS-specific troubleshooting after a login:
+
+1. **House Hunter opened but MASS did not.** The script opens House Hunter
+   first, then MASS. If only the first window appeared, check
+   `~/Library/Logs/vscode-autolaunch.log` for the "opening MASS window" line and
+   any `code` error after it. Confirm the MASS path exists on the mount, then run
+   the script by hand.
+2. **MASS window opened but Claude Code did not start.** VS Code has not been
+   granted "allow automatic tasks" for the MASS project, or the approval was
+   reset. Open the MASS folder, accept the prompt, and reopen the window.
+3. **MASS session not visible in the Claude mobile app.** Confirm Remote Control
+   is still enabled in `/config` and the account is signed in on both the Mac and
+   the phone. Remote Control does not re-authenticate; a signed-out phone will
+   not show the session even though it is running.
