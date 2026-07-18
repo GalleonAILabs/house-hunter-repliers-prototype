@@ -1661,3 +1661,76 @@ Judgment calls:
 
 Cross-check: CLAUDE.md still links to RECOVERY.md (the "Recovery" section),
 unchanged and still accurate. No CLAUDE.md edit needed.
+
+## 2026-07-18 — Promoted House Hunter recovery patterns into the project template
+
+Goal: fold the reboot-survival and dev-environment patterns proven in House
+Hunter (and matched by MASS) into the Galleon project template so new projects
+start with them instead of rediscovering them. Work done in the
+`galleon-dev-environment` workspace repo under `template/`, not in this repo;
+logged here to keep the reboot-survival thread in one place.
+
+Added to `template/`: `RECOVERY.md` (skeleton with services/launchd-names,
+healthcheck, backup, restore, and post-reboot-chain sections, all
+placeholdered), `DECISIONS.md` (starter with entry format), `CLAUDE.md`
+(project-context starter carrying the SQLite convention), `scripts/healthcheck.sh`
+and `scripts/backup_db.sh` (templatized copies of this project's, parameterized
+by a config block), and `launchagents/ai.galleonglobal.PROJECT_SLUG-server.plist`
+(RunAtLoad + KeepAlive + ThrottleInterval 10, logs to `~/Library/Logs`). Updated
+`template/README.md` with a New Project Checklist. `template/.vscode/tasks.json`
+already carried the folderOpen Launch Claude Code task, so item 1 needed no
+change.
+
+Judgment calls:
+
+1. **Parameterized with `{{PLACEHOLDER}}` tokens, not a generator script.** The
+   template is copied by hand, so literal find-and-replace tokens
+   (`{{PROJECT_NAME}}`, `{{PROJECT_SLUG}}`, `{{PORT}}`, `{{PUBLIC_HOST}}`,
+   `{{DB_FILENAME}}`, `{{PYTHON_BIN}}`, `{{PROJECT_PATH}}`) are the lowest-
+   friction fit and match the existing `{{PROJECT_NAME}}` style already in
+   README/CONTEXT. No build tooling added.
+
+2. **Server and DB pieces are opt-out, clearly marked "delete if not a server
+   project."** The template serves all projects, not just servers. Rather than
+   split into two templates, the server-only files carry a header saying to
+   delete them, and the checklist and READMEs repeat it. Keeps one template.
+
+3. **Created `template/CLAUDE.md` for item 5.** The template had no CLAUDE.md;
+   the SQLite convention needed a home a new project would actually read. A
+   per-project CLAUDE.md starter (matching how this project and MASS each carry
+   one) is the right place, so I created one rather than parking the rule in
+   README. It states it augments, not replaces, the root workspace CLAUDE.md.
+
+4. **plist filename uses `PROJECT_SLUG`, not `{{PROJECT_SLUG}}`.** Curly braces
+   in a committed filename are awkward across tooling, so the template file is
+   `ai.galleonglobal.PROJECT_SLUG-server.plist`; the header says to rename it.
+
+5. **Logged this in House Hunter's DECISIONS.md, not `template/DECISIONS.md`.**
+   The template's DECISIONS.md is a starter and must stay generic. The real
+   decisions belong with the reboot-survival thread, which is here.
+
+Item 7 recommendation (evaluated, NOT yet executed): **Yes, move
+`open-project-windows.sh` and its LaunchAgent plist out of the house-hunter
+repo into `galleon-dev-environment`.** They are machine-level infrastructure:
+the script opens BOTH House Hunter and MASS at login and has nothing House
+Hunter specific in it, so living inside one project repo is a category error
+(MASS, for instance, cannot find it from its own tree). The workspace root IS
+the `galleon-dev-environment` repo (confirmed: its git remote is
+`galleon-dev-environment.git`), which is the correct home for anything that
+spans projects. Concrete migration, when approved:
+- Create `scripts/` at the workspace root and move
+  `open-project-windows.sh` there; move the source plist alongside it (e.g.
+  `scripts/launchagents/ai.galleonglobal.vscode-autolaunch.plist`).
+- Add a top-level allowlist entry to the root `.gitignore` (currently
+  default-deny: `/*` then `!`-listed paths), e.g. `!/scripts/`, so the moved
+  files are actually committable. Without this they are silently ignored.
+- The deployed copy stays at
+  `~/Library/Application Support/Galleon/vscode-autolaunch/open-project-windows.sh`
+  and the plist still points there, so nothing about runtime behavior changes;
+  only the source-of-truth location moves.
+- Delete the copies from the house-hunter repo and update the House Hunter
+  RECOVERY.md "source copy in `scripts/launchagents/`" line to point at the
+  new workspace location.
+Held off on executing because it spans two repos and touches the root gitignore
+allowlist (a deliberate contract per the workspace CLAUDE.md), so it wants an
+explicit go rather than being folded into a template commit.
