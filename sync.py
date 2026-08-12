@@ -217,6 +217,8 @@ def _is_trusted_coord(payload: dict[str, Any], legacy: set[str]) -> bool:
         return False
     if datasources.normalize_address(payload.get("address") or "") in legacy:
         return True
+    if payload.get("geocodePrecision") == "road":
+        return False  # a road-level pin is not a house, so it anchors nothing
     return len(payload.get("geocodeConfirmedBy") or []) >= 2
 
 
@@ -472,6 +474,21 @@ def _apply(
             listing_num = max_num
             listing_id = f"POC-{listing_num}"
 
+        # A coordinate we already held is preseeded rather than looked up, so
+        # this run has no provenance of its own to report for it. Carry the
+        # stored provenance forward instead of blanking it: without this, every
+        # run quietly relabels settled geocoder output as though it had come
+        # from the verified export, and the review list shrinks to nothing.
+        if row is not None and not payload.get("geocodeProvider"):
+            try:
+                previous = json.loads(row["payload"])
+            except (ValueError, TypeError):
+                previous = {}
+            for field in ("geocodeProvider", "geocodeConfirmedBy",
+                          "geocodePrecision", "geocodeRelevance"):
+                if previous.get(field) is not None:
+                    payload[field] = previous[field]
+
         if listing_id in seen_ids:
             # Two feed rows claiming one identity. Keep the first and skip the
             # duplicate rather than letting them overwrite each other.
@@ -536,6 +553,7 @@ def _apply(
     needs_review = sum(
         1 for r in records
         if r.get("lat") is None
+        or r.get("geocodePrecision") == "road"
         or (r.get("geocodeProvider")
             and "cross-provider" not in (r.get("geocodeConfirmedBy") or []))
     )

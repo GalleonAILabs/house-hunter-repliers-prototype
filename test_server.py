@@ -2819,6 +2819,52 @@ class LocalityCleaningTests(unittest.TestCase):
         self.assertEqual(datasources.clean_locality("Angus", "Essa"), "Angus")
 
 
+class StreetNormalizationTests(unittest.TestCase):
+    """MLS abbreviations and ordinals, which no geocoder understands (GAL-93)."""
+
+    def test_abbreviations_are_expanded(self) -> None:
+        self.assertEqual(datasources.expand_street("18 Mill St"), "18 Mill Street")
+        self.assertEqual(datasources.expand_street("7 Pine Pt"), "7 Pine Point")
+        self.assertEqual(
+            datasources.expand_street("556017 Mulmur-Melancthon Twnl"),
+            "556017 Mulmur-Melancthon Townline",
+        )
+
+    def test_digit_ordinals_are_flattened(self) -> None:
+        # "6536 5th Sdrd, Essa" returns nothing; "6536 5 Sideroad, Essa" is exact.
+        self.assertEqual(datasources.expand_street("6536 5th Sdrd"), "6536 5 Sideroad")
+
+    def test_word_ordinals_become_numbers(self) -> None:
+        self.assertEqual(
+            datasources.expand_street("343071 Fifteenth Sdrd"), "343071 15 Sideroad"
+        )
+
+    def test_redundant_street_type_suffix_is_dropped(self) -> None:
+        # The sheet writes "Concession 7 Conc"; expanding blindly would give
+        # "Concession 7 Concession", which matches nothing.
+        self.assertEqual(
+            datasources.expand_street("5159 Concession 7 Conc"), "5159 Concession 7"
+        )
+
+    def test_numbered_roads_offer_both_word_orders(self) -> None:
+        # OSM carries these as "15 Sideroad" in one township, "Sideroad 15" in
+        # the next, so both get a turn.
+        variants = datasources.street_variants("3252 15th Sdrd")
+        self.assertIn("3252 15 Sideroad", variants)
+        self.assertIn("3252 Sideroad 15", variants)
+
+    def test_the_original_spelling_is_kept_as_a_last_resort(self) -> None:
+        self.assertIn("18 Mill St", datasources.street_variants("18 Mill St"))
+
+    def test_variants_are_deduplicated(self) -> None:
+        variants = datasources.street_variants("10 Main Street")
+        self.assertEqual(len(variants), len(set(variants)))
+
+    def test_road_only_drops_the_house_number(self) -> None:
+        self.assertEqual(datasources.road_only("6536 5th Sdrd"), "5 Sideroad")
+        self.assertEqual(datasources.road_only("26 Paddy Dunn's Circ"), "Paddy Dunn's Circle")
+
+
 def feature(lat, lon, place_name="", context=(), provider="osm", relevance=0.9):
     return {"center": [lon, lat], "place_name": place_name, "provider": provider,
             "relevance": relevance, "context": [{"text": c} for c in context]}
@@ -2967,6 +3013,32 @@ class CrossProviderTests(IsolatedGeocodeCache):
             feature(44.3077, -79.8838, "Mill Street, Angus, Essa", provider="mapbox")]
         result = g._resolve("18 Mill St, Essa", "Angus", "Essa", "Allandale Waterfront GO", 25.3)
         self.assertEqual(result["provider"], "mapbox")
+
+    def test_road_level_fallback_when_the_house_cannot_be_placed(self) -> None:
+        g = self.geocoder()
+        # Nothing matches the house number; the road itself does.
+        g._fetch_osm = lambda q, limit=3: (
+            [feature(44.3077, -79.8838, "5 Sideroad, Essa")] if "6536" not in q else []
+        )
+        g._fetch = lambda q, types="address", limit=5: []
+        result = g._resolve("6536 5th Sdrd, Essa", "Rural Essa", "Essa", "Allandale Waterfront GO", 25.3)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["precision"], "road")
+
+    def test_exact_address_is_preferred_over_the_road(self) -> None:
+        g = self.geocoder()
+        g._fetch_osm = lambda q, limit=3: [feature(44.3077, -79.8838, "6536 5 Sideroad, Essa")]
+        g._fetch = lambda q, types="address", limit=5: []
+        result = g._resolve("6536 5th Sdrd, Essa", "Rural Essa", "Essa", "Allandale Waterfront GO", 25.3)
+        self.assertEqual(result["precision"], "address")
+
+    def test_a_road_level_pin_never_becomes_an_anchor(self) -> None:
+        # It marks a street, not a house, so it must not become the reference
+        # other addresses in that town are measured against.
+        self.assertFalse(sync._is_trusted_coord(
+            {"address": "9 Rural Rd", "lat": 44.3, "lon": -79.8, "geocodeProvider": "osm",
+             "geocodePrecision": "road",
+             "geocodeConfirmedBy": ["trusted-neighbours", "cross-provider"]}, set()))
 
     def test_preseeded_address_is_never_looked_up(self) -> None:
         g = self.geocoder()

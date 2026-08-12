@@ -2587,6 +2587,9 @@ def normalize_poc(p: dict[str, Any]) -> dict[str, Any]:
         "inactive": bool(p.get("inactive")),
         "inactiveAt": p.get("inactiveAt"),
         "mlsNumber": p.get("mlsNumber") or "",
+        # "road" means the pin marks the street, not the house. Surfaced so the
+        # card can say so; an approximate pin must never read as an exact one.
+        "geocodePrecision": p.get("geocodePrecision") or "address",
         "fit": fit,
         "poc": {
             "row": p.get("row"),

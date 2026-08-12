@@ -4535,6 +4535,16 @@ function populateCard(node, item) {
   // Tier badge: subtle, text-only; hidden automatically via :empty when unknown
   node.querySelector('.tier-badge').textContent = TIER_LABELS[(item.tier || '').toLowerCase()] || '';
 
+  // Approximate-location marker. When the house number could not be placed,
+  // the pin sits on the road instead, and the card says so rather than letting
+  // it pass for the exact spot.
+  if (item.geocodePrecision === 'road') {
+    const meta = node.querySelector('.meta');
+    const approx = el('span', { className: 'approx-tag', textContent: 'Approx. location' });
+    approx.title = 'The house number could not be placed, so the pin marks the road it is on.';
+    meta.prepend(approx);
+  }
+
   // Off-market marker. A listing that leaves the feed is kept, not deleted,
   // because ratings and notes point at it, so the card says so plainly rather
   // than letting a house the family discussed quietly disappear.

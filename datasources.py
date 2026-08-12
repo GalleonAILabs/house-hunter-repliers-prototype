@@ -232,6 +232,87 @@ def clean_locality(area: str, town: str) -> str:
     return text or _clean(town)
 
 
+# MLS street-type abbreviations as they actually appear in the sheet, surveyed
+# across all 149 addresses rather than guessed. Sent verbatim, several of these
+# return nothing at all from Nominatim: "6536 5th Sdrd, Essa" is a miss,
+# "6536 5 Sideroad, Essa" is an exact hit.
+STREET_ABBREVIATIONS = {
+    "rd": "Road", "dr": "Drive", "st": "Street", "ave": "Avenue",
+    "cres": "Crescent", "sdrd": "Sideroad", "crt": "Court", "tr": "Trail",
+    "terr": "Terrace", "twnl": "Townline", "clse": "Close", "pt": "Point",
+    "circ": "Circle", "blvd": "Boulevard", "pl": "Place", "conc": "Concession",
+    "ln": "Lane", "hts": "Heights", "sq": "Square", "pkwy": "Parkway",
+}
+DIRECTIONALS = {"e": "East", "w": "West", "n": "North", "s": "South"}
+# Ordinal words that appear as road names in the sheet ("Fifteenth Sdrd").
+ORDINAL_WORDS = {
+    "first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6,
+    "seventh": 7, "eighth": 8, "ninth": 9, "tenth": 10, "eleventh": 11,
+    "twelfth": 12, "thirteenth": 13, "fourteenth": 14, "fifteenth": 15,
+    "sixteenth": 16, "seventeenth": 17, "eighteenth": 18, "nineteenth": 19,
+    "twentieth": 20,
+}
+_ORDINAL_DIGIT_RE = re.compile(r"\b(\d+)(?:st|nd|rd|th)\b", re.I)
+_HOUSE_NUMBER_RE = re.compile(r"^\s*(\d+[A-Za-z]?)\s+")
+# Roads that are numbered rather than named, where Ontario and OSM disagree on
+# word order: the sheet's "15th Sdrd" is "15 Sideroad" or "Sideroad 15".
+_NUMBERED_ROAD_RE = re.compile(
+    r"^(?P<num>\d+)\s+(?P<kind>Sideroad|Line|Concession|Townline)\b(?P<rest>.*)$", re.I
+)
+
+
+def expand_street(street: str) -> str:
+    """Abbreviations out, real words in, ordinals as plain numbers."""
+    words = []
+    for word in _clean(street).split():
+        bare = word.strip(".,").lower()
+        if bare in STREET_ABBREVIATIONS:
+            words.append(STREET_ABBREVIATIONS[bare])
+        elif bare in ORDINAL_WORDS:
+            words.append(str(ORDINAL_WORDS[bare]))
+        elif bare in DIRECTIONALS and words:
+            words.append(DIRECTIONALS[bare])
+        else:
+            words.append(word.strip(","))
+    # "Concession 7 Conc" expands to "Concession 7 Concession". The trailing
+    # abbreviation was a redundant street-type suffix, so drop it when the same
+    # word is already in the name.
+    if len(words) > 1 and words[-1].lower() in {w.lower() for w in words[:-1]}:
+        words = words[:-1]
+    return _ORDINAL_DIGIT_RE.sub(r"\1", " ".join(words))
+
+
+def street_variants(street: str) -> list[str]:
+    """Ways of writing one street, best first, de-duplicated.
+
+    A numbered rural road is the case that matters. The sheet writes "15th
+    Sdrd"; OSM carries it as "Sideroad 15" in one township and "15 Sideroad" in
+    the next, so both orderings get a turn before giving up on the address.
+    """
+    expanded = expand_street(street)
+    variants = [expanded]
+
+    house = ""
+    match = _HOUSE_NUMBER_RE.match(expanded)
+    body = expanded
+    if match:
+        house = match.group(1)
+        body = expanded[match.end():]
+
+    numbered = _NUMBERED_ROAD_RE.match(body)
+    if numbered:
+        swapped = f"{numbered.group('kind').title()} {numbered.group('num')}{numbered.group('rest')}"
+        variants.append(f"{house} {swapped}".strip())
+    if _clean(street) != expanded:
+        variants.append(_clean(street))  # last resort: exactly what the sheet said
+    return list(dict.fromkeys(v for v in (v.strip() for v in variants) if v))
+
+
+def road_only(street: str) -> str:
+    """The street with its house number removed, for an approximate pin."""
+    return _HOUSE_NUMBER_RE.sub("", expand_street(street)).strip()
+
+
 def haversine_km(a: tuple[float, float], b: tuple[float, float]) -> float:
     (lat1, lon1), (lat2, lon2) = a, b
     radius = 6371.0
@@ -294,6 +375,9 @@ class Geocoder:
         # normalized address -> which geocoder produced it. Absent means the
         # coordinate was preseeded, i.e. already trusted and never looked up.
         self.providers: dict[str, str | None] = {}
+        # normalized address -> "address" (the house) or "road" (the street it
+        # is on, when the house number could not be placed).
+        self.precisions: dict[str, str] = {}
         self._town_centres: dict[str, tuple[float, float] | None] = {}
         self._dirty = False
         if appconfig.GEOCODE_CACHE_PATH.exists():
@@ -345,6 +429,7 @@ class Geocoder:
             return None, None, None
         self.confirmations[normalize_address(address)] = list(result.get("confirmed_by") or [])
         self.providers[normalize_address(address)] = result.get("provider")
+        self.precisions[normalize_address(address)] = result.get("precision", "address")
         if "cross-provider" not in (result.get("confirmed_by") or []):
             # Measured against known-good coordinates, every corroborated result
             # was within 300 m, and every multi-kilometre miss was one the two
@@ -491,13 +576,15 @@ class Geocoder:
     ) -> dict[str, Any] | None:
         street = _clean(address).split(",")[0]
         locality = clean_locality(area, town)
-        # Several phrasings, best first. Rural addresses often only resolve
-        # under the settlement name, so the town-level query is a real fallback
-        # rather than a duplicate of the first.
+        # Every sensible spelling of the street crossed with every sensible
+        # name for the place. Rural addresses often only resolve under the
+        # settlement name, and a numbered sideroad only under one particular
+        # word order, so these are real alternatives rather than duplicates.
         queries = []
-        for loc in dict.fromkeys([locality, _clean(town)]):
-            if loc:
-                queries.append(f"{street}, {loc}, Ontario, Canada")
+        for spelling in street_variants(street):
+            for loc in dict.fromkeys([locality, _clean(town)]):
+                if loc:
+                    queries.append(f"{spelling}, {loc}, Ontario, Canada")
         queries.append(f"{_clean(address)}, Ontario, Canada")
 
         def best_from(fetch) -> dict[str, Any] | None:
@@ -538,7 +625,11 @@ class Geocoder:
 
         chosen = osm or mapbox
         if chosen is None:
-            return None
+            # The exact house number cannot be placed. Fall back to the road it
+            # is on, which for a rural fire number is still the honest answer to
+            # "roughly where is this?". Flagged as approximate so it is never
+            # read as the house, and never allowed to anchor another lookup.
+            return self._resolve_road(street, area, town, go_station, go_min)
         # Two providers landing on the same spot is the strongest signal
         # available here, and its absence is the one that matters: every
         # multi-kilometre miss measured against known-good coordinates was a
@@ -549,7 +640,41 @@ class Geocoder:
             chosen["providers_apart_km"] = round(apart, 3)
             if apart <= CROSS_PROVIDER_AGREE_KM:
                 chosen["confirmed_by"].append("cross-provider")
+        chosen["precision"] = "address"
         return chosen
+
+    def _resolve_road(
+        self, street: str, area: str, town: str, go_station: str, go_min: float | None
+    ) -> dict[str, Any] | None:
+        """Locate the road rather than the house, as an explicitly rough pin."""
+        road = road_only(street)
+        if not road or road == expand_street(street):
+            return None  # no house number to drop, so this adds nothing
+        locality = clean_locality(area, town)
+        for spelling in street_variants(road):
+            for loc in dict.fromkeys([locality, _clean(town)]):
+                if not loc:
+                    continue
+                query = f"{spelling}, {loc}, Ontario, Canada"
+                for fetch in (self._fetch_osm, self._fetch):
+                    for candidate in fetch(query):
+                        lon, lat = candidate.get("center", [None, None])[:2]
+                        if lat is None or lon is None:
+                            continue
+                        ok, confirmed, _failed = self._judge(
+                            lat, lon, town, area, candidate, go_station, go_min
+                        )
+                        if not ok:
+                            continue
+                        return {
+                            "lat": round(lat, 7), "lon": round(lon, 7),
+                            "relevance": candidate.get("relevance"),
+                            "place_name": candidate.get("place_name"),
+                            "provider": candidate.get("provider", "mapbox"),
+                            "confirmed_by": list(confirmed), "query": query,
+                            "precision": "road",
+                        }
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -679,6 +804,12 @@ class SheetSource(ListingSource):
             "geocodeProvider": (
                 geocoder.providers.get(normalize_address(address))
                 if geocoder is not None else None
+            ),
+            # "road" means the pin marks the street, not the house. The card and
+            # the map say so rather than letting it pass as an exact location.
+            "geocodePrecision": (
+                geocoder.precisions.get(normalize_address(address), "address")
+                if geocoder is not None else "address"
             ),
             "price": _clean(row.get("Price")),
             "priceNum": price_num,

@@ -228,6 +228,7 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .card-title-block{flex:1;min-width:0}.address{font-size:15px;font-weight:800;line-height:1.25;overflow-wrap:break-word;margin-bottom:3px}.meta{color:var(--muted);font-size:12px}
 /* Delisted listing: kept and readable (user notes point at it), visibly muted
    so it never reads as a live option. */
+.approx-tag{display:inline-block;margin-right:6px;padding:1px 6px;border-radius:999px;background:#f0b429;color:#231d00;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}
 .off-market-tag{display:inline-block;margin-right:6px;padding:1px 6px;border-radius:999px;background:var(--line);color:var(--ink);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}
 .card.is-off-market .thumb, .card.is-off-market .price{opacity:.55}
 .tier-badge{display:block;margin-top:2px;font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
