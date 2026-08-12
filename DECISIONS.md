@@ -1904,3 +1904,47 @@ preseeded truth; the test was measuring nothing. And two unit tests silently
 read `data/geocode_cache.json` and passed on production values. Both now point
 the cache at a temp path. A test that passes for the wrong reason is worse than
 no test.
+
+## 2026-08-11 — GAL-93 the geocoding problem was the address format all along
+
+The four listings still without a pin after GAL-92 were not a hard geocoding
+problem. The sheet writes addresses in MLS shorthand and that shorthand was
+being sent to the geocoder verbatim. Nominatim returns nothing for
+"6536 5th Sdrd, Essa" and the exact house number for "6536 5 Sideroad, Essa".
+
+- **Expand abbreviations from the data, not from imagination.** Surveyed all
+  149 addresses: Rd, Dr, St, Ave, Cres, Sdrd, Crt, Tr, Terr, Twnl, Clse, Pt,
+  Circ, Blvd, Pl, Conc, plus E/W/N/S. That list is short because it is the real
+  one; a guessed list would have been longer and still missed Twnl.
+- **Ordinals have to be flattened, and word order tried both ways.** "15th
+  Sideroad" finds nothing; "15 Sideroad" and "Sideroad 15" both find it, and
+  which one works depends on the township. 16 addresses carry an ordinal, as
+  digits (3rd, 10th) or as words (Fifth, Fifteenth).
+- **Expanding blindly creates its own miss.** "Concession 7 Conc" becomes
+  "Concession 7 Concession", which matches nothing. A trailing street-type word
+  that already appears in the name is dropped.
+- **Road-level fallback.** When a house number cannot be placed, the road is
+  used and the pin is marked approximate on the card, and such a pin is never
+  allowed to anchor another lookup. Nothing needs it today: all 149 resolve at
+  address precision.
+- **Provenance must be carried forward, not recomputed.** A preseeded
+  coordinate is never looked up, so a run has no provenance of its own to
+  report for it, and writing that absence into the record relabelled settled
+  geocoder output as though it had come from the verified export. The review
+  list silently emptied itself from 19 entries to 4 before this was caught.
+
+**Outcome:** 149 of 149 pinned, all at address precision, 105 verified
+coordinates unchanged. 34 by OSM, 10 by Mapbox, 24 corroborated by both.
+
+**Correction to GAL-92.** That entry claimed every cross-provider-corroborated
+result was within 300 m. That is no longer true and the claim was too strong
+even then: it measured a single 30-address sample. With abbreviations expanded,
+both geocoders now find the same point more often, including the same *wrong*
+point. "450 Ellerys Sdrd, Tiny" is corroborated and still 18 km out. Agreement
+between two providers that share upstream data is weaker evidence than it looks.
+It is still worth recording and still correlates with accuracy, but it is not a
+guarantee, and the honest residual is that a newly geocoded rural address can be
+several kilometres off. The 105 verified coordinates are unaffected, since they
+are never re-geocoded. The real fix, if precision starts to matter, is a
+Latitude/Longitude column in the sheet: the importer would use it directly and
+skip geocoding for any row that has one.
