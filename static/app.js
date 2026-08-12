@@ -4528,7 +4528,9 @@ function populateCard(node, item) {
   // Off-market marker. A listing that leaves the feed is kept, not deleted,
   // because ratings and notes point at it, so the card says so plainly rather
   // than letting a house the family discussed quietly disappear.
-  node.classList.toggle('is-off-market', !!item.inactive);
+  // populateCard receives the template's DocumentFragment, which has
+  // querySelector but no classList, so the class goes on the .card element.
+  node.querySelector('.card')?.classList.toggle('is-off-market', !!item.inactive);
   if (item.inactive) {
     const meta = node.querySelector('.meta');
     const off = el('span', { className: 'off-market-tag', textContent: 'Off market' });
