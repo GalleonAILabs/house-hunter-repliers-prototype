@@ -176,6 +176,46 @@ STATION_TRAIN_MIN: dict[str, int] = {
 }
 
 
+# Coordinates the family enters in the sheet win over anything a geocoder
+# says. Several spellings are accepted so the columns can be added without
+# anyone having to match an exact string.
+LAT_COLUMNS = ("Latitude", "Lat", "latitude", "lat")
+LON_COLUMNS = ("Longitude", "Longitude ", "Lon", "Lng", "Long", "longitude", "lon", "lng")
+# Ontario, generously bounded. A hand-typed coordinate that lands outside this
+# is a typo (a dropped minus sign puts an Ontario house in Kazakhstan), and a
+# typo must fall back to geocoding rather than move a pin across the world.
+ONTARIO_BOUNDS = (41.5, 57.0, -95.5, -74.0)  # south, north, west, east
+
+
+def first_present(row: dict[str, str], names: tuple[str, ...]) -> str:
+    for name in names:
+        if row.get(name):
+            return str(row[name])
+    return ""
+
+
+def sheet_coordinates(row: dict[str, str]) -> tuple[float | None, float | None, str]:
+    """Coordinates entered in the sheet, if usable. Returns (lat, lon, note).
+
+    note is empty when the row simply has no coordinates, and carries a reason
+    when values were present but rejected, so a typo is reported rather than
+    silently ignored.
+    """
+    raw_lat = first_present(row, LAT_COLUMNS)
+    raw_lon = first_present(row, LON_COLUMNS)
+    if not raw_lat and not raw_lon:
+        return None, None, ""
+    if not raw_lat or not raw_lon:
+        return None, None, "only one of latitude/longitude was filled in"
+    lat, lon = number(raw_lat), number(raw_lon)
+    if lat is None or lon is None:
+        return None, None, f"could not read {raw_lat!r}, {raw_lon!r} as numbers"
+    south, north, west, east = ONTARIO_BOUNDS
+    if not (south <= lat <= north and west <= lon <= east):
+        return None, None, f"{lat}, {lon} is outside Ontario"
+    return round(lat, 7), round(lon, 7), ""
+
+
 def normalize_address(address: str) -> str:
     """Loose key for matching the same house across a changed listing id."""
     text = _clean(address).lower().rstrip(".")
@@ -369,6 +409,9 @@ class Geocoder:
         self.cache: dict[str, Any] = {}
         self.low_confidence: list[str] = []
         self.failed: list[str] = []
+        # Sheet coordinates that could not be used (typo, half-filled, out of
+        # range). Reported by the run rather than silently ignored.
+        self.rejected_coordinates: list[str] = []
         # normalized address -> which checks confirmed it, so the record can
         # carry its own provenance and anchors can exclude weak results.
         self.confirmations: dict[str, list[str]] = {}
@@ -774,8 +817,16 @@ class SheetSource(ListingSource):
         if go_total is None and go_min is not None and go_train is not None:
             go_total = int(round(go_min + go_train))
 
-        lat = lon = relevance = None
-        if geocoder is not None:
+        # A coordinate somebody entered in the sheet is the last word: no
+        # geocoder is consulted for that row at all. This is the escape hatch
+        # for the rural addresses no geocoder can place accurately, and it
+        # works one row at a time, so the column can be filled in gradually.
+        lat, lon, coord_note = sheet_coordinates(row)
+        provider = "sheet" if lat is not None else None
+        relevance = None
+        confirmed: list[str] = ["sheet"] if lat is not None else []
+        precision = "address"
+        if lat is None and geocoder is not None:
             lat, lon, relevance = geocoder.lookup(
                 address,
                 area=_clean(row.get("Area")),
@@ -783,6 +834,12 @@ class SheetSource(ListingSource):
                 go_station=station,
                 go_min=go_min,
             )
+            key = normalize_address(address)
+            provider = geocoder.providers.get(key)
+            confirmed = geocoder.confirmations.get(key, [])
+            precision = geocoder.precisions.get(key, "address")
+            if coord_note:
+                geocoder.rejected_coordinates.append(f"{address}: {coord_note}")
 
         return {
             "source_key": source_key,
@@ -796,21 +853,13 @@ class SheetSource(ListingSource):
             "geocodeRelevance": relevance,
             # Which independent checks agreed with this coordinate. Empty for a
             # preseeded (already trusted) address, which is never looked up.
-            "geocodeConfirmedBy": (
-                geocoder.confirmations.get(normalize_address(address), [])
-                if geocoder is not None else []
-            ),
+            "geocodeConfirmedBy": confirmed,
             # None means preseeded: a coordinate we already held and trusted.
-            "geocodeProvider": (
-                geocoder.providers.get(normalize_address(address))
-                if geocoder is not None else None
-            ),
+            # "sheet" means it was entered by hand and outranks every geocoder.
+            "geocodeProvider": provider,
             # "road" means the pin marks the street, not the house. The card and
             # the map say so rather than letting it pass as an exact location.
-            "geocodePrecision": (
-                geocoder.precisions.get(normalize_address(address), "address")
-                if geocoder is not None else "address"
-            ),
+            "geocodePrecision": precision,
             "price": _clean(row.get("Price")),
             "priceNum": price_num,
             "beds": beds_display,

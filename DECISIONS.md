@@ -1948,3 +1948,40 @@ several kilometres off. The 105 verified coordinates are unaffected, since they
 are never re-geocoded. The real fix, if precision starts to matter, is a
 Latitude/Longitude column in the sheet: the importer would use it directly and
 skip geocoding for any row that has one.
+
+## 2026-08-12 — GAL-94 the sheet can supply coordinates and outrank the geocoder
+
+Geocoding a rural Ontario address has an accuracy floor, and GAL-93 established
+that more heuristics were hitting diminishing returns: 20 of 44 geocodes remain
+uncorroborated and one corroborated result is still 18 km out. Rather than keep
+refining a guess, the sheet is now allowed to win.
+
+- **A row with Latitude and Longitude is never geocoded.** Not "geocoded and
+  then overridden", not consulted at all. `Lat`, `Lon`, `Lng`, `Long` are
+  accepted as aliases so the columns can be added without matching an exact
+  string, and the columns do not have to exist for anything to work.
+- **A hand-entered coordinate is authoritative**, including as an anchor for
+  judging other rows in the same town, and is never counted for review.
+- **Values are validated before they are trusted.** Both must parse and fall
+  inside Ontario: a dropped minus sign would otherwise move a house to
+  Kazakhstan. A rejected value falls back to geocoding and is reported rather
+  than silently ignored, and a half-filled row says which half is missing.
+- **It works one row at a time**, so the column can be filled in gradually and
+  a blank cell is normal rather than an error.
+
+`data/coordinate_review.md` lists the pins the two geocoders disagreed on, with
+a Google Maps link each, so the rows worth checking by hand are obvious. It is
+generated from the live table and lives in the gitignored `data/` directory,
+since it carries the family's addresses and must not reach the public repo.
+
+**Unattended proof:** overnight the sheet grew from 149 to 151 rows and the
+scheduled import picked both up and pinned them without anyone touching it,
+which is the whole point of GAL-91.
+
+**Test-quality note:** the first version of the sheet-coordinate review test
+re-implemented the needs_review expression inside the test and asserted on its
+own arithmetic, so it would have passed no matter what the importer did. It was
+replaced with a real import through the running server. Third instance this
+session of a test that passes for the wrong reason; the pattern is always the
+same, asserting on something the test itself computed rather than on what the
+system produced.

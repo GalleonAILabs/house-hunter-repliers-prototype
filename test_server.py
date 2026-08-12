@@ -2819,6 +2819,72 @@ class LocalityCleaningTests(unittest.TestCase):
         self.assertEqual(datasources.clean_locality("Angus", "Essa"), "Angus")
 
 
+class ExplodingGeocoder(datasources.Geocoder):
+    """Fails loudly if anything asks it to geocode."""
+
+    def __init__(self) -> None:
+        super().__init__("token")
+
+    def lookup(self, *a, **k):
+        raise AssertionError("a row with sheet coordinates was sent to the geocoder")
+
+
+class SheetCoordinateTests(unittest.TestCase):
+    """Coordinates entered in the sheet outrank every geocoder (GAL-94)."""
+
+    def rec(self, geocoder=None, **overrides):
+        return datasources.SheetSource.to_record(sheet_row(**overrides), geocoder)
+
+    def test_sheet_coordinates_are_used_and_no_geocoder_is_called(self) -> None:
+        record = self.rec(ExplodingGeocoder(), Latitude="44.3077244", Longitude="-79.8838364")
+        self.assertEqual(record["lat"], 44.3077244)
+        self.assertEqual(record["lon"], -79.8838364)
+        self.assertEqual(record["geocodeProvider"], "sheet")
+        self.assertEqual(record["geocodeConfirmedBy"], ["sheet"])
+
+    def test_column_aliases_are_accepted(self) -> None:
+        for lat_col, lon_col in (("Lat", "Lon"), ("Lat", "Lng"), ("latitude", "longitude")):
+            record = self.rec(ExplodingGeocoder(), **{lat_col: "44.30", lon_col: "-79.88"})
+            self.assertEqual(record["lat"], 44.30, f"{lat_col}/{lon_col} not read")
+
+    def test_a_row_without_coordinates_still_geocodes(self) -> None:
+        record = self.rec(None)
+        self.assertIsNone(record["lat"])
+        self.assertIsNone(record["geocodeProvider"])
+
+    def test_out_of_range_coordinates_are_refused(self) -> None:
+        # A dropped minus sign puts an Ontario house in Kazakhstan.
+        lat, lon, note = datasources.sheet_coordinates({"Latitude": "44.30", "Longitude": "79.88"})
+        self.assertIsNone(lat)
+        self.assertIn("outside Ontario", note)
+
+    def test_unreadable_coordinates_are_refused(self) -> None:
+        lat, lon, note = datasources.sheet_coordinates({"Latitude": "n/a", "Longitude": "n/a"})
+        self.assertIsNone(lat)
+        self.assertIn("could not read", note)
+
+    def test_half_filled_row_is_refused_and_explained(self) -> None:
+        lat, lon, note = datasources.sheet_coordinates({"Latitude": "44.30", "Longitude": ""})
+        self.assertIsNone(lat)
+        self.assertIn("only one", note)
+
+    def test_blank_columns_are_not_an_error(self) -> None:
+        lat, lon, note = datasources.sheet_coordinates({"Latitude": "", "Longitude": ""})
+        self.assertIsNone(lat)
+        self.assertEqual(note, "", "an empty cell is normal, not a problem to report")
+
+    def test_a_rejected_coordinate_is_reported_not_swallowed(self) -> None:
+        geocoder = datasources.Geocoder("")  # no token: returns nothing, makes no calls
+        self.rec(geocoder, Latitude="44.30", Longitude="791.88")
+        self.assertTrue(any("outside Ontario" in m for m in geocoder.rejected_coordinates))
+
+    def test_sheet_coordinates_anchor_other_lookups(self) -> None:
+        self.assertTrue(sync._is_trusted_coord(
+            {"address": "9 Anywhere Rd", "lat": 44.3, "lon": -79.8,
+             "geocodeProvider": "sheet", "geocodeConfirmedBy": ["sheet"]}, set()))
+
+
+
 class StreetNormalizationTests(unittest.TestCase):
     """MLS abbreviations and ordinals, which no geocoder understands (GAL-93)."""
 
@@ -3196,6 +3262,38 @@ class SyncUpsertTests(SyncTestCase):
         self.run_sync(trigger="test")
         legacy_ids = {f"POC-{p['row']}" for p in FIXTURE_POC["properties"]}
         self.assertFalse(set(self.listings()) & legacy_ids)
+
+
+class SyncSheetCoordinateTests(SyncTestCase):
+    """End to end: sheet coordinates through a real import (GAL-94)."""
+
+    def test_sheet_coordinates_reach_the_served_listing(self) -> None:
+        self.rows = [sheet_row(Latitude="44.3077244", Longitude="-79.8838364")]
+        run = self.run_sync(trigger="test")
+        self.assertEqual(run["status"], "ok")
+        status, data = self.request("GET", "/api/poc-listings")
+        listing = data["listings"][0]
+        self.assertEqual(listing["lat"], 44.3077244)
+        self.assertEqual(listing["lng"], -79.8838364)
+
+    def test_a_hand_entered_pin_is_not_counted_for_review(self) -> None:
+        self.rows = [sheet_row(Latitude="44.3077244", Longitude="-79.8838364")]
+        self.assertEqual(self.run_sync(trigger="test")["needs_review"], 0)
+
+    def test_a_row_with_no_coordinates_is_counted_for_review(self) -> None:
+        # No geocoder is wired in this fixture, so the row gets no pin, which
+        # is exactly the case a human should look at.
+        self.rows = [sheet_row()]
+        self.assertEqual(self.run_sync(trigger="test")["needs_review"], 1)
+
+    def test_editing_the_coordinates_in_the_sheet_moves_the_pin(self) -> None:
+        self.rows = [sheet_row(Latitude="44.3077244", Longitude="-79.8838364")]
+        self.run_sync(trigger="test")
+        self.rows = [sheet_row(Latitude="44.4000000", Longitude="-79.9000000")]
+        run = self.run_sync(trigger="test")
+        self.assertEqual(run["rows_changed"], 1)
+        payload = json.loads(next(iter(self.listings().values()))["payload"])
+        self.assertEqual(payload["lat"], 44.4)
 
 
 class SyncSoftDeleteTests(SyncTestCase):

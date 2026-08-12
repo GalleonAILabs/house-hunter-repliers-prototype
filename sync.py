@@ -215,6 +215,8 @@ def _is_trusted_coord(payload: dict[str, Any], legacy: set[str]) -> bool:
     """
     if payload.get("lat") is None or payload.get("lon") is None:
         return False
+    if payload.get("geocodeProvider") == "sheet":
+        return True  # entered by hand, outranks every geocoder
     if datasources.normalize_address(payload.get("address") or "") in legacy:
         return True
     if payload.get("geocodePrecision") == "road":
@@ -552,10 +554,11 @@ def _apply(
     # geocoders did not agree on. A coordinate we already trusted is neither.
     needs_review = sum(
         1 for r in records
-        if r.get("lat") is None
-        or r.get("geocodePrecision") == "road"
-        or (r.get("geocodeProvider")
-            and "cross-provider" not in (r.get("geocodeConfirmedBy") or []))
+        if r.get("geocodeProvider") != "sheet"  # a hand-entered pin needs nobody's review
+        and (r.get("lat") is None
+             or r.get("geocodePrecision") == "road"
+             or (r.get("geocodeProvider")
+                 and "cross-provider" not in (r.get("geocodeConfirmedBy") or [])))
     )
     return {
         "seen": len(records), "added": added, "changed": changed,
