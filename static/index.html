@@ -10,7 +10,7 @@
        any app.js/styles.css change forces browsers and the Cloudflare edge
        off a stale copy immediately, without a manual cache purge. Bump it
        whenever app.js or styles.css changes. -->
-  <link rel="stylesheet" href="/styles.css?v=20260812-075507" />
+  <link rel="stylesheet" href="/styles.css?v=20260812-091733" />
 </head>
 <body>
 
@@ -749,7 +749,14 @@
   <template id="cardTemplate">
     <article class="card">
       <div class="card-photo-wrap">
-        <img class="photo" alt="" />
+        <!-- A real anchor, not a click handler, so cmd-click, middle-click and
+             keyboard focus all behave normally. The href is only set when the
+             listing has a URL, which leaves Repliers sample rows inert rather
+             than showing a hover state that goes nowhere. -->
+        <a class="card-photo-link" target="_blank" rel="noopener">
+          <img class="photo" alt="" />
+          <span class="photo-hint">View photos</span>
+        </a>
         <span class="card-status-badge"></span>
       </div>
       <div class="card-body">
@@ -799,6 +806,6 @@
   </template>
 
   <script src="https://api.mapbox.com/mapbox-gl-js/v3.25.0/mapbox-gl.js"></script>
-  <script src="/app.js?v=20260812-075507"></script>
+  <script src="/app.js?v=20260812-091733"></script>
 </body>
 </html>
