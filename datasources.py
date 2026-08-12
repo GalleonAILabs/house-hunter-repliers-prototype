@@ -35,7 +35,10 @@ from typing import Any, Iterable
 import appconfig
 
 FETCH_TIMEOUT = 30
-USER_AGENT = "house-hunter-sync/1.0"
+# Nominatim's usage policy requires a User-Agent that identifies the
+# application and offers a way to make contact.
+USER_AGENT = "house-hunter-sync/1.0 (+https://househunter.galleonglobal.ai)"
+NOMINATIM_MIN_INTERVAL_S = 1.1
 
 
 class SourceError(RuntimeError):
@@ -192,33 +195,106 @@ def listing_key_from_link(link: str) -> str | None:
 # Geocoding
 # ---------------------------------------------------------------------------
 
-# The family's search region. A result outside this box is a geocoder mismatch
-# (an Ontario street name that also exists 300 km away), not a real listing.
-SEARCH_BBOX = (-81.6, 43.0, -78.6, 45.0)  # west, south, east, north
-MIN_RELEVANCE = 0.6
+# Geocode acceptance thresholds (GAL-92). Both are measured, not guessed.
+#
+# TOWN_RADIUS_KM: across the 105 listings whose coordinates were already known
+# good, the furthest any listing sits from the centroid of others in the same
+# town is 19.0 km (p95 12.7). Townships are large, so 25 km leaves headroom
+# without being loose: the wrong-county failure it has to reject is 247 km out.
+TOWN_RADIUS_KM = 25.0
+# MAX_IMPLIED_KMH: the sheet gives a nearest GO station and a drive time, and
+# station coordinates are already in the map layer, so a candidate point can be
+# cross-examined: does the straight-line distance make sense for that drive?
+# Across 101 trusted listings the implied speed is median 41.5 and never exceeds
+# 61.3 km/h. 90 leaves a wide margin for a faster highway route while still
+# rejecting decisively: a Clearview listing mismatched to Ottawa implies 467.
+MAX_IMPLIED_KMH = 90.0
+MIN_RELEVANCE = 0.5
+# Two independent geocoders landing within this distance of each other is
+# treated as corroboration. Anything further apart is still used, but is
+# reported for a human to glance at.
+CROSS_PROVIDER_AGREE_KM = 1.0
+
+# TREB district codes arrive in the Area column looking like
+# "1064 - ES Rural Esquesing". The leading code is not part of any place name.
+_DISTRICT_CODE_RE = re.compile(r"^\s*\d+\s*-\s*[A-Z]{1,3}\s+")
+
+
+def clean_locality(area: str, town: str) -> str:
+    """The Area column as a place a geocoder can actually find.
+
+    Rural rows carry "Rural Clearview", which is not a place name and makes the
+    query worse rather than sharper. Strip that and any TREB district code, and
+    fall back to Town when nothing usable is left.
+    """
+    text = _DISTRICT_CODE_RE.sub("", _clean(area))
+    text = re.sub(r"^\s*Rural\b\s*", "", text, flags=re.I).strip()
+    return text or _clean(town)
+
+
+def haversine_km(a: tuple[float, float], b: tuple[float, float]) -> float:
+    (lat1, lon1), (lat2, lon2) = a, b
+    radius = 6371.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    h = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlambda / 2) ** 2
+    return 2 * radius * math.asin(math.sqrt(h))
 
 
 class Geocoder:
-    """Mapbox forward geocoding with a disk cache.
+    """Mapbox forward geocoding, cross-examined against what the sheet already
+    knows about each listing.
 
-    Deliberately conservative. Measured against the 105 addresses whose
-    coordinates the retired exporter had already resolved, querying
-    "<street>, <Area>, Ontario, Canada" lands within 500 m on 20 of 25 sampled
-    rows and within 2 km on 22, but it does occasionally return a same-named
-    street in another county. So:
-      - an address that already has coordinates is never re-geocoded, which
-        makes every existing pin immune to this;
-      - a result outside the search box or below MIN_RELEVANCE is discarded
-        rather than stored, leaving the listing without a pin;
-      - a low-confidence result that is kept is counted and reported by the
-        sync run so it can be spot-checked instead of silently trusted.
+    An address that already has coordinates is never re-geocoded, so every
+    existing pin is immune to anything here. For a genuinely new address, a
+    single geocoder result is not trusted on its own: raw Mapbox happily
+    returns a same-named street in another county ("18 Mill St, Essa" resolves
+    to Odessa, 300 km away) and it also returns perfectly good matches that are
+    named for the settlement rather than the township the sheet uses
+    (Sundridge for Strong, Stayner for Clearview). A plain distance box gets
+    both of those wrong in opposite directions.
+
+    So each candidate is put through the checks that apply to it, and accepted
+    only if at least one confirms it and none contradicts it:
+
+      trusted neighbours  Listings in the same town whose coordinates are
+                          already trusted. The strongest signal, and free.
+      go_drive            The sheet names a GO station and a drive time, and
+                          station coordinates are in the map layer, so the
+                          straight-line distance has to be plausible for that
+                          drive. Independent of any naming question.
+      town centre         Only when the town has no trusted listings yet, and
+                          only if the town lookup names the town back (that
+                          check is what rejects "Adjala-Tosorontio" silently
+                          resolving to the middle of Ontario).
+      name match          The result's own context names the town or area.
+
+    A candidate no check can speak to is left unresolved rather than guessed:
+    a listing with no pin is honest, a pin in the wrong county is not.
     """
 
-    def __init__(self, token: str) -> None:
+    def __init__(
+        self,
+        token: str,
+        town_anchors: dict[str, tuple[float, float]] | None = None,
+        stations: dict[str, tuple[float, float]] | None = None,
+    ) -> None:
         self.token = token
+        # town -> centroid of already-trusted listings in that town
+        self.town_anchors = town_anchors or {}
+        # GO station name -> coordinate, from the map layer
+        self.stations = stations or {}
         self.cache: dict[str, Any] = {}
         self.low_confidence: list[str] = []
         self.failed: list[str] = []
+        # normalized address -> which checks confirmed it, so the record can
+        # carry its own provenance and anchors can exclude weak results.
+        self.confirmations: dict[str, list[str]] = {}
+        # normalized address -> which geocoder produced it. Absent means the
+        # coordinate was preseeded, i.e. already trusted and never looked up.
+        self.providers: dict[str, str | None] = {}
+        self._town_centres: dict[str, tuple[float, float] | None] = {}
         self._dirty = False
         if appconfig.GEOCODE_CACHE_PATH.exists():
             try:
@@ -247,56 +323,233 @@ class Geocoder:
         if key and key not in self.cache:
             self.cache[key] = {"lat": lat, "lon": lon, "relevance": None, "preseeded": True}
 
-    def lookup(self, address: str, area: str = "") -> tuple[float | None, float | None, float | None]:
+    def lookup(
+        self,
+        address: str,
+        area: str = "",
+        town: str = "",
+        go_station: str = "",
+        go_min: float | None = None,
+    ) -> tuple[float | None, float | None, float | None]:
         key = normalize_address(address)
         if key in self.cache:
             hit = self.cache[key]
             if hit is None:
                 return None, None, None
             return hit.get("lat"), hit.get("lon"), hit.get("relevance")
-        result = self._query(address, area)
+        result = self._resolve(address, area, town, go_station, go_min)
         self.cache[key] = result
         self._dirty = True
         if result is None:
             self.failed.append(address)
             return None, None, None
-        if (result.get("relevance") or 0) < 0.8:
+        self.confirmations[normalize_address(address)] = list(result.get("confirmed_by") or [])
+        self.providers[normalize_address(address)] = result.get("provider")
+        if "cross-provider" not in (result.get("confirmed_by") or []):
+            # Measured against known-good coordinates, every corroborated result
+            # was within 300 m, and every multi-kilometre miss was one the two
+            # geocoders disagreed on. So this is the line worth reporting.
             self.low_confidence.append(address)
         return result.get("lat"), result.get("lon"), result.get("relevance")
 
-    def _query(self, address: str, area: str) -> dict[str, Any] | None:
-        if not self.token:
-            return None
-        street = _clean(address).split(",")[0]
-        parts = [street, _clean(area), "Ontario", "Canada"]
-        query = ", ".join(p for p in parts if p)
-        url = (
-            "https://api.mapbox.com/geocoding/v5/mapbox.places/"
-            f"{urllib.parse.quote(query)}.json"
-            f"?limit=1&country=ca&access_token={urllib.parse.quote(self.token)}"
+    def _fetch_osm(self, query: str, limit: int = 3) -> list[dict[str, Any]]:
+        """Nominatim, normalized into the same candidate shape as Mapbox.
+
+        Primary provider, because it is demonstrably the one the retired
+        pipeline used: on a 24-address sample, 21 of its results are identical
+        to the stored coordinates to the last decimal and none is worse than
+        270 m. Using it keeps a new pin consistent with the 105 already on the
+        map instead of introducing a second source's idea of the same street.
+        Its display_name also names the township as well as the settlement
+        ("Sundridge, Strong Township"), which is what the naming checks need.
+        """
+        url = "https://nominatim.openstreetmap.org/search?" + urllib.parse.urlencode(
+            {"q": query, "format": "json", "limit": limit,
+             "countrycodes": "ca", "addressdetails": 1}
         )
         req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
         try:
             with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT) as resp:
                 payload = json.load(resp)
-        except (urllib.error.URLError, ValueError, TimeoutError):
-            return None
-        features = payload.get("features") or []
-        if not features:
-            return None
-        feature = features[0]
-        lon, lat = feature.get("center", [None, None])[:2]
-        relevance = feature.get("relevance")
-        if lat is None or lon is None:
-            return None
-        west, south, east, north = SEARCH_BBOX
-        if not (west <= lon <= east and south <= lat <= north):
-            return None  # same street name, wrong county
-        if relevance is not None and relevance < MIN_RELEVANCE:
-            return None
+        except (urllib.error.URLError, ValueError, TimeoutError, OSError):
+            return []
+        # Nominatim's usage policy caps this at one request a second. Only ever
+        # reached for an address seen for the first time.
+        time.sleep(NOMINATIM_MIN_INTERVAL_S)
+        out = []
+        for hit in payload:
+            try:
+                lat, lon = float(hit["lat"]), float(hit["lon"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            name = hit.get("display_name", "")
+            out.append({
+                "center": [lon, lat],
+                "place_name": name,
+                # importance is 0..1 and ranks results, close enough in spirit
+                # to Mapbox relevance for the shared minimum-quality gate.
+                "relevance": round(float(hit.get("importance") or 0.5), 3),
+                "context": [{"text": part.strip()} for part in name.split(",")],
+                "provider": "osm",
+            })
+        return out
+
+    def _fetch(self, query: str, types: str | None = "address", limit: int = 5) -> list[dict[str, Any]]:
+        if not self.token:
+            return []
+        url = (
+            "https://api.mapbox.com/geocoding/v5/mapbox.places/"
+            f"{urllib.parse.quote(query)}.json?limit={limit}&country=ca"
+            + (f"&types={types}" if types else "")
+            + f"&access_token={urllib.parse.quote(self.token)}"
+        )
+        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        try:
+            with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT) as resp:
+                payload = json.load(resp)
+        except (urllib.error.URLError, ValueError, TimeoutError, OSError):
+            return []
         time.sleep(0.1)  # courtesy pacing, only ever hit for brand-new addresses
-        return {"lat": round(lat, 7), "lon": round(lon, 7), "relevance": relevance,
-                "place_name": feature.get("place_name")}
+        return payload.get("features") or []
+
+    def town_centre(self, town: str) -> tuple[float, float] | None:
+        """Coordinate for a municipality, but only if the lookup names it back.
+
+        Without the name check this quietly returns the middle of the province
+        for a township Mapbox does not carry: "Adjala-Tosorontio, Ontario"
+        answers with plain "Ontario, Canada", 678 km from the real place.
+        """
+        town = _clean(town)
+        if not town:
+            return None
+        if town in self._town_centres:
+            return self._town_centres[town]
+        centre = None
+        for feature in self._fetch(f"{town}, Ontario, Canada", types="place,locality,district", limit=3):
+            if normalize_address(town).replace(" ", "") in normalize_address(
+                feature.get("place_name", "")
+            ).replace(" ", ""):
+                lon, lat = feature.get("center", [None, None])[:2]
+                if lat is not None:
+                    centre = (lat, lon)
+                break
+        self._town_centres[town] = centre
+        return centre
+
+    def station_coord(self, name: str) -> tuple[float, float] | None:
+        name = _clean(name)
+        return self.stations.get(name) or self.stations.get(name.replace(" GO", "").strip())
+
+    def _judge(
+        self, lat: float, lon: float, town: str, area: str, feature: dict[str, Any],
+        go_station: str, go_min: float | None,
+    ) -> tuple[bool, list[str], list[str]]:
+        """Run every applicable check. Returns (accepted, confirmed_by, failed)."""
+        point = (lat, lon)
+        confirmed: list[str] = []
+        failed: list[str] = []
+
+        anchor = self.town_anchors.get(_clean(town))
+        if anchor:
+            if haversine_km(point, anchor) <= TOWN_RADIUS_KM:
+                confirmed.append("trusted-neighbours")
+            else:
+                failed.append("trusted-neighbours")
+
+        station = self.station_coord(go_station)
+        if station and go_min:
+            implied = haversine_km(point, station) / (float(go_min) / 60.0)
+            if implied <= MAX_IMPLIED_KMH:
+                confirmed.append("go-drive")
+            else:
+                failed.append("go-drive")
+
+        blob = normalize_address(
+            " ".join([feature.get("place_name", "")]
+                     + [c.get("text", "") for c in feature.get("context", [])])
+        )
+        for candidate in (town, clean_locality(area, town)):
+            token = normalize_address(candidate)
+            if token and token in blob:
+                confirmed.append("name-match")
+                break
+
+        # Only consulted when the town has no trusted listings to compare
+        # against, so it can never override real data.
+        if not anchor:
+            centre = self.town_centre(town)
+            if centre:
+                if haversine_km(point, centre) <= TOWN_RADIUS_KM:
+                    confirmed.append("town-centre")
+                else:
+                    failed.append("town-centre")
+
+        return (bool(confirmed) and not failed), confirmed, failed
+
+    def _resolve(
+        self, address: str, area: str, town: str, go_station: str, go_min: float | None
+    ) -> dict[str, Any] | None:
+        street = _clean(address).split(",")[0]
+        locality = clean_locality(area, town)
+        # Several phrasings, best first. Rural addresses often only resolve
+        # under the settlement name, so the town-level query is a real fallback
+        # rather than a duplicate of the first.
+        queries = []
+        for loc in dict.fromkeys([locality, _clean(town)]):
+            if loc:
+                queries.append(f"{street}, {loc}, Ontario, Canada")
+        queries.append(f"{_clean(address)}, Ontario, Canada")
+
+        def best_from(fetch) -> dict[str, Any] | None:
+            fallback = None
+            for query in queries:
+                for feature in fetch(query):
+                    lon, lat = feature.get("center", [None, None])[:2]
+                    relevance = feature.get("relevance")
+                    if lat is None or lon is None:
+                        continue
+                    # Only Mapbox's relevance means "how well did this match".
+                    # Nominatim's importance ranks prominence, and a rural house
+                    # scores low simply for being a rural house, so gating on it
+                    # would throw away the most accurate results we get.
+                    if (feature.get("provider") != "osm"
+                            and relevance is not None and relevance < MIN_RELEVANCE):
+                        continue
+                    ok, confirmed, _failed = self._judge(
+                        lat, lon, town, area, feature, go_station, go_min
+                    )
+                    if not ok:
+                        continue
+                    record = {
+                        "lat": round(lat, 7), "lon": round(lon, 7), "relevance": relevance,
+                        "place_name": feature.get("place_name"),
+                        "provider": feature.get("provider", "mapbox"),
+                        "confirmed_by": list(confirmed), "query": query,
+                    }
+                    if len(confirmed) >= 2:
+                        return record
+                    fallback = fallback or record
+            return fallback
+
+        # OpenStreetMap leads because it is the source the existing coordinates
+        # came from; Mapbox is asked as well, as a second opinion.
+        osm = best_from(self._fetch_osm)
+        mapbox = best_from(self._fetch)
+
+        chosen = osm or mapbox
+        if chosen is None:
+            return None
+        # Two providers landing on the same spot is the strongest signal
+        # available here, and its absence is the one that matters: every
+        # multi-kilometre miss measured against known-good coordinates was a
+        # case where the two disagreed. Recording it turns an invisible error
+        # into a listing on the review list.
+        if osm and mapbox:
+            apart = haversine_km((osm["lat"], osm["lon"]), (mapbox["lat"], mapbox["lon"]))
+            chosen["providers_apart_km"] = round(apart, 3)
+            if apart <= CROSS_PROVIDER_AGREE_KM:
+                chosen["confirmed_by"].append("cross-provider")
+        return chosen
 
 
 # ---------------------------------------------------------------------------
@@ -398,7 +651,13 @@ class SheetSource(ListingSource):
 
         lat = lon = relevance = None
         if geocoder is not None:
-            lat, lon, relevance = geocoder.lookup(address, _clean(row.get("Area")))
+            lat, lon, relevance = geocoder.lookup(
+                address,
+                area=_clean(row.get("Area")),
+                town=_clean(row.get("Town")),
+                go_station=station,
+                go_min=go_min,
+            )
 
         return {
             "source_key": source_key,
@@ -410,6 +669,17 @@ class SheetSource(ListingSource):
             "lat": lat,
             "lon": lon,
             "geocodeRelevance": relevance,
+            # Which independent checks agreed with this coordinate. Empty for a
+            # preseeded (already trusted) address, which is never looked up.
+            "geocodeConfirmedBy": (
+                geocoder.confirmations.get(normalize_address(address), [])
+                if geocoder is not None else []
+            ),
+            # None means preseeded: a coordinate we already held and trusted.
+            "geocodeProvider": (
+                geocoder.providers.get(normalize_address(address))
+                if geocoder is not None else None
+            ),
             "price": _clean(row.get("Price")),
             "priceNum": price_num,
             "beds": beds_display,

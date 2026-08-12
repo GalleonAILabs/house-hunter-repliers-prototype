@@ -2800,6 +2800,210 @@ class SourceSelectionTests(unittest.TestCase):
             source.fetch_listings()
 
 
+class LocalityCleaningTests(unittest.TestCase):
+    """The Area column is not a place name until it is cleaned (GAL-92)."""
+
+    def test_rural_prefix_is_dropped(self) -> None:
+        self.assertEqual(datasources.clean_locality("Rural Clearview", "Clearview"), "Clearview")
+
+    def test_treb_district_code_is_dropped(self) -> None:
+        self.assertEqual(
+            datasources.clean_locality("1064 - ES Rural Esquesing", "Halton Hills"), "Esquesing"
+        )
+
+    def test_falls_back_to_town_when_nothing_usable_remains(self) -> None:
+        self.assertEqual(datasources.clean_locality("Rural", "Essa"), "Essa")
+        self.assertEqual(datasources.clean_locality("", "Essa"), "Essa")
+
+    def test_a_real_community_name_is_left_alone(self) -> None:
+        self.assertEqual(datasources.clean_locality("Angus", "Essa"), "Angus")
+
+
+def feature(lat, lon, place_name="", context=(), provider="osm", relevance=0.9):
+    return {"center": [lon, lat], "place_name": place_name, "provider": provider,
+            "relevance": relevance, "context": [{"text": c} for c in context]}
+
+
+class IsolatedGeocodeCache(unittest.TestCase):
+    """Point the geocode cache at a temp file.
+
+    Without this a test silently reads the real data/geocode_cache.json and
+    passes on production values rather than on what it set up.
+    """
+
+    def setUp(self) -> None:
+        self.tmpdir = tempfile.mkdtemp()
+        self._orig_cache = appconfig.GEOCODE_CACHE_PATH
+        appconfig.GEOCODE_CACHE_PATH = Path(self.tmpdir) / "geocode.json"
+
+    def tearDown(self) -> None:
+        appconfig.GEOCODE_CACHE_PATH = self._orig_cache
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+
+class GeocodeValidationTests(IsolatedGeocodeCache):
+    """The checks that decide whether a candidate coordinate is believable.
+
+    No network: _judge is handed fabricated candidates directly.
+    """
+
+    ANGUS = (44.3077, -79.8838)      # real location of the Essa test listing
+    ODESSA = (44.2766, -76.7206)     # same street name, 250 km east
+    STATION = (44.3696, -79.6900)    # Allandale Waterfront GO
+
+    def geocoder(self, anchors=None):
+        g = datasources.Geocoder(
+            "token", town_anchors=anchors or {},
+            stations={"Allandale Waterfront GO": self.STATION},
+        )
+        # No test here is about the network. Without this, a town-centre lookup
+        # reaches for the real Mapbox endpoint.
+        g._fetch = lambda *a, **k: []
+        g._fetch_osm = lambda *a, **k: []
+        return g
+
+    def test_wrong_county_is_rejected_by_the_drive_time(self) -> None:
+        g = self.geocoder()
+        ok, confirmed, failed = g._judge(
+            *self.ODESSA, "Essa", "Angus",
+            feature(*self.ODESSA, "18 Mill Street, Odessa, Ontario"),
+            "Allandale Waterfront GO", 25.3,
+        )
+        self.assertFalse(ok)
+        self.assertIn("go-drive", failed)
+
+    def test_correct_location_is_confirmed(self) -> None:
+        g = self.geocoder()
+        ok, confirmed, failed = g._judge(
+            *self.ANGUS, "Essa", "Angus",
+            feature(*self.ANGUS, "18 Mill Street, Angus, Essa, Simcoe County"),
+            "Allandale Waterfront GO", 25.3,
+        )
+        self.assertTrue(ok)
+        self.assertIn("go-drive", confirmed)
+        self.assertIn("name-match", confirmed)
+        self.assertEqual(failed, [])
+
+    def test_a_settlement_name_still_passes_via_trusted_neighbours(self) -> None:
+        # The geocoder says Stayner, the sheet says Clearview. Same place, and
+        # the township's known listings are what settles it.
+        stayner = (44.3916, -80.0892)
+        g = self.geocoder(anchors={"Clearview": (44.42, -80.07)})
+        ok, confirmed, failed = g._judge(
+            *stayner, "Clearview", "Rural Clearview",
+            feature(*stayner, "1595 County Road 42, Stayner, Ontario"), "", None,
+        )
+        self.assertTrue(ok)
+        self.assertIn("trusted-neighbours", confirmed)
+
+    def test_far_from_trusted_neighbours_is_rejected(self) -> None:
+        g = self.geocoder(anchors={"Clearview": (44.42, -80.07)})
+        ok, _confirmed, failed = g._judge(
+            44.077, -79.106, "Clearview", "Rural Clearview",
+            feature(44.077, -79.106, "Concession 7, Brock, Ontario"), "", None,
+        )
+        self.assertFalse(ok, "a listing 80 km from its township's known pins was accepted")
+        self.assertIn("trusted-neighbours", failed)
+
+    def test_no_applicable_check_means_no_coordinate(self) -> None:
+        # Nothing to compare against: no anchors, no GO data, no name overlap.
+        # Better to show no pin than to invent one.
+        g = self.geocoder()
+        g._town_centres["Nowheresville"] = None
+        ok, confirmed, _failed = g._judge(
+            50.0, -90.0, "Nowheresville", "", feature(50.0, -90.0, "Somewhere, Ontario"), "", None,
+        )
+        self.assertFalse(ok)
+        self.assertEqual(confirmed, [])
+
+    def test_town_centre_is_ignored_when_it_does_not_name_the_town(self) -> None:
+        # "Adjala-Tosorontio, Ontario" answers with plain "Ontario, Canada",
+        # 678 km out. A centre like that must not validate anything.
+        g = self.geocoder()
+        g._fetch = lambda *a, **k: [feature(49.45, -84.25, "Ontario, Canada", provider="mapbox")]
+        self.assertIsNone(g.town_centre("Adjala-Tosorontio"))
+
+    def test_town_centre_is_used_when_it_does_name_the_town(self) -> None:
+        g = self.geocoder()
+        g._fetch = lambda *a, **k: [feature(45.7659, -79.4004, "Strong, Sundridge, Ontario")]
+        self.assertIsNotNone(g.town_centre("Strong"))
+
+
+class CrossProviderTests(IsolatedGeocodeCache):
+    """Two geocoders agreeing is the signal that separates good from bad."""
+
+    STATION = (44.3696, -79.6900)
+
+    def geocoder(self):
+        return datasources.Geocoder(
+            "token", town_anchors={"Essa": (44.30, -79.88)},
+            stations={"Allandale Waterfront GO": self.STATION},
+        )
+
+    def test_agreement_is_recorded_as_confirmation(self) -> None:
+        g = self.geocoder()
+        g._fetch_osm = lambda q, limit=3: [feature(44.3077, -79.8838, "Mill Street, Angus, Essa")]
+        g._fetch = lambda q, types="address", limit=5: [
+            feature(44.3080, -79.8840, "Mill Street, Angus", provider="mapbox")]
+        result = g._resolve("18 Mill St, Essa", "Angus", "Essa", "Allandale Waterfront GO", 25.3)
+        self.assertIn("cross-provider", result["confirmed_by"])
+        self.assertEqual(result["provider"], "osm", "OSM must lead, it is the existing source")
+
+    def test_disagreement_is_not_confirmed_and_is_reported(self) -> None:
+        g = self.geocoder()
+        # Both land in the township, 15 km apart: each passes its own checks,
+        # but they cannot both be the house.
+        g._fetch_osm = lambda q, limit=3: [feature(44.3077, -79.8838, "Sideroad 5, Essa")]
+        g._fetch = lambda q, types="address", limit=5: [
+            feature(44.4100, -79.9600, "Sideroad 5, Essa", provider="mapbox")]
+        result = g._resolve("7688 Sideroad 5, Essa", "Rural Essa", "Essa", "Allandale Waterfront GO", 25.3)
+        self.assertNotIn("cross-provider", result["confirmed_by"])
+        self.assertGreater(result["providers_apart_km"], 1.0)
+
+    def test_mapbox_answers_when_osm_has_no_coverage(self) -> None:
+        g = self.geocoder()
+        g._fetch_osm = lambda q, limit=3: []
+        g._fetch = lambda q, types="address", limit=5: [
+            feature(44.3077, -79.8838, "Mill Street, Angus, Essa", provider="mapbox")]
+        result = g._resolve("18 Mill St, Essa", "Angus", "Essa", "Allandale Waterfront GO", 25.3)
+        self.assertEqual(result["provider"], "mapbox")
+
+    def test_preseeded_address_is_never_looked_up(self) -> None:
+        g = self.geocoder()
+        def explode(*a, **k):
+            raise AssertionError("a trusted coordinate was sent to a geocoder")
+        g._fetch_osm = explode
+        g._fetch = explode
+        g.preseed("18 Mill St, Essa", 44.3077, -79.8838)
+        lat, lon, _rel = g.lookup("18 Mill St, Essa", area="Angus", town="Essa")
+        self.assertEqual((lat, lon), (44.3077, -79.8838))
+
+
+class TrustedCoordinateTests(unittest.TestCase):
+    """Which coordinates are allowed to become the reference for others."""
+
+    LEGACY = {datasources.normalize_address("1 Test St")}
+
+    def test_legacy_export_membership_makes_a_coordinate_trusted(self) -> None:
+        self.assertTrue(sync._is_trusted_coord(
+            {"address": "1 Test St", "lat": 43.6, "lon": -79.4,
+             "geocodeProvider": "osm", "geocodeConfirmedBy": []}, self.LEGACY))
+
+    def test_single_witness_geocode_is_not_an_anchor(self) -> None:
+        self.assertFalse(sync._is_trusted_coord(
+            {"address": "9 New Rd", "lat": 43.6, "lon": -79.4,
+             "geocodeProvider": "osm", "geocodeConfirmedBy": ["go-drive"]}, self.LEGACY))
+
+    def test_two_witnesses_earn_anchor_status(self) -> None:
+        self.assertTrue(sync._is_trusted_coord(
+            {"address": "9 New Rd", "lat": 43.6, "lon": -79.4, "geocodeProvider": "osm",
+             "geocodeConfirmedBy": ["go-drive", "cross-provider"]}, self.LEGACY))
+
+    def test_no_coordinate_is_never_trusted(self) -> None:
+        self.assertFalse(sync._is_trusted_coord(
+            {"address": "1 Test St", "lat": None, "lon": None}, self.LEGACY))
+
+
 class FakeSource(datasources.ListingSource):
     """Deterministic source, so import behaviour is tested without network."""
 

@@ -169,23 +169,109 @@ def _legacy_bootstrap() -> dict[str, dict[str, Any]]:
     return out
 
 
-def _build_geocoder(conn: sqlite3.Connection) -> datasources.Geocoder:
+def go_station_coords() -> dict[str, tuple[float, float]]:
+    """GO station name -> coordinate, read from the map layer already in the repo.
+
+    Used to sanity-check a new geocode against the drive time the sheet states
+    for that listing. No new data source, no new dependency.
+    """
+    path = appconfig.ROOT / "static" / "layers" / "go_stations.geojson"
+    if not path.exists():
+        return {}
+    try:
+        layer = json.loads(path.read_text())
+    except (ValueError, OSError):
+        return {}
+    out: dict[str, tuple[float, float]] = {}
+    for feature in layer.get("features", []):
+        props = feature.get("properties") or {}
+        coords = (feature.get("geometry") or {}).get("coordinates") or []
+        if len(coords) < 2:
+            continue
+        for key in (props.get("name"), props.get("Station Name"), props.get("station")):
+            if key:
+                out[str(key).strip()] = (coords[1], coords[0])
+    return out
+
+
+def _town_of(address: str) -> str:
+    """Trailing municipality in a sheet address ('18 Mill St, Essa' -> 'Essa')."""
+    parts = [p.strip() for p in (address or "").split(",")]
+    return parts[-1] if len(parts) > 1 else ""
+
+
+def _is_trusted_coord(payload: dict[str, Any], legacy: set[str]) -> bool:
+    """Is this coordinate solid enough to anchor other lookups against?
+
+    Membership of the verified export decides it, not a field on the record.
+    Provenance fields live in the payload and a later import rewrites them, so
+    a rule that read them could quietly promote a geocoder guess to "verified"
+    and then start judging its neighbours against it. The legacy export is a
+    fixed file and cannot drift.
+
+    Beyond that, an imported coordinate earns anchor status only once two
+    independent checks have agreed on it. One witness is enough to show a pin,
+    not enough to become the reference other addresses are measured against.
+    """
+    if payload.get("lat") is None or payload.get("lon") is None:
+        return False
+    if datasources.normalize_address(payload.get("address") or "") in legacy:
+        return True
+    return len(payload.get("geocodeConfirmedBy") or []) >= 2
+
+
+def _build_geocoder(conn: sqlite3.Connection, revalidate: bool = False) -> datasources.Geocoder:
     """Geocoder pre-loaded with every coordinate we already trust.
 
-    Anything already resolved is never looked up again, so an existing pin
-    cannot move because a geocoder changed its mind.
+    Two jobs. Anything already resolved is preseeded so it is never looked up
+    again, which is what keeps existing pins from moving when a geocoder
+    changes its mind. And the same trusted coordinates are grouped by town into
+    anchors, so a brand-new address can be checked against where that town's
+    known listings actually are, rather than against a geocoded guess at the
+    town (which is unreliable: "Clearview, Ontario" answers with a
+    neighbourhood in Ottawa, 358 km from the real township).
     """
-    geocoder = datasources.Geocoder(os.getenv("MAPBOX_TOKEN", ""))
+    legacy_export = _legacy_bootstrap()
+    legacy_keys = set(legacy_export)
+    trusted: dict[str, list[tuple[float, float]]] = {}
+
+    def remember(address: str, lat: float, lon: float, anchor: bool) -> None:
+        geocoder.preseed(address, lat, lon)
+        town = _town_of(address)
+        if anchor and town:
+            trusted.setdefault(town, []).append((lat, lon))
+
+    geocoder = datasources.Geocoder(
+        os.getenv("MAPBOX_TOKEN", ""), stations=go_station_coords()
+    )
+    if revalidate:
+        # The on-disk cache would otherwise hand back the very results this run
+        # exists to re-judge. Cleared before preseeding, so trusted coordinates
+        # go straight back in and only the weak ones are actually looked up.
+        geocoder.cache = {}
+        geocoder._dirty = True
     for row in conn.execute("SELECT payload FROM listings"):
         try:
             payload = json.loads(row["payload"])
         except (ValueError, TypeError):
             continue
-        if payload.get("lat") is not None and payload.get("lon") is not None:
-            geocoder.preseed(payload.get("address") or "", payload["lat"], payload["lon"])
-    for address, info in _legacy_bootstrap().items():
+        if payload.get("lat") is None or payload.get("lon") is None:
+            continue
+        solid = _is_trusted_coord(payload, legacy_keys)
+        if revalidate and not solid:
+            # Resolved by an earlier, weaker rule set. Leave it out of the
+            # preseed so this run re-judges it with the current checks. Only
+            # ever drops geocoder guesses, never a verified coordinate.
+            continue
+        remember(payload.get("address") or "", payload["lat"], payload["lon"], solid)
+    for address, info in legacy_export.items():
         if info.get("lat") is not None and info.get("lon") is not None:
-            geocoder.preseed(address, info["lat"], info["lon"])
+            remember(address, info["lat"], info["lon"], True)
+
+    geocoder.town_anchors = {
+        town: (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
+        for town, pts in trusted.items()
+    }
     return geocoder
 
 
@@ -243,6 +329,7 @@ def run_sync(
     actor_id: int | None = None,
     source_name: str | None = None,
     conn: sqlite3.Connection | None = None,
+    revalidate: bool = False,
 ) -> dict[str, Any]:
     """Import the configured source. Returns the run record.
 
@@ -261,7 +348,7 @@ def run_sync(
                     error="another sync was already running", triggered_by=actor_id,
                 )
                 return get_run(conn, run_id)
-            return _run_locked(conn, trigger, actor_id, source_name)
+            return _run_locked(conn, trigger, actor_id, source_name, revalidate)
     finally:
         if owns_conn:
             conn.close()
@@ -272,6 +359,7 @@ def _run_locked(
     trigger: str,
     actor_id: int | None,
     source_name: str | None,
+    revalidate: bool = False,
 ) -> dict[str, Any]:
     source_label = (source_name or appconfig.DATA_SOURCE or "sheet").strip().lower()
     started = utcnow()
@@ -281,7 +369,7 @@ def _run_locked(
     )
 
     try:
-        geocoder = _build_geocoder(conn)
+        geocoder = _build_geocoder(conn, revalidate=revalidate)
         source = datasources.get_source(source_name, geocoder=geocoder)
         records = source.fetch_listings()
     except SourceError as exc:
@@ -442,10 +530,14 @@ def _apply(
         (now, now, source_label, *seen_ids),
     ).rowcount
 
-    geocoded = sum(1 for r in records if r.get("geocodeRelevance") is not None)
+    geocoded = sum(1 for r in records if r.get("geocodeProvider"))
+    # Worth a human glance: no coordinate at all, or one the two independent
+    # geocoders did not agree on. A coordinate we already trusted is neither.
     needs_review = sum(
         1 for r in records
-        if r.get("lat") is None or (r.get("geocodeRelevance") or 1) < 0.8
+        if r.get("lat") is None
+        or (r.get("geocodeProvider")
+            and "cross-provider" not in (r.get("geocodeConfirmedBy") or []))
     )
     return {
         "seen": len(records), "added": added, "changed": changed,

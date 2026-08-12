@@ -14,9 +14,14 @@ by construction, including across both daylight-saving changeovers. A skipped
 wake-up costs a few milliseconds.
 
 Usage:
-  python3 scripts/sync_now.py            # run only at a scheduled Toronto hour
-  python3 scripts/sync_now.py --force    # run now regardless of the hour
-  python3 scripts/sync_now.py --status   # print the last few runs and exit
+  python3 scripts/sync_now.py              # run only at a scheduled Toronto hour
+  python3 scripts/sync_now.py --force      # run now regardless of the hour
+  python3 scripts/sync_now.py --status     # print the last few runs and exit
+  python3 scripts/sync_now.py --revalidate # re-judge weak coordinates (implies --force)
+
+--revalidate re-runs the geocoder over coordinates that only a single check
+ever agreed with, so they get judged by the current rules. Verified
+coordinates are never touched by it.
 """
 from __future__ import annotations
 
@@ -37,7 +42,8 @@ def toronto_now() -> datetime.datetime:
 
 
 def main(argv: list[str]) -> int:
-    force = "--force" in argv
+    revalidate = "--revalidate" in argv
+    force = "--force" in argv or revalidate
     status_only = "--status" in argv
     trigger = "manual-cli" if force else "scheduled"
 
@@ -54,7 +60,7 @@ def main(argv: list[str]) -> int:
     if not force and now.hour not in appconfig.SYNC_HOURS:
         return 0  # not a scheduled hour, nothing to do and nothing to log
 
-    run = sync.run_sync(trigger=trigger)
+    run = sync.run_sync(trigger=trigger, revalidate=revalidate)
     stamp = now.strftime("%Y-%m-%d %H:%M %Z")
     print(
         f"[{stamp}] sync {run.get('status')} source={run.get('source')} "

@@ -1942,8 +1942,18 @@ function initMap() {
     style: MAP_STYLES[mapStyleChoice()], // persisted Streets/Satellite choice
     center: [-79.5, 44.0],
     zoom: 9,
+    // Replaced below so the OpenStreetMap geocoding credit can be added; a
+    // second control on top of the default would render the attribution twice.
+    attributionControl: false,
   });
   state.mapStyle = mapStyleChoice(); // tracks the loaded basemap for applyMapStyle
+  // Listing pin coordinates are geocoded with Nominatim, so the data is
+  // OpenStreetMap's and ODbL requires crediting it. Appended to the basemap's
+  // own attribution rather than replacing it.
+  state.map.addControl(new mapboxgl.AttributionControl({
+    compact: true,
+    customAttribution: 'Geocoding &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
+  }));
   // No NavigationControl: the map is full-screen with the app's own chrome
   // (topbar, filters, status bar) floating over it, and a top-right zoom stack
   // renders under the person selector and reads as a clipped white fragment on
