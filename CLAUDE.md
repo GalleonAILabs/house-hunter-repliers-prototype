@@ -76,7 +76,15 @@ and as the fallback for a database that has never been synced.
   schedule uses, guarded by a cross-process file lock and a 30s rate limit.
 - **Commands.** `python3 scripts/sync_now.py --force` imports now;
   `--status` prints recent runs.
-- **Geocoding (GAL-92).** The sheet has no coordinates. An address that already
+- **Sheet coordinates win (GAL-94).** A Properties-tab row carrying `Latitude`
+  and `Longitude` (or `Lat`/`Lon`/`Lng`/`Long`) is never geocoded; the value is
+  authoritative, anchors other lookups in its town, and never appears on the
+  review list. Values are validated (must parse, must be inside Ontario) and a
+  rejected one falls back to geocoding and is reported. The columns are optional
+  and can be filled in one row at a time. `data/coordinate_review.md` lists the
+  pins worth checking by hand, with map links; it is gitignored because it
+  carries the family's addresses.
+- **Geocoding (GAL-92, GAL-93).** The sheet has no coordinates. An address that already
   has them is never re-geocoded, so existing pins cannot drift; only new
   addresses are looked up. Nominatim is the primary geocoder and Mapbox the
   fallback, because Nominatim is what the retired pipeline used: on a
