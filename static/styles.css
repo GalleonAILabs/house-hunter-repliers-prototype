@@ -214,6 +214,17 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:14px; padding:12px 12px calc(var(--bottom-bar-height) + 24px); }
 .card { border:1px solid var(--line); border-radius:16px; overflow:hidden; background:var(--panel); display:flex; flex-direction:column; }
 .card-photo-wrap { position:relative; flex-shrink:0; }
+/* The photo opens the listing. Only dressed as clickable when it actually is:
+   without an href the anchor is not focusable and gets no hover state. */
+.card-photo-link { display:block; position:relative; text-decoration:none; }
+.card-photo-link[href] { cursor:pointer; }
+.photo-hint { position:absolute; right:8px; bottom:8px; display:none; align-items:center; gap:4px;
+  padding:4px 9px; border-radius:999px; background:rgba(0,0,0,.62); color:#fff;
+  font-size:11px; font-weight:800; letter-spacing:.01em; backdrop-filter:blur(2px); }
+.card-photo-link[href] .photo-hint { display:inline-flex; }
+.card-photo-link[href]:hover .photo-hint, .card-photo-link[href]:focus-visible .photo-hint { background:rgba(0,0,0,.82); }
+.card-photo-link[href]:focus-visible { outline:3px solid var(--blue); outline-offset:-3px; }
+.card-photo-link[href]:hover .photo { filter:brightness(.94); }
 .photo { width:100%; height:180px; object-fit:cover; display:block; background:var(--line); }
 .card-status-badge { position:absolute; top:10px; left:10px; padding:4px 10px; border-radius:999px; font-size:11px; font-weight:800; }
 .badge-rejected{background:var(--red);color:#fff}.badge-shortlist{background:var(--green);color:#fff}.badge-reviewing{background:var(--blue);color:#fff}

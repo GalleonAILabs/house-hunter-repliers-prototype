@@ -4502,6 +4502,22 @@ function populateCard(node, item) {
   assembleCardGroups(node);
 
   // Photo
+  // Clicking the photo opens the listing, where the rest of the photos are.
+  // Same destination as the View listing button lower down the card; the href
+  // is left unset when there is no listing URL, which keeps the anchor inert
+  // and unfocusable rather than dressing up a dead end.
+  const photoLink = node.querySelector('.card-photo-link');
+  if (photoLink) {
+    const listingUrl = poc?.link || null;
+    if (listingUrl) {
+      photoLink.href = listingUrl;
+      photoLink.title = 'Open the full listing and its photos';
+      photoLink.setAttribute('aria-label', `Open the listing for ${item.address}`);
+    } else {
+      photoLink.removeAttribute('href');
+    }
+  }
+
   const img = node.querySelector('.photo');
   img.src = item.image || '';
   img.alt = item.address;
