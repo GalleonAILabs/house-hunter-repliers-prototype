@@ -1734,3 +1734,103 @@ spans projects. Concrete migration, when approved:
 Held off on executing because it spans two repos and touches the root gitignore
 allowlist (a deliberate contract per the workspace CLAUDE.md), so it wants an
 explicit go rather than being folded into a template commit.
+
+## 2026-08-11 — GAL-91 scheduled sheet import behind a data-source interface
+
+The old exporter (`scripts/export_poc.py`) imported `config`/`gapi`/
+`generate_static_map` from `~/.hermes/skills/family/house-hunter/scripts`, which
+does not exist on this machine, so it raised ImportError and the property list
+had been frozen at 105 rows since 2026-07-06 while the sheet grew to 149.
+Replaced with a scheduled importer. Decisions worth keeping:
+
+- **Transport: the sheet's public CSV export, not the Sheets API.** No OAuth
+  client, no service-account key, no pip packages, so the server stays inside
+  its stdlib-only constraint. Cost: the sheet must stay link-viewable. It
+  already is. An HTML body in the response (a sign-in page) is detected and
+  treated as malformed rather than parsed as data.
+
+- **Upsert key is the listing id in the Link column, not the MLS Number
+  column.** Measured against the live sheet: MLS Number is blank on 45 of 149
+  rows, so it cannot key anything; the link-derived id (`TREB-N13164916`) is
+  present and unique on all 149. More importantly, 5 rows already show the MLS
+  Number diverging from the link id because the property was relisted. Keying on
+  a value that changes for the same house would orphan every rating and note on
+  it at the next relist.
+
+- **The public `POC-<n>` id is assigned once and pinned forever.** It used to be
+  the sheet row number, which made row *position* the identity: sorting the
+  sheet or deleting a row would silently re-point 321 ratings, 8 comments and a
+  place attachment at the wrong houses. Now the row number is only consulted on
+  first import, via `data/poc_listings.json`, to land the 105 legacy listings on
+  the ids their existing feedback already references. Verified after the real
+  import: all 105 legacy ids present, none pointing at a different address,
+  zero orphaned user rows.
+
+- **A relist adopts the existing listing.** If a source_key is unknown but the
+  normalized address matches a listing we hold, it takes over that listing's id
+  rather than creating a second record. Without this, the family updating a Link
+  after a relist would fork the house in two and strand the ratings on the dead
+  half.
+
+- **User-generated data is protected by a runtime check, not by convention.**
+  `sync._fingerprint` hashes every row of all 14 user tables before and after the
+  import and rolls back if anything moved. Cheap at this scale and it makes
+  "the importer cannot touch your ratings" a property of the code rather than a
+  claim in a comment. `backfill_poc_feedback` was deliberately left pointed at
+  the frozen legacy JSON, never at imported data, so no import can ever cause a
+  write into `listing_feedback`.
+
+- **Delisted means inactive, never deleted.** A listing that leaves the feed
+  keeps its id and its payload, gains `active = 0` and `inactive_at`, and is
+  still served, badged "Off market" on the card. A house the family rated and
+  discussed should not vanish and take its notes with it. It reactivates in
+  place if it comes back.
+
+- **A feed under half the size of what is held is refused.** A truncated export
+  would otherwise be indistinguishable from a mass delisting and would deactivate
+  the whole portfolio in one run.
+
+- **Schedule: launchd wakes hourly, Python decides.** `StartCalendarInterval`
+  fires on the machine's local time, so four fixed entries would silently drift
+  off the 06/10/14/18 America/Toronto schedule if this Mac's timezone were ever
+  changed. `scripts/sync_now.py` asks `zoneinfo` what hour it is in Toronto and
+  returns immediately unless it is a scheduled hour. Correct by construction
+  across both DST changeovers; a skipped wake costs milliseconds.
+
+- **One code path for every trigger.** Scheduled run, in-app button and CLI all
+  call `sync.run_sync()`, serialized by an `fcntl` file lock. A file lock, not a
+  threading lock, because the scheduler is a different *process* from the server
+  and a threading lock would not see it at all.
+
+- **Freshness is measured from the last successful run, never the last
+  attempt,** so a failed pull cannot make stale data look fresh. The header
+  control is both the stamp and the button, merged so the header still fits a
+  390px phone, where it collapses to the glyph alone.
+
+- **Geocoding is deliberately timid.** The sheet has no coordinates and the old
+  pipeline's geocoder is gone. Benchmarked against the 105 addresses whose
+  coordinates were already known: querying "<street>, <Area>, Ontario, Canada"
+  lands within 500 m on 20 of 25 sampled rows, but it does sometimes return a
+  same-named street in another county ("18 Mill St, Essa" resolves to Odessa,
+  300 km away). So an address that already has coordinates is never re-geocoded,
+  which makes every existing pin immune; a new result outside the search bbox or
+  below the relevance floor is discarded rather than stored, leaving that
+  listing without a pin instead of a wrong one. 4 of 149 currently have no
+  coordinates and 13 more are below 0.8 relevance and worth a spot check.
+
+- **`DATA_SOURCE=sheet|repliers`.** `RepliersSource` is a real selectable
+  adapter that raises a clear "not licensed yet" error, so switching the flag
+  today produces an honest failure and existing data keeps serving, rather than
+  a code change being required later.
+
+**Bug found by the acceptance pass, not by the unit tests:** `populateCard`
+receives the card template's `DocumentFragment`, which has `querySelector` but
+no `classList`. Toggling the off-market class on it threw for every card and
+stopped the list rendering. Only a real browser check caught it; the Python
+suite does not exercise card rendering.
+
+**Latent bug found by the new unit tests:** `validate_listing_id` checked an
+in-memory snapshot built at startup. Because the scheduled import runs in its
+own process, the first person to rate a newly imported house would have been
+rejected until the server happened to restart. It now confirms against the
+`listings` table on a miss and refreshes the snapshot.
