@@ -76,11 +76,27 @@ and as the fallback for a database that has never been synced.
   schedule uses, guarded by a cross-process file lock and a 30s rate limit.
 - **Commands.** `python3 scripts/sync_now.py --force` imports now;
   `--status` prints recent runs.
-- **Geocoding.** The sheet has no coordinates. An address that already has them
-  is never re-geocoded, so existing pins cannot drift; only new addresses are
-  looked up (Mapbox), and a result outside the search region or below a
-  relevance floor is discarded rather than stored, leaving that listing without
-  a pin. Cache: `data/geocode_cache.json`.
+- **Geocoding (GAL-92).** The sheet has no coordinates. An address that already
+  has them is never re-geocoded, so existing pins cannot drift; only new
+  addresses are looked up. Nominatim is the primary geocoder and Mapbox the
+  fallback, because Nominatim is what the retired pipeline used: on a
+  24-address sample 21 of its results match the stored coordinates to the last
+  decimal. Mapbox alone can be 11 to 18 km out on a rural sideroad while still
+  returning the exactly matching address at full relevance.
+  A candidate is accepted only if a check confirms it and none contradicts it:
+  distance to already-trusted listings in the same town; whether the
+  straight-line distance is plausible for the sheet's stated drive time to its
+  named GO station; whether the result names the town; and a town-centre
+  fallback used only when the town has no trusted listings and only when the
+  lookup names the town back. Both geocoders are asked and their agreement
+  recorded: corroborated results measured within 300 m of truth, and every
+  multi-kilometre miss was one they disagreed on, so uncorroborated results are
+  counted in the run's `needs_review`. A candidate no check can speak to gets
+  no coordinate, because a listing with no pin is honest and a pin in the wrong
+  county is not. Cache: `data/geocode_cache.json`. Rerun the geocoder over
+  weakly-supported coordinates with `python3 scripts/sync_now.py --revalidate`;
+  it never touches a verified one. OpenStreetMap is credited in the map
+  attribution, as ODbL requires.
 
 ## Data
 - POC data: data/poc_listings.json (104 Ontario listings, gitignored)

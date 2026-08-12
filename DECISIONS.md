@@ -1834,3 +1834,73 @@ in-memory snapshot built at startup. Because the scheduled import runs in its
 own process, the first person to rate a newly imported house would have been
 rejected until the server happened to restart. It now confirms against the
 `listings` table on a miss and refreshes the snapshot.
+
+## 2026-08-11 — GAL-92 geocoding judged against the sheet's own data
+
+Follow-up to GAL-91, which left 4 listings with no pin and 13 more low
+confidence. Both problems were in how a geocode was asked for and how it was
+judged, so they were fixed in the importer rather than by hand-entering
+coordinates.
+
+- **The locality being sent was not a place name.** The Area column was passed
+  raw, and for rural rows it reads "Rural Clearview"; one row carried the TREB
+  district code "1064 - ES Rural Esquesing". Cleaned now, falling back to Town.
+
+- **The bounding box was the wrong question.** It rejected genuine listings for
+  being far away (Strong, Brighton are real, just distant) while doing nothing
+  about a wrong result that landed inside it. Replaced with checks against data
+  the sheet already carries. Both thresholds are measured, not guessed:
+  - Trusted same-town neighbours, 25 km. The furthest any known-good listing
+    sits from the centroid of others in its town is 19.0 km (p95 12.7).
+  - GO drive plausibility, 90 km/h implied straight-line speed. Across 101
+    trusted listings the implied speed is median 41.5 and never exceeds 61.3.
+    The wrong-county failure it has to catch implies 467.
+  A candidate no check can speak to gets no coordinate at all.
+
+- **Name matching alone is not enough, in both directions.** The geocoder names
+  the settlement where the sheet names the township (Sundridge for Strong,
+  Stayner for Clearview), so strict matching rejects good results. And a lookup
+  can name the town back and still be wrong: "Clearview, Ontario" returns a
+  neighbourhood in Nepean, 358 km out. So the town-centre check is only
+  consulted when a town has no trusted listings, and trusted neighbours always
+  win over it.
+
+- **Nominatim is the primary geocoder, Mapbox the fallback.** On a 24-address
+  sample, 21 of Nominatim's results are bit-identical to the stored
+  coordinates and none is worse than 270 m. That is strong evidence it is the
+  source the retired pipeline used, which means using it keeps a new pin
+  consistent with the 105 already on the map instead of introducing a second
+  source's opinion of the same street. Its display_name also names township and
+  settlement together, which is what the naming check needs. Mapbox covers
+  Nominatim's coverage gaps. Nominatim's `importance` is deliberately NOT used
+  as a quality gate: it ranks prominence, and a rural house scores low for
+  being a rural house.
+
+- **Cross-provider agreement is the quality signal, and it is a good one.**
+  Both geocoders are asked and the distance between their answers recorded.
+  Measured against known-good coordinates: of 29 resolved, the 21 the two
+  agreed on had a maximum error of 300 m, and every one of the five
+  multi-kilometre misses was a case they disagreed on. Disagreement does not
+  reject the result, it counts it into the run's `needs_review`, which turns an
+  invisible error into a list someone can glance at.
+
+- **Trust is decided by membership of the verified export, not by a field on
+  the record.** The first attempt read provenance fields out of the payload,
+  and since an import rewrites the payload, a run promoted 40 geocoder guesses
+  to "verified" and would then have started judging their neighbours against
+  them. `data/poc_listings.json` is a fixed file and cannot drift, so it
+  decides. Beyond that an imported coordinate earns anchor status only once two
+  checks agree.
+
+**Outcome on real data:** 145 of 149 listings pinned, zero verified coordinates
+moved, 21 of 40 geocodes corroborated by both providers. Four pins were removed
+as unsupportable rather than left on the map, having sat 11, 80, 108 and 140 km
+from their own township. Net: fewer wrong pins, two of the four originally
+missing now resolved and corroborated.
+
+**Two test-quality lessons.** A leave-one-out accuracy test first reported 0 m
+error on all 30 addresses, which was the on-disk geocode cache handing back the
+preseeded truth; the test was measuring nothing. And two unit tests silently
+read `data/geocode_cache.json` and passed on production values. Both now point
+the cache at a temp path. A test that passes for the wrong reason is worse than
+no test.
