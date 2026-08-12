@@ -16,6 +16,8 @@ import math
 import os
 import re
 import sqlite3
+import threading
+import time
 import zipfile
 import urllib.error
 import urllib.parse
@@ -23,6 +25,9 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+
+import appconfig
+import sync
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
@@ -920,14 +925,14 @@ def load_poc_listing_ids() -> None:
     """D10: build the in-memory set of known POC listing ids at startup, plus
     a per-id (lat, lon) map for place-attachment distance/drive computation."""
     global POC_LISTING_IDS, POC_LISTING_COORDS
-    if not POC_DATA_PATH.exists():
+    rows, _origin = poc_rows()
+    if not rows:
         POC_LISTING_IDS = set()
         POC_LISTING_COORDS = {}
         return
-    raw = json.loads(POC_DATA_PATH.read_text())
-    POC_LISTING_IDS = {f"POC-{row.get('row')}" for row in raw.get("properties", [])}
+    POC_LISTING_IDS = {f"POC-{row.get('row')}" for row in rows}
     coords: dict[str, tuple[float, float]] = {}
-    for row in raw.get("properties", []):
+    for row in rows:
         lat, lon = number(row.get("lat")), number(row.get("lon"))
         if lat is not None and lon is not None:
             coords[f"POC-{row.get('row')}"] = (lat, lon)
@@ -1098,7 +1103,25 @@ def validate_listing_id(listing_id: str) -> bool:
     if not listing_id:
         return False
     if listing_id.startswith("POC-"):
-        return listing_id in POC_LISTING_IDS
+        if listing_id in POC_LISTING_IDS:
+            return True
+        # The scheduled import runs in its own process (the LaunchAgent), so
+        # this process's startup snapshot goes stale the moment a pull adds a
+        # listing. Without this check the first person to rate a newly imported
+        # house would be rejected until the server happened to restart. Only
+        # reached on a miss, and it refreshes the snapshot when it was behind.
+        conn = get_db()
+        try:
+            known = conn.execute(
+                "SELECT 1 FROM listings WHERE listing_id = ?", (listing_id,)
+            ).fetchone() is not None
+        except sqlite3.OperationalError:
+            known = False  # listings table not created yet
+        finally:
+            conn.close()
+        if known:
+            load_poc_listing_ids()
+        return known
     return True
 
 
@@ -2558,6 +2581,12 @@ def normalize_poc(p: dict[str, Any]) -> dict[str, Any]:
         "estimate": None,
         "imageSummary": None,
         "rawClass": "poc",
+        # Set when the listing has left the feed. It is kept and still served,
+        # never deleted, because ratings and notes point at it. The card badges
+        # it as off market rather than letting the house silently vanish.
+        "inactive": bool(p.get("inactive")),
+        "inactiveAt": p.get("inactiveAt"),
+        "mlsNumber": p.get("mlsNumber") or "",
         "fit": fit,
         "poc": {
             "row": p.get("row"),
@@ -2821,21 +2850,110 @@ def compute_mortgage_breakdown(
     }
 
 
+def poc_rows() -> tuple[list[dict[str, Any]], str]:
+    """The property records to serve, and where they came from.
+
+    The imported listings table is authoritative once it holds anything. The
+    frozen data/poc_listings.json export is the fallback for a database that
+    has never been synced, so a fresh checkout still serves data. Returning the
+    origin lets /api/poc-listings say which one answered.
+    """
+    conn = get_db()
+    try:
+        if sync.has_listings(conn):
+            return sync.listing_payloads(conn), "listings"
+    finally:
+        conn.close()
+    if POC_DATA_PATH.exists():
+        return json.loads(POC_DATA_PATH.read_text()).get("properties", []), "legacy-export"
+    return [], "empty"
+
+
 def fetch_poc(params: dict[str, str]) -> dict[str, Any]:
-    if not POC_DATA_PATH.exists():
-        raise RuntimeError("POC data export is missing. Run scripts/export_poc.py first.")
-    raw = json.loads(POC_DATA_PATH.read_text())
-    normalized = [normalize_poc(row) for row in raw.get("properties", [])]
+    rows, origin = poc_rows()
+    if not rows:
+        raise RuntimeError(
+            "No listing data. Run 'python3 scripts/sync_now.py --force' to import the sheet."
+        )
+    normalized = [normalize_poc(row) for row in rows]
     filtered = [item for item in normalized if passes_local_filters(item, params)]
     return {
         "apiVersion": "poc",
-        "sourceCount": raw.get("count", len(normalized)),
+        "sourceCount": len(normalized),
         "page": 1,
         "pageSize": len(normalized),
         "returned": len(filtered),
         "listings": filtered,
-        "prototypeNote": "Existing House Hunter POC Google Sheet export, served locally and not committed.",
+        "dataOrigin": origin,
+        "prototypeNote": "House Hunter property data, imported on a schedule and served locally.",
     }
+
+
+def data_sync_status() -> dict[str, Any]:
+    """Freshness and history for the header stamp and the refresh button.
+
+    lastSuccessAt is deliberately the last run that actually succeeded, not the
+    last run attempted, so a failed pull cannot make stale data look fresh.
+    """
+    conn = get_db()
+    try:
+        sync.init_sync_schema(conn)
+        last = sync.latest_run(conn)
+        last_ok = sync.latest_run(conn, status="ok")
+        counts = conn.execute(
+            "SELECT COUNT(*) AS total, COALESCE(SUM(active), 0) AS active FROM listings"
+        ).fetchone()
+    finally:
+        conn.close()
+    return {
+        "source": appconfig.DATA_SOURCE,
+        "lastRun": last,
+        "lastSuccessAt": (last_ok or {}).get("finished_at"),
+        "lastSuccess": last_ok,
+        "total": counts["total"] if counts else 0,
+        "active": counts["active"] if counts else 0,
+        "scheduleHours": list(appconfig.SYNC_HOURS),
+        "timezone": appconfig.SYNC_TIMEZONE,
+    }
+
+
+# A manual pull is a network fetch plus a full rewrite, so it is rate limited
+# per process. The lock already stops two running at once; this stops a bored
+# thumb queueing a dozen back to back.
+MANUAL_SYNC_MIN_INTERVAL_S = 30
+_last_manual_sync: list[float] = [0.0]
+_manual_sync_guard = threading.Lock()
+
+
+def handle_data_sync(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """Run an import on demand, through the same path the schedule uses."""
+    now = time.monotonic()
+    with _manual_sync_guard:
+        elapsed = now - _last_manual_sync[0]
+        if _last_manual_sync[0] and elapsed < MANUAL_SYNC_MIN_INTERVAL_S:
+            wait = int(MANUAL_SYNC_MIN_INTERVAL_S - elapsed) + 1
+            return {
+                "error": "rate_limited",
+                "detail": f"A pull just ran. Try again in {wait}s.",
+                "status": data_sync_status(),
+            }, 429
+        _last_manual_sync[0] = now
+
+    actor_id = intish(body.get("person_id"))
+    # Hand the importer this process's own connection so it writes the database
+    # the server is serving from, rather than resolving the path a second time.
+    conn = get_db()
+    try:
+        run = sync.run_sync(trigger="manual", actor_id=actor_id, conn=conn)
+    finally:
+        conn.close()
+    # New listings may have arrived, so the in-memory id/coordinate maps that
+    # place-attachment maths reads have to be rebuilt or a fresh listing would
+    # be invisible to them until the next restart.
+    load_poc_listing_ids()
+    status = data_sync_status()
+    ok = run.get("status") in ("ok", "skipped_locked")
+    return {"ok": ok, "run": run, "status": status}, (200 if ok else 502)
 
 
 def enrich_with_mortgage_breakdown(listings: list[dict[str, Any]], conn: sqlite3.Connection) -> None:
@@ -3801,6 +3919,9 @@ class Handler(BaseHTTPRequestHandler):
                 finally:
                     conn.close()
                 return
+            if parsed.path == "/api/data-sync":
+                self.send_json(data_sync_status())
+                return
             if parsed.path == "/api/health":
                 self.send_json({"ok": True, "hasKey": bool(API_KEY), "baseUrl": BASE_URL})
                 return
@@ -3815,6 +3936,11 @@ class Handler(BaseHTTPRequestHandler):
                     "auth_token": APP_AUTH_TOKEN,
                     "mapbox_token": MAPBOX_TOKEN,
                     "report_enabled": bool(LINEAR_API_KEY),
+                    # Which adapter is backing the property list, so the UI can
+                    # name its own data source instead of assuming the sheet.
+                    "data_source": appconfig.DATA_SOURCE,
+                    "sync_hours": list(appconfig.SYNC_HOURS),
+                    "sync_timezone": appconfig.SYNC_TIMEZONE,
                 })
                 return
             if parsed.path == "/layers/go-stations.geojson":
@@ -3968,6 +4094,23 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
                     return
                 data, status = handle_poi_update(body)
+                self.send_json(data, status)
+                return
+            if parsed.path == "/api/data-sync":
+                if not require_auth(self):
+                    self.send_json({"error": "unauthorized"}, 401)
+                    return
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                raw_body = self.rfile.read(length) if length else b""
+                try:
+                    body = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    self.send_json({"error": "invalid_request", "detail": "malformed JSON body"}, 400)
+                    return
+                if not isinstance(body, dict):
+                    self.send_json({"error": "invalid_request", "detail": "body must be a JSON object"}, 400)
+                    return
+                data, status = handle_data_sync(body)
                 self.send_json(data, status)
                 return
             if parsed.path == "/api/report-issue":
@@ -4211,6 +4354,15 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> None:
     init_db()
+    conn = get_db()
+    try:
+        sync.init_sync_schema(conn)
+    finally:
+        conn.close()
+    # Reads the frozen legacy export on purpose, never the imported table. It
+    # is a one-time historical seed of the family's ratings, and pointing it at
+    # live imported data would let an import write user-generated rows, which
+    # is exactly what the importer is built not to do.
     backfill_poc_feedback()
     load_poc_listing_ids()
     load_highways()

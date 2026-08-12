@@ -46,6 +46,20 @@ h1,h2,h3,p { margin:0; }
 .topbar-left,.topbar-right { display:flex; align-items:center; gap:8px; }
 h1 { font-size:18px; color:#fff; white-space:nowrap; }
 .pill { background:#ffdf6e; color:#231d00; padding:3px 9px; border-radius:999px; font-weight:800; font-size:11px; }
+/* Data freshness stamp, doubling as the manual pull button. Sits in the header
+   so nobody has to ask whether they are looking at today's listings. */
+.freshness { display:inline-flex; align-items:center; gap:5px; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.28); color:rgba(255,255,255,.92); border-radius:999px; padding:3px 9px; font-size:11px; font-weight:700; min-height:0; cursor:pointer; white-space:nowrap; }
+.freshness:hover:not(:disabled) { background:rgba(255,255,255,.22); }
+.freshness:disabled { cursor:progress; opacity:.75; }
+.freshness-glyph { font-size:12px; line-height:1; display:inline-block; }
+/* Stale (no successful pull in over a day) and failed states earn colour;
+   a fresh list stays quiet so the header is not permanently shouting. */
+.freshness.is-stale { background:#f0b429; border-color:#f0b429; color:#231d00; }
+.freshness.is-error { background:#e5484d; border-color:#e5484d; color:#fff; }
+.freshness.is-syncing .freshness-glyph { animation:freshness-spin 1s linear infinite; }
+@keyframes freshness-spin { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion:reduce) { .freshness.is-syncing .freshness-glyph { animation:none; } }
+
 .view-toggle { display:flex; background:rgba(255,255,255,.12); border-radius:8px; padding:2px; gap:2px; }
 .view-btn { background:transparent; border:0; color:rgba(255,255,255,.65); padding:5px 10px; border-radius:6px; font-size:13px; font-weight:800; cursor:pointer; min-height:0; }
 .view-btn.active { background:rgba(255,255,255,.22); color:#fff; }
@@ -212,6 +226,10 @@ button.secondary { background:var(--bg); color:var(--ink); }
 .card-grp + .card-grp { padding-top:12px; border-top:1px dashed var(--line); }
 .card-top { display:flex; justify-content:space-between; gap:10px; align-items:flex-start; }
 .card-title-block{flex:1;min-width:0}.address{font-size:15px;font-weight:800;line-height:1.25;overflow-wrap:break-word;margin-bottom:3px}.meta{color:var(--muted);font-size:12px}
+/* Delisted listing: kept and readable (user notes point at it), visibly muted
+   so it never reads as a live option. */
+.off-market-tag{display:inline-block;margin-right:6px;padding:1px 6px;border-radius:999px;background:var(--line);color:var(--ink);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}
+.card.is-off-market .thumb, .card.is-off-market .price{opacity:.55}
 .tier-badge{display:block;margin-top:2px;font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
 .tier-badge:empty{display:none}
 .fit-badge { min-width:54px; height:54px; border-radius:13px; flex-shrink:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; }
@@ -549,7 +567,7 @@ button.secondary { background:var(--bg); color:var(--ink); }
 @media (max-width:600px){ h1{font-size:16px}.view-btn{padding:5px 8px;font-size:12px}.cards{grid-template-columns:1fr}.controls{grid-template-columns:1fr}.topbar{padding:0 10px}.topbar-right{gap:4px}.icon-btn{padding:5px 6px}.status-bar{left:10px;right:10px;bottom:10px}.who-am-i{max-width:64px} }
 /* GAL-67: a third topbar icon (inbox) makes the row tight on small phones.
    Reclaim space so topbar-right stays one line down to 360px. */
-@media (max-width:430px){ .topbar-left .pill{display:none}.topbar h1{font-size:15px}.topbar{padding:0 8px}.topbar-right{gap:3px}.view-btn{padding:4px 6px;font-size:11px}.who-am-i{max-width:52px}.icon-btn{padding:4px 5px} }
+@media (max-width:430px){ .topbar-left .pill{display:none}.freshness-text{display:none}.freshness{padding:3px 7px}.topbar h1{font-size:15px}.topbar{padding:0 8px}.topbar-right{gap:3px}.view-btn{padding:4px 6px;font-size:11px}.who-am-i{max-width:52px}.icon-btn{padding:4px 5px} }
 /* Mobile map chrome: the Filters bar collapses to a compact right-side control
    (like Layers) sitting ABOVE the Layers panel, keeping its active-filter badge;
    it expands into a right-anchored dropdown. And "Both" is dropped from the

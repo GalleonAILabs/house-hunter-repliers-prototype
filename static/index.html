@@ -19,6 +19,15 @@
     <div class="topbar-left">
       <h1>House Hunter</h1>
       <span class="pill" id="sourcePill">POC</span>
+      <!-- Freshness stamp and manual pull are one control: the label says how
+           old the data is, clicking it pulls now. Merged rather than sat side
+           by side so the header still fits a 390px phone. The label collapses
+           to the glyph alone under 430px. -->
+      <button class="freshness" id="dataFreshness" type="button" hidden
+              title="When the property list was last updated. Click to pull now.">
+        <span class="freshness-glyph" aria-hidden="true">↻</span>
+        <span class="freshness-text" id="dataFreshnessText">Checking…</span>
+      </button>
     </div>
     <div class="topbar-right">
       <div class="view-toggle">

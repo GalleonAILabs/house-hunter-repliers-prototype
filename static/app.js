@@ -424,12 +424,108 @@ let REPORT_ENABLED = false;
 const WHO_KEY = 'hh_who_am_i';
 const authHeaders = () => ({ 'X-App-Token': APP_TOKEN });
 
+let DATA_SOURCE = 'sheet';
+let SYNC_SCHEDULE = { hours: [], timezone: '' };
+
 async function loadConfig() {
   const res = await fetch('/api/config');
   const data = await res.json();
   APP_TOKEN = data.auth_token;
   MAPBOX_TOKEN = data.mapbox_token;
   REPORT_ENABLED = !!data.report_enabled;
+  DATA_SOURCE = data.data_source || 'sheet';
+  SYNC_SCHEDULE = { hours: data.sync_hours || [], timezone: data.sync_timezone || '' };
+}
+
+// ─── Data freshness stamp + manual pull ───────────────────────────────────────
+// The header control answers "am I looking at today's listings?" without
+// anyone having to ask, and pulls on demand through the same server path the
+// scheduled import uses.
+let syncInFlight = false;
+
+function relativeAge(iso) {
+  if (!iso) return null;
+  const then = Date.parse(iso.endsWith('Z') || iso.includes('+') ? iso : iso + 'Z');
+  if (Number.isNaN(then)) return null;
+  const mins = Math.floor((Date.now() - then) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return days === 1 ? 'yesterday' : `${days}d ago`;
+}
+
+function renderFreshness(status) {
+  const btn = $('dataFreshness');
+  const label = $('dataFreshnessText');
+  if (!btn || !label) return;
+  btn.hidden = false;
+  state.syncStatus = status || state.syncStatus;
+  const s = state.syncStatus || {};
+  const age = relativeAge(s.lastSuccessAt);
+  const lastFailed = s.lastRun && s.lastRun.status === 'error';
+  // Staleness is measured from the last SUCCESSFUL pull, so a run that failed
+  // can never make the data look fresher than it is.
+  const ageMs = s.lastSuccessAt ? Date.now() - Date.parse(s.lastSuccessAt + (s.lastSuccessAt.endsWith('Z') ? '' : 'Z')) : null;
+  const stale = ageMs === null || ageMs > 24 * 3600 * 1000;
+
+  btn.classList.toggle('is-syncing', syncInFlight);
+  btn.classList.toggle('is-error', !syncInFlight && !!lastFailed);
+  btn.classList.toggle('is-stale', !syncInFlight && !lastFailed && stale);
+
+  if (syncInFlight) label.textContent = 'Updating…';
+  else if (!age) label.textContent = 'Never updated';
+  else label.textContent = `Updated ${age}`;
+
+  const sched = SYNC_SCHEDULE.hours.length
+    ? `Scheduled pulls: ${SYNC_SCHEDULE.hours.map(h => String(h).padStart(2, '0') + ':00').join(', ')} ${SYNC_SCHEDULE.timezone}.`
+    : '';
+  const counts = s.total ? `${s.active} of ${s.total} listings currently on the market. ` : '';
+  const failure = lastFailed ? `Last attempt failed: ${s.lastRun.error || 'unknown error'}. Showing the data from before that. ` : '';
+  btn.title = `${failure}${counts}${sched} Click to pull now.`.trim();
+}
+
+async function loadSyncStatus() {
+  try {
+    const res = await fetch('/api/data-sync');
+    if (!res.ok) return;
+    renderFreshness(await res.json());
+  } catch (err) {
+    console.error('Could not read sync status:', err);
+  }
+}
+
+async function runManualSync() {
+  if (syncInFlight) return;
+  syncInFlight = true;
+  const btn = $('dataFreshness');
+  if (btn) btn.disabled = true;
+  renderFreshness();
+  try {
+    const res = await fetch('/api/data-sync', {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ person_id: state.activePerson || null }),
+    });
+    const data = await res.json();
+    syncInFlight = false;
+    if (btn) btn.disabled = false;
+    renderFreshness(data.status);
+    if (!res.ok) {
+      const detail = data.detail || (data.run && data.run.error) || data.error || 'Pull failed';
+      // A failed pull is not a broken app: the previous listings are still on
+      // screen, so say what happened and leave them alone.
+      showError(new Error(`Could not update listings: ${detail}. Still showing the last good data.`));
+      return;
+    }
+    await load();
+  } catch (err) {
+    syncInFlight = false;
+    if (btn) btn.disabled = false;
+    renderFreshness();
+    showError(err);
+  }
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -439,7 +535,9 @@ const state = { map: null, mapReady: false, rawListings: [], listings: [], activ
   // Buying-party column-permission model (loaded from /api/column-permissions).
   columnGroups: [], columnPermissions: {}, adminId: null, gridPrefs: {},
   // GAL-67: per-listing comment threads, the active person's inbox, unread count.
-  comments: {}, inbox: [], unreadCount: 0 };
+  comments: {}, inbox: [], unreadCount: 0,
+  // Last known import status, backing the header freshness stamp.
+  syncStatus: null };
 let cardSettings = loadSettings();
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -4427,6 +4525,17 @@ function populateCard(node, item) {
   // Tier badge: subtle, text-only; hidden automatically via :empty when unknown
   node.querySelector('.tier-badge').textContent = TIER_LABELS[(item.tier || '').toLowerCase()] || '';
 
+  // Off-market marker. A listing that leaves the feed is kept, not deleted,
+  // because ratings and notes point at it, so the card says so plainly rather
+  // than letting a house the family discussed quietly disappear.
+  node.classList.toggle('is-off-market', !!item.inactive);
+  if (item.inactive) {
+    const meta = node.querySelector('.meta');
+    const off = el('span', { className: 'off-market-tag', textContent: 'Off market' });
+    if (item.inactiveAt) off.title = 'No longer in the property list as of ' + item.inactiveAt.slice(0, 10);
+    meta.prepend(off);
+  }
+
   // Fit badge
   const fit = item.fit;
   const fb = node.querySelector('.fit-badge');
@@ -5692,6 +5801,10 @@ window.addEventListener('DOMContentLoaded', () => {
       // with the map and should keep working regardless.
       try { initMap(); } catch (err) { console.error('Map init failed:', err); }
       initReportButton();  // show the Report button when the server has a Linear key
+      loadSyncStatus();    // header freshness stamp
+      // Keep the "Updated Nh ago" label honest on a tab left open all day, and
+      // pick up a pull the scheduler ran in the background.
+      setInterval(loadSyncStatus, 5 * 60 * 1000);
       wireInbox();          // GAL-67 inbox drawer open/close
       loadPeople().then(() => {
         applyFiltersAndRender();
@@ -5938,6 +6051,7 @@ window.addEventListener('DOMContentLoaded', () => {
   $('exportOverlay')?.addEventListener('click', closeExport);
   switchView(loadView());  // restore the persisted Map / Combined / List / Grid choice
   updateFilterBadge();     // reflect any restored filters immediately
+  $('dataFreshness')?.addEventListener('click', runManualSync);
   $('themeBtn').addEventListener('click', cycleTheme);
   $('settingsBtn').addEventListener('click', openSettings);
   $('settingsClose').addEventListener('click', closeSettings);

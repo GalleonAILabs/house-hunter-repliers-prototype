@@ -1,5 +1,19 @@
 #!/usr/bin/env python3
-"""Export the existing House Hunter POC sheet into local JSON.
+"""RETIRED (GAL-91). Use scripts/sync_now.py instead.
+
+This was the one-off exporter that produced data/poc_listings.json. It depends
+on ~/.hermes/skills/family/house-hunter/scripts (config, gapi,
+generate_static_map), which exists only on the machine it was written on, so it
+raises ImportError anywhere else and had left the property list frozen at 105
+rows. It is kept only as a record of where data/poc_listings.json came from;
+that file is now just the bootstrap that maps legacy addresses to their POC-<n>
+ids, and the listings table is authoritative.
+
+The replacement reads the same sheet over its public CSV export with no Google
+API client, imports on a schedule, and never touches user-generated data:
+
+    python3 scripts/sync_now.py --force      # import now
+    python3 scripts/sync_now.py --status     # recent runs
 
 The output is intentionally gitignored. It may contain family ratings, comments,
 research links, and financial columns. Do not commit it to the public prototype repo.

@@ -20,7 +20,10 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
+import appconfig
+import datasources
 import server
+import sync
 
 FIXTURE_POC = {
     "count": 2,
@@ -2658,6 +2661,525 @@ class ColumnPermissionTests(ServerTestCase):
                      body={"person_id": katie, "hidden_columns": ["price"]})
         _, data = self.request("GET", f"/api/poc-listings?person_id={katie}")
         self.assertIn("price", data["listings"][0])
+
+
+# ─── Scheduled listing import (GAL-91) ────────────────────────────────────────
+
+SHEET_ROW = {
+    "Added By": "Mark",
+    "Katie Rank /5": "",
+    "Mark Rank /5": "3",
+    "Address": "18 Mill St, Essa",
+    "Town": "Essa",
+    "Area": "Angus",
+    "Link": "https://app.realmmlp.ca/shared/portal/ABC/view/listing/TREB-N13164916?view=listing-customer-full",
+    "Price": "$1,049,000",
+    "Status": "New",
+    "Beds": "3+1",
+    "Baths": "3",
+    "Sqft Above Grade": "1500-2000",
+    "Lot Size": "175 x 232 Feet",
+    "Frontage": "175 ft",
+    "Acreage": "0.93",
+    "Features": "Detached shop, Heated floors",
+    "Nearest GO Station": "Allandale Waterfront GO",
+    "GO Drive Time Min": "25.3",
+    "GO Train Min": "",
+    "Total to Union Min": "",
+    "Fit Score": "5/8, fails: Nearest GO drive <= 20 min",
+    "Monthly PIT": "$5,030.63",
+    "Total Due on Closing": "$231,650",
+    "MLS Number": "",
+    "_sheet_row": "2",
+}
+
+
+def sheet_row(**overrides) -> dict:
+    row = dict(SHEET_ROW)
+    row.update(overrides)
+    return row
+
+
+class RecordParsingTests(unittest.TestCase):
+    """datasources normalization, no network and no database."""
+
+    def rec(self, **overrides):
+        return datasources.SheetSource.to_record(sheet_row(**overrides))
+
+    def test_source_key_comes_from_the_link_not_the_mls_column(self) -> None:
+        # MLS Number is blank on ~30% of real rows and changes on a relist, so
+        # the link-derived id is the identity. See datasources.py.
+        record = self.rec(**{"MLS Number": ""})
+        self.assertEqual(record["source_key"], "TREB-N13164916")
+
+    def test_mls_number_travels_as_an_attribute(self) -> None:
+        self.assertEqual(self.rec(**{"MLS Number": "N13552860"})["mlsNumber"], "N13552860")
+
+    def test_row_without_a_parsable_link_is_skipped(self) -> None:
+        self.assertIsNone(datasources.SheetSource.to_record(sheet_row(Link="not a listing url")))
+
+    def test_composite_beds_keep_display_and_gain_a_total(self) -> None:
+        record = self.rec(Beds="3+1")
+        self.assertEqual(record["beds"], "3+1")
+        self.assertEqual(record["bedsNum"], 4)
+
+    def test_plain_beds_stay_numeric(self) -> None:
+        record = self.rec(Beds="4")
+        self.assertEqual(record["beds"], 4)
+        self.assertEqual(record["bedsNum"], 4)
+
+    def test_sqft_range_floors_for_filtering(self) -> None:
+        record = self.rec(**{"Sqft Above Grade": "1500-2000"})
+        self.assertEqual(record["sqft"], "1500-2000")
+        self.assertEqual(record["sqftNum"], 1500.0)
+
+    def test_lot_dimensions_and_recomputed_acreage(self) -> None:
+        # The CSV export rounds Acreage for display (0.93). Recomputing from
+        # the lot dimensions restores the precision the old exporter had.
+        record = self.rec()
+        self.assertEqual(record["frontageNum"], 175.0)
+        self.assertEqual(record["depthNum"], 232.0)
+        self.assertAlmostEqual(record["acres"], 0.932, places=3)
+
+    def test_acreage_column_is_the_fallback_without_dimensions(self) -> None:
+        record = self.rec(**{"Lot Size": "", "Frontage": "", "Acreage": "2.5"})
+        self.assertEqual(record["acres"], 2.5)
+
+    def test_money_and_fit_parsing(self) -> None:
+        record = self.rec()
+        self.assertEqual(record["priceNum"], 1049000.0)
+        self.assertEqual(record["pitNum"], 5030.63)
+        self.assertEqual(record["dueNum"], 231650.0)
+        self.assertEqual(record["fitMet"], 5)
+        self.assertEqual(record["met"], 5)
+
+    def test_tier_buckets(self) -> None:
+        self.assertEqual(datasources.tier_for(8), "top")
+        self.assertEqual(datasources.tier_for(5), "mid")
+        self.assertEqual(datasources.tier_for(3), "bottom")
+        self.assertEqual(datasources.tier_for(None), "")
+
+    def test_go_train_recovered_from_the_station_when_the_column_is_blank(self) -> None:
+        # Train time is a property of the station, and the sheet stopped
+        # populating these columns; blanking them would lose real data.
+        record = self.rec()
+        self.assertEqual(record["goTrain"], 100)
+        self.assertEqual(record["goTotal"], 125)
+
+    def test_unknown_station_leaves_train_time_blank_rather_than_guessing(self) -> None:
+        record = self.rec(**{"Nearest GO Station": "Nowhere GO"})
+        self.assertIsNone(record["goTrain"])
+        self.assertIsNone(record["goTotal"])
+
+    def test_sheet_column_wins_over_the_station_lookup(self) -> None:
+        record = self.rec(**{"GO Train Min": "70", "Total to Union Min": "95"})
+        self.assertEqual(record["goTrain"], 70)
+        self.assertEqual(record["goTotal"], 95)
+
+
+class SourceSelectionTests(unittest.TestCase):
+    def test_sheet_is_the_default(self) -> None:
+        self.assertIsInstance(datasources.get_source("sheet"), datasources.SheetSource)
+
+    def test_repliers_is_selectable_and_reports_it_is_not_licensed_yet(self) -> None:
+        source = datasources.get_source("repliers")
+        self.assertIsInstance(source, datasources.RepliersSource)
+        with self.assertRaises(datasources.SourceError):
+            source.fetch_listings()
+
+    def test_unknown_source_is_rejected(self) -> None:
+        with self.assertRaises(datasources.SourceError):
+            datasources.get_source("carrier-pigeon")
+
+    def test_html_body_is_treated_as_malformed_not_as_data(self) -> None:
+        source = datasources.SheetSource(url="http://127.0.0.1:1/never")
+        source.fetch_rows = lambda: (_ for _ in ()).throw(
+            datasources.SourceError("sheet returned HTML, not CSV")
+        )
+        with self.assertRaises(datasources.SourceError):
+            source.fetch_listings()
+
+
+class FakeSource(datasources.ListingSource):
+    """Deterministic source, so import behaviour is tested without network."""
+
+    name = "sheet"
+
+    def __init__(self, rows, error=None) -> None:
+        self.rows = rows
+        self.error = error
+
+    def fetch_listings(self):
+        if self.error:
+            raise self.error
+        # Drops unkeyable rows exactly as SheetSource.fetch_listings does.
+        return [r for r in (datasources.SheetSource.to_record(x) for x in self.rows) if r]
+
+
+class SyncTestCase(ServerTestCase):
+    """Import tests against the running server's isolated temp database."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._orig = {
+            "db": appconfig.DB_PATH,
+            "lock": appconfig.SYNC_LOCK_PATH,
+            "legacy": appconfig.LEGACY_POC_PATH,
+            "cache": appconfig.GEOCODE_CACHE_PATH,
+            "get_source": datasources.get_source,
+        }
+        appconfig.DB_PATH = self.db_path
+        appconfig.SYNC_LOCK_PATH = Path(self.tmpdir) / ".sync.lock"
+        appconfig.LEGACY_POC_PATH = self.poc_path
+        appconfig.GEOCODE_CACHE_PATH = Path(self.tmpdir) / "geocode.json"
+        self.rows = [sheet_row()]
+        datasources.get_source = lambda name=None, geocoder=None: FakeSource(self.rows)
+
+    def tearDown(self) -> None:
+        appconfig.DB_PATH = self._orig["db"]
+        appconfig.SYNC_LOCK_PATH = self._orig["lock"]
+        appconfig.LEGACY_POC_PATH = self._orig["legacy"]
+        appconfig.GEOCODE_CACHE_PATH = self._orig["cache"]
+        datasources.get_source = self._orig["get_source"]
+        super().tearDown()
+
+    def run_sync(self, **kwargs):
+        conn = server.get_db()
+        try:
+            return sync.run_sync(conn=conn, **kwargs)
+        finally:
+            conn.close()
+
+    def listings(self):
+        conn = server.get_db()
+        try:
+            return {r["listing_id"]: dict(r) for r in conn.execute("SELECT * FROM listings")}
+        finally:
+            conn.close()
+
+    def user_data_snapshot(self):
+        conn = server.get_db()
+        try:
+            return {
+                table: [tuple(r) for r in conn.execute(f"SELECT * FROM {table}")]
+                for table in sync.USER_TABLES
+            }
+        finally:
+            conn.close()
+
+
+class SyncUpsertTests(SyncTestCase):
+    def test_first_import_adds_rows_and_reports_counts(self) -> None:
+        run = self.run_sync(trigger="test")
+        self.assertEqual(run["status"], "ok")
+        self.assertEqual(run["rows_seen"], 1)
+        self.assertEqual(run["rows_added"], 1)
+        self.assertEqual(run["rows_changed"], 0)
+        self.assertEqual(run["rows_inactive"], 0)
+
+    def test_reimporting_unchanged_data_changes_nothing(self) -> None:
+        self.run_sync(trigger="test")
+        run = self.run_sync(trigger="test")
+        self.assertEqual(run["rows_added"], 0)
+        self.assertEqual(run["rows_changed"], 0)
+        self.assertEqual(run["rows_inactive"], 0)
+
+    def test_changed_field_counts_as_changed_not_added(self) -> None:
+        self.run_sync(trigger="test")
+        self.rows = [sheet_row(Price="$999,000")]
+        run = self.run_sync(trigger="test")
+        self.assertEqual(run["rows_added"], 0)
+        self.assertEqual(run["rows_changed"], 1)
+        listing = next(iter(self.listings().values()))
+        self.assertEqual(json.loads(listing["payload"])["priceNum"], 999000.0)
+
+    def test_upsert_is_keyed_on_source_key_so_a_moved_row_is_not_a_new_listing(self) -> None:
+        self.run_sync(trigger="test")
+        first = set(self.listings())
+        # Same listing, later position in the sheet.
+        self.rows = [sheet_row(_sheet_row="87")]
+        self.run_sync(trigger="test")
+        self.assertEqual(set(self.listings()), first)
+
+    def test_listing_id_is_pinned_when_the_sheet_row_moves(self) -> None:
+        self.run_sync(trigger="test")
+        listing_id = next(iter(self.listings()))
+        self.rows = [sheet_row(_sheet_row="140")]
+        self.run_sync(trigger="test")
+        self.assertIn(listing_id, self.listings())
+
+    def test_legacy_export_ids_are_adopted_so_existing_feedback_still_resolves(self) -> None:
+        # FIXTURE_POC row 2 is "1 Test St" and carries Mark's rating. A feed row
+        # for that address must land on POC-2, not a freshly minted id.
+        self.rows = [sheet_row(Address="1 Test St", Link=".../view/listing/TREB-X1")]
+        self.run_sync(trigger="test")
+        self.assertIn("POC-2", self.listings())
+
+    def test_new_address_gets_an_id_that_cannot_collide_with_a_legacy_one(self) -> None:
+        self.rows = [sheet_row(Address="999 Brand New Rd", Link=".../view/listing/TREB-X9")]
+        self.run_sync(trigger="test")
+        legacy_ids = {f"POC-{p['row']}" for p in FIXTURE_POC["properties"]}
+        self.assertFalse(set(self.listings()) & legacy_ids)
+
+
+class SyncSoftDeleteTests(SyncTestCase):
+    def test_missing_listing_goes_inactive_and_is_not_deleted(self) -> None:
+        self.run_sync(trigger="test")
+        listing_id = next(iter(self.listings()))
+        # A second listing keeps the feed above the truncation guard.
+        self.rows = [
+            sheet_row(Address="A", Link=".../view/listing/TREB-A1"),
+            sheet_row(Address="B", Link=".../view/listing/TREB-B1"),
+        ]
+        self.run_sync(trigger="test")
+        self.rows = [sheet_row(Address="A", Link=".../view/listing/TREB-A1")]
+        run = self.run_sync(trigger="test")
+        rows = self.listings()
+        self.assertIn(listing_id, rows, "delisted listing was deleted, not deactivated")
+        self.assertEqual(rows[listing_id]["active"], 0)
+        self.assertIsNotNone(rows[listing_id]["inactive_at"])
+        self.assertGreaterEqual(run["rows_inactive"], 1)
+
+    def test_returning_listing_is_reactivated_with_the_same_id(self) -> None:
+        self.rows = [
+            sheet_row(Address="A", Link=".../view/listing/TREB-A1"),
+            sheet_row(Address="B", Link=".../view/listing/TREB-B1"),
+        ]
+        self.run_sync(trigger="test")
+        target = [k for k, v in self.listings().items()
+                  if json.loads(v["payload"])["address"] == "B"][0]
+        self.rows = [sheet_row(Address="A", Link=".../view/listing/TREB-A1")]
+        self.run_sync(trigger="test")
+        self.rows = [
+            sheet_row(Address="A", Link=".../view/listing/TREB-A1"),
+            sheet_row(Address="B", Link=".../view/listing/TREB-B1"),
+        ]
+        self.run_sync(trigger="test")
+        self.assertEqual(self.listings()[target]["active"], 1)
+
+    def test_inactive_listing_is_still_served(self) -> None:
+        self.rows = [
+            sheet_row(Address="A", Link=".../view/listing/TREB-A1"),
+            sheet_row(Address="B", Link=".../view/listing/TREB-B1"),
+        ]
+        self.run_sync(trigger="test")
+        self.rows = [sheet_row(Address="A", Link=".../view/listing/TREB-A1")]
+        self.run_sync(trigger="test")
+        status, data = self.request("GET", "/api/poc-listings")
+        self.assertEqual(status, 200)
+        inactive = [x for x in data["listings"] if x.get("inactive")]
+        self.assertEqual(len(inactive), 1, "a delisted listing must still be reachable")
+
+    def test_relisted_property_keeps_its_id_and_its_user_data(self) -> None:
+        # Same house, new listing link (and new MLS number). This is the case
+        # that would orphan ratings if the MLS number were the key.
+        self.rows = [sheet_row(Address="9 Relist Rd", Link=".../view/listing/TREB-S13212384")]
+        self.run_sync(trigger="test")
+        listing_id = [k for k, v in self.listings().items()
+                      if json.loads(v["payload"])["address"] == "9 Relist Rd"][0]
+        self.request("POST", "/api/feedback", {
+            "person_id": 1, "listing_id": listing_id, "action_type": "rating", "rating": 5,
+        }, token=self.TOKEN)
+
+        self.rows = [sheet_row(Address="9 Relist Rd", Link=".../view/listing/TREB-S13564836",
+                               **{"MLS Number": "N13552860"})]
+        self.run_sync(trigger="test")
+
+        rows = self.listings()
+        self.assertIn(listing_id, rows)
+        self.assertEqual(rows[listing_id]["source_key"], "TREB-S13564836")
+        self.assertEqual(json.loads(rows[listing_id]["payload"])["mlsNumber"], "N13552860")
+        conn = server.get_db()
+        try:
+            kept = conn.execute(
+                "SELECT rating FROM listing_feedback WHERE listing_id = ? AND action_type = 'rating'",
+                (listing_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertIsNotNone(kept, "rating lost when the listing was relisted")
+        self.assertEqual(kept["rating"], 5)
+
+
+class SyncUserDataSafetyTests(SyncTestCase):
+    def test_rating_and_note_survive_two_consecutive_imports(self) -> None:
+        self.run_sync(trigger="test")
+        listing_id = next(iter(self.listings()))
+        self.request("POST", "/api/feedback", {
+            "person_id": 1, "listing_id": listing_id, "action_type": "rating", "rating": 4,
+        }, token=self.TOKEN)
+        self.request("POST", "/api/feedback", {
+            "person_id": 1, "listing_id": listing_id, "action_type": "note",
+            "note": "Roof looked new",
+        }, token=self.TOKEN)
+        before = self.user_data_snapshot()
+
+        self.run_sync(trigger="test")
+        self.run_sync(trigger="test")
+
+        self.assertEqual(self.user_data_snapshot(), before,
+                         "an import modified user-generated data")
+
+    def test_import_does_not_touch_any_user_table(self) -> None:
+        before = self.user_data_snapshot()
+        self.rows = [
+            sheet_row(Address="A", Link=".../view/listing/TREB-A1"),
+            sheet_row(Address="B", Link=".../view/listing/TREB-B1"),
+        ]
+        self.run_sync(trigger="test")
+        self.assertEqual(self.user_data_snapshot(), before)
+
+    def test_sheet_ratings_are_not_written_back_as_feedback(self) -> None:
+        # The sheet carries "Mark Rank /5" columns. They are listing attributes
+        # on import, never new rows in listing_feedback.
+        conn = server.get_db()
+        try:
+            before = conn.execute("SELECT COUNT(*) FROM listing_feedback").fetchone()[0]
+        finally:
+            conn.close()
+        self.rows = [sheet_row(Address="Fresh Rd", Link=".../view/listing/TREB-F1",
+                               **{"Mark Rank /5": "5", "Katie Rank /5": "4"})]
+        self.run_sync(trigger="test")
+        conn = server.get_db()
+        try:
+            after = conn.execute("SELECT COUNT(*) FROM listing_feedback").fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(before, after)
+
+
+class SyncFailureTests(SyncTestCase):
+    def test_unreachable_source_keeps_existing_data(self) -> None:
+        self.run_sync(trigger="test")
+        before = self.listings()
+        datasources.get_source = lambda name=None, geocoder=None: FakeSource(
+            [], error=datasources.SourceError("sheet unreachable: connection refused")
+        )
+        run = self.run_sync(trigger="test")
+        self.assertEqual(run["status"], "error")
+        self.assertIn("unreachable", run["error"])
+        self.assertEqual(self.listings(), before, "a failed pull changed the data")
+
+    def test_unexpected_source_bug_is_contained(self) -> None:
+        self.run_sync(trigger="test")
+        before = self.listings()
+        datasources.get_source = lambda name=None, geocoder=None: FakeSource(
+            [], error=ValueError("something unexpected")
+        )
+        run = self.run_sync(trigger="test")
+        self.assertEqual(run["status"], "error")
+        self.assertEqual(self.listings(), before)
+
+    def test_truncated_feed_is_refused_rather_than_mass_deactivating(self) -> None:
+        self.rows = [
+            sheet_row(Address=f"{n} Way", Link=f".../view/listing/TREB-K{n}") for n in range(10)
+        ]
+        self.run_sync(trigger="test")
+        self.rows = self.rows[:2]  # a partial export, not a real mass delisting
+        run = self.run_sync(trigger="test")
+        self.assertEqual(run["status"], "error")
+        self.assertIn("truncated", run["error"])
+        self.assertEqual(sum(v["active"] for v in self.listings().values()), 10)
+
+    def test_a_failed_run_does_not_refresh_the_freshness_stamp(self) -> None:
+        self.run_sync(trigger="test")
+        good = server.data_sync_status()["lastSuccessAt"]
+        datasources.get_source = lambda name=None, geocoder=None: FakeSource(
+            [], error=datasources.SourceError("boom")
+        )
+        self.run_sync(trigger="test")
+        status = server.data_sync_status()
+        self.assertEqual(status["lastSuccessAt"], good)
+        self.assertEqual(status["lastRun"]["status"], "error")
+
+
+class SyncStaleIdSnapshotTests(SyncTestCase):
+    """The scheduled pull runs in a separate process from the server."""
+
+    def test_listing_imported_by_another_process_can_be_rated(self) -> None:
+        # Simulates the LaunchAgent importing while this server keeps running:
+        # the in-memory id snapshot is left untouched, exactly as it would be.
+        self.rows = [sheet_row(Address="New Arrival Rd", Link=".../view/listing/TREB-N13439936")]
+        self.run_sync(trigger="scheduled")
+        listing_id = [k for k, v in self.listings().items()
+                      if json.loads(v["payload"])["address"] == "New Arrival Rd"][0]
+        self.assertNotIn(listing_id, server.POC_LISTING_IDS, "snapshot was not stale, test is void")
+
+        status, _ = self.request("POST", "/api/feedback", {
+            "person_id": 1, "listing_id": listing_id, "action_type": "rating", "rating": 5,
+        }, token=self.TOKEN)
+        self.assertEqual(status, 200, "a freshly imported listing could not be rated")
+
+    def test_unknown_poc_id_is_still_rejected(self) -> None:
+        status, _ = self.request("POST", "/api/feedback", {
+            "person_id": 1, "listing_id": "POC-999999", "action_type": "rating", "rating": 5,
+        }, token=self.TOKEN)
+        self.assertEqual(status, 400)
+
+
+class SyncLockTests(SyncTestCase):
+    def test_second_concurrent_run_is_skipped_not_run_twice(self) -> None:
+        with sync.SyncLock() as acquired:
+            self.assertTrue(acquired)
+            run = self.run_sync(trigger="test")
+        self.assertEqual(run["status"], "skipped_locked")
+
+    def test_lock_is_released_for_the_next_run(self) -> None:
+        with sync.SyncLock() as acquired:
+            self.assertTrue(acquired)
+        self.assertEqual(self.run_sync(trigger="test")["status"], "ok")
+
+
+class SyncApiTests(SyncTestCase):
+    def test_status_endpoint_reports_schedule_and_counts(self) -> None:
+        self.run_sync(trigger="test")
+        status, data = self.request("GET", "/api/data-sync")
+        self.assertEqual(status, 200)
+        self.assertEqual(data["total"], 1)
+        self.assertEqual(data["active"], 1)
+        self.assertEqual(data["scheduleHours"], [6, 10, 14, 18])
+        self.assertEqual(data["timezone"], "America/Toronto")
+        self.assertIsNotNone(data["lastSuccessAt"])
+
+    def test_manual_pull_requires_the_app_token(self) -> None:
+        status, _ = self.request("POST", "/api/data-sync", {})
+        self.assertEqual(status, 401)
+
+    def test_manual_pull_runs_the_import(self) -> None:
+        server._last_manual_sync[0] = 0.0
+        status, data = self.request("POST", "/api/data-sync", {"person_id": 1}, token=self.TOKEN)
+        self.assertEqual(status, 200)
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["run"]["trigger"], "manual")
+        self.assertEqual(data["run"]["triggered_by"], 1)
+        self.assertEqual(data["status"]["active"], 1)
+
+    def test_manual_pull_is_rate_limited(self) -> None:
+        server._last_manual_sync[0] = 0.0
+        self.request("POST", "/api/data-sync", {}, token=self.TOKEN)
+        status, data = self.request("POST", "/api/data-sync", {}, token=self.TOKEN)
+        self.assertEqual(status, 429)
+        self.assertEqual(data["error"], "rate_limited")
+
+    def test_config_exposes_the_data_source_without_leaking_keys(self) -> None:
+        status, data = self.request("GET", "/api/config")
+        self.assertEqual(status, 200)
+        self.assertIn(data["data_source"], ("sheet", "repliers"))
+        self.assertEqual(data["sync_hours"], [6, 10, 14, 18])
+        self.assertNotIn("linear_api_key", {k.lower() for k in data})
+        self.assertNotIn("repliers_api_key", {k.lower() for k in data})
+
+    def test_listings_are_served_from_the_imported_table_once_it_has_rows(self) -> None:
+        self.run_sync(trigger="test")
+        status, data = self.request("GET", "/api/poc-listings")
+        self.assertEqual(status, 200)
+        self.assertEqual(data["dataOrigin"], "listings")
+        self.assertEqual(len(data["listings"]), 1)
+
+    def test_legacy_export_still_serves_a_database_that_has_never_synced(self) -> None:
+        status, data = self.request("GET", "/api/poc-listings")
+        self.assertEqual(status, 200)
+        self.assertEqual(data["dataOrigin"], "legacy-export")
 
 
 if __name__ == "__main__":

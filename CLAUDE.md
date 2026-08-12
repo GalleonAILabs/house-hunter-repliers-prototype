@@ -40,6 +40,48 @@ those for map status.
 6. DO NOT use Flask, FastAPI, or any pip dependencies for the server layer.
 7. DO NOT expose the Repliers API key in browser JS.
 
+## Data import (GAL-91)
+
+Property data is imported on a schedule from the family's Google Sheet and
+stored in the `listings` table, which is authoritative. `data/poc_listings.json`
+is no longer the data source: it survives only as the bootstrap that maps a
+legacy address to the `POC-<n>` id already recorded against someone's ratings,
+and as the fallback for a database that has never been synced.
+
+- **Adapter interface.** `datasources.py` defines `fetch_listings()`.
+  `SheetSource` reads the sheet's public CSV export (no OAuth, no pip deps);
+  `RepliersSource` is the placeholder for the paid feed. `DATA_SOURCE=sheet|
+  repliers` in `.env` selects one, so the sheet is removable by config alone.
+- **Identity.** The upsert key is the listing id parsed from the Link column
+  (`TREB-N13164916`), not the MLS Number column: MLS Number is blank on ~30% of
+  rows and changes when a property is relisted. The public `POC-<n>` id is
+  assigned once and pinned forever, so sorting or deleting sheet rows can no
+  longer re-point a rating at the wrong house. A relist (new link, same address)
+  adopts the existing id.
+- **Never destructive.** The importer writes `listings` and `sync_runs` only. It
+  fingerprints every user table before and after and rolls back if any changed.
+  A listing that leaves the feed is marked `active = 0`, never deleted, and is
+  still served and badged "Off market" because user data references it.
+- **Failure.** An unreachable or malformed sheet, or a feed under half the size
+  of what is held, is refused: the previous data keeps serving and the run is
+  logged with its error. A failed run never advances the freshness stamp.
+- **Schedule.** LaunchAgent `ai.galleonglobal.househunter-sync` wakes hourly;
+  `scripts/sync_now.py` imports only at 06:00, 10:00, 14:00, 18:00
+  America/Toronto. The gate is in Python, not in four launchd calendar entries,
+  so the schedule stays correct if the Mac's timezone changes. Install with
+  `bash scripts/install_sync_agent.sh`. Logs:
+  `~/Library/Logs/househunter-sync.{out,err}.log`.
+- **On demand.** The freshness stamp in the app header is the button: it shows
+  "Updated 2h ago" and pulls when clicked, through the same `run_sync()` the
+  schedule uses, guarded by a cross-process file lock and a 30s rate limit.
+- **Commands.** `python3 scripts/sync_now.py --force` imports now;
+  `--status` prints recent runs.
+- **Geocoding.** The sheet has no coordinates. An address that already has them
+  is never re-geocoded, so existing pins cannot drift; only new addresses are
+  looked up (Mapbox), and a result outside the search region or below a
+  relevance floor is discarded rather than stored, leaving that listing without
+  a pin. Cache: `data/geocode_cache.json`.
+
 ## Data
 - POC data: data/poc_listings.json (104 Ontario listings, gitignored)
 - Repliers sample: via /api/listings proxy (US sample, no Canadian data yet)
@@ -69,6 +111,8 @@ show/hide), /api/transfer-admin (POST admin-only), /api/person-thresholds,
 /api/poi (GET/POST/DELETE; DELETE refuses a pin still attached to a listing
 unless force=true), /api/report-issue (POST; in-app tester bug report that
 files a Linear Triage issue with an AI first-pass, GAL-42),
+/api/data-sync (GET freshness/schedule/run history; POST runs an import on
+demand, auth required, rate limited, GAL-91),
 /layers/go-stations.geojson, /layers/highway-413.geojson.
 Report-issue env vars (server-side only, never sent to the browser):
 LINEAR_API_KEY enables the feature and the Report button (see /api/config
